@@ -6,15 +6,15 @@
 #include <utility>
 #include <vector>
 
-#include "../core/nodeMap.h"
-#include "../devices/device.hpp"
-#include "../math/mna.hpp"
-#include "../models/model.hpp"
+class Device;
+class MNA;
+class Model;
+class NodeMap;
 
 class Circuit{
 public:
-    Circuit() = default;
-    ~Circuit() = default;
+    Circuit();
+    ~Circuit();
 
     template<class T, class... Args>
     void addDevice(Args&&... args){
@@ -48,7 +48,7 @@ private:
         double cpuSeconds = 0.0;
     };
 
-    MNA mna;
+    std::unique_ptr<MNA> mna;
 
     std::vector<std::unique_ptr<Device>> devices;
 
@@ -56,7 +56,7 @@ private:
 
     int nextUnknown = 0;
 
-    NodeMap nodeMap;
+    std::unique_ptr<NodeMap> nodeMap;
 
     SolveStats solveStats;
 };

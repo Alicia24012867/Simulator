@@ -73,13 +73,7 @@ public:
         return name;
     }
 
-    void bindNodes(const NodeMap& nodemap){
-        nodeIds.resize(nodes.size());
-
-        for(std::size_t i = 0; i < nodes.size(); ++i){
-            nodeIds[i] = nodemap.idxOf(nodes[i]);
-        }
-    }
+    void bindNodes(const NodeMap& nodemap);
 
     virtual void allocateUnknown(Circuit&) {}
 

@@ -4,6 +4,7 @@
 
 #include "device.hpp"
 #include "../core/circuit.h"
+#include "../math/mna.hpp"
 
 /** Actually, in dc op analysis, 
  * the inductor is just treated same as 0V voltage source

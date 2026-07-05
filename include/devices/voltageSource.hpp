@@ -1,7 +1,10 @@
 #pragma once
 
+#include <cassert>
+
 #include "device.hpp"
 #include "../core/circuit.h"
+#include "../math/mna.hpp"
 
 class VoltageSource: public Device{
 public:

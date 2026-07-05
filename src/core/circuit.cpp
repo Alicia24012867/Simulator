@@ -1,12 +1,19 @@
 #include "../include/core/circuit.h"
 
-#include <algorithm>
 #include <ctime>
 #include <iomanip>
 #include <ostream>
 
+#include "../include/core/nodeMap.h"
 #include "../include/devices/device.hpp"
+#include "../include/math/mna.hpp"
 #include "../include/models/model.hpp"
+
+Circuit::Circuit():
+    mna(std::make_unique<MNA>()),
+    nodeMap(std::make_unique<NodeMap>()) {}
+
+Circuit::~Circuit() = default;
 
 const Model* Circuit::addModel(std::unique_ptr<Model> model){
     const std::string name = model->name();
@@ -25,28 +32,28 @@ int Circuit::allocateUnknown(){
 }
 
 bool Circuit::build(){
-    nodeMap.build(devices);
+    nodeMap->build(devices);
 
     for(auto& d: devices){
-        d->bindNodes(nodeMap);
+        d->bindNodes(*nodeMap);
     }
 
-    nextUnknown = nodeMap.nodeCount();
+    nextUnknown = nodeMap->nodeCount();
 
     for(auto& d: devices){
         d->allocateUnknown(*this);
     }
 
-    mna.resize(nextUnknown);
+    mna->resize(nextUnknown);
 
     for(auto& d: devices){
-        d->pattern(mna);
+        d->pattern(*mna);
     }
 
-    mna.build();
+    mna->build();
 
     for(auto&d: devices){
-        d->bindMatrix(mna);
+        d->bindMatrix(*mna);
     }
 
     return true;
@@ -62,28 +69,28 @@ bool Circuit::solve(){
     solveStats.tolerance = tolerance;
 
     const std::clock_t startClock = std::clock();
-    Eigen::VectorXd previous = mna.solution();
+    Eigen::VectorXd previous = mna->solution();
 
     for(int iter = 0; iter < maxIterations; ++iter){
         solveStats.iterations = iter + 1;
-        mna.clear();
+        mna->clear();
 
         for(auto& d: devices){
             d->stamp();
         }
 
-        if(!mna.solve()){
+        if(!mna->solve()){
             solveStats.cpuSeconds = double(std::clock() - startClock) / CLOCKS_PER_SEC;
             return false;
         }
 
-        Eigen::VectorXd current = mna.solution();
+        Eigen::VectorXd current = mna->solution();
         if(current.size() == previous.size()){
             Eigen::VectorXd step = current - previous;
             const double rawDelta = step.lpNorm<Eigen::Infinity>();
             if(rawDelta > maxStep){
                 current = previous + step * (maxStep / rawDelta);
-                mna.setSolution(current);
+                mna->setSolution(current);
                 ++solveStats.dampedSteps;
             }
 
@@ -116,8 +123,8 @@ void Circuit::printOperatingPoint(std::ostream& os) const{
     os << "damped_steps " << solveStats.dampedSteps << '\n';
     os << "cpu_time_seconds " << solveStats.cpuSeconds << '\n';
 
-    const auto& names = nodeMap.nodeNameByIdx();
-    const auto& x = mna.solution();
+    const auto& names = nodeMap->nodeNameByIdx();
+    const auto& x = mna->solution();
 
     os << "Node Voltages\n";
     for(std::size_t i = 0; i < names.size(); ++i){

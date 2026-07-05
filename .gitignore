@@ -1,2 +1,5 @@
 spice
 actual/
+
+**/.DS_Store
+**/__pycache__/

@@ -8,6 +8,11 @@ SRC = ./src/main.cpp \
 TARGET = spice
 TESTCASE_DIR ?= testcase
 ACTUAL_DIR ?= actual
+STANDARD_DIR ?= standard
+PYTHON ?= python3
+OP_ABS_TOL ?= 1e-3
+OP_REL_TOL ?= 2e-2
+OP_COMPARE_FLAGS ?=
 
 UNAME_S := $(shell uname -s)
 
@@ -44,7 +49,7 @@ else ifneq ($(strip $(EIGEN_PKG_CFLAGS)),)
 EIGEN_FLAGS := $(EIGEN_PKG_CFLAGS)
 endif
 
-.PHONY: clean test check-eigen check-deps
+.PHONY: clean test compare check-eigen check-deps
 
 check-eigen:
 	@if [ -z "$(EIGEN_FLAGS)" ]; then \
@@ -84,6 +89,20 @@ test: $(TARGET)
 		echo "Running $$base"; \
 		./$(TARGET) "$$f" > "$(ACTUAL_DIR)/$$base.out" 2> "$(ACTUAL_DIR)/$$base.err"; \
 	done
+	@$(PYTHON) scripts/compare_op.py \
+		--standard "$(STANDARD_DIR)" \
+		--actual "$(ACTUAL_DIR)" \
+		--atol "$(OP_ABS_TOL)" \
+		--rtol "$(OP_REL_TOL)" \
+		$(OP_COMPARE_FLAGS)
+
+compare:
+	@$(PYTHON) scripts/compare_op.py \
+		--standard "$(STANDARD_DIR)" \
+		--actual "$(ACTUAL_DIR)" \
+		--atol "$(OP_ABS_TOL)" \
+		--rtol "$(OP_REL_TOL)" \
+		$(OP_COMPARE_FLAGS)
 
 clean: 
 	rm -f $(TARGET)
