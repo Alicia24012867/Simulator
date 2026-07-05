@@ -1,0 +1,4 @@
+Level 4 - bjt diode bias network
+Operating Point Reference
+Index   v(vcc)          v(base)         v(ref)          v(c1)           v(c2)           v(e1)           vcc#branch      vbb#branch      vref#branch     
+0       8.0000000000e+00 7.5000000000e-01 6.8000000000e-01 1.3652635308e+00 1.4222763597e+00 4.6001318088e-02 -5.3106178225e-03 -3.7800731773e-02 3.2570573590e-03

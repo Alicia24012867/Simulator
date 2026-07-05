@@ -158,6 +158,20 @@ def compare_case(standard_file, actual_file, err_file, atol, rtol):
     return checked, failures, records
 
 
+def actual_case_files(actual_dir, case_name):
+    nested_out = actual_dir / case_name / f"{case_name}.out"
+    nested_err = actual_dir / case_name / f"{case_name}.err"
+    if nested_out.parent.exists() or nested_out.exists() or nested_err.exists():
+        return nested_out, nested_err
+
+    flat_out = actual_dir / f"{case_name}.out"
+    flat_err = actual_dir / f"{case_name}.err"
+    if flat_out.exists() or flat_err.exists():
+        return flat_out, flat_err
+
+    return nested_out, nested_err
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Compare DC operating point values against ngspice-style standard output."
@@ -191,8 +205,7 @@ def main():
     print(f"Tolerance: atol={args.atol:g}, rtol={args.rtol:g}")
     print("Rule: pass when |actual - expected| <= atol + rtol * |expected|")
     for standard_file in standard_files:
-        actual_file = actual_dir / standard_file.name
-        err_file = actual_file.with_suffix(".err")
+        actual_file, err_file = actual_case_files(actual_dir, standard_file.stem)
         checked, failures, records = compare_case(
             standard_file, actual_file, err_file, args.atol, args.rtol
         )

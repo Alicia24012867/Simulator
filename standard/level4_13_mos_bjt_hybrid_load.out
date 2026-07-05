@@ -1,0 +1,4 @@
+Level 4 - mos bjt hybrid load
+Operating Point Reference
+Index   v(vdd)          v(gate)         v(out)          v(base)         v(source)       vdd#branch      vg#branch       
+0       5.0000000000e+00 2.4000000000e+00 1.3642306048e+00 7.5153363149e-01 3.5892486792e-01 -1.1921412030e-03 0.0000000000e+00

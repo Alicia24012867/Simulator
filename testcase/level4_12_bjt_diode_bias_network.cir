@@ -1,0 +1,18 @@
+Level 4 - bjt diode bias network
+.model DMOD D IS=1e-14 N=1
+.model QN NPN IS=1e-16 BF=120 BR=1 NF=1 NR=1
+VCC vcc 0 DC 8
+VBB base 0 DC 0.75
+VREF ref 0 DC 0.68
+RC1 vcc c1 2k
+RC2 vcc c2 3.3k
+RE1 e1 0 680
+Q1 c1 base e1 QN
+Q2 c2 ref 0 QN
+D1 base 0 DMOD
+D2 c2 base DMOD
+D3 c1 ref DMOD
+RB base ref 10k
+.op
+.print op v(vcc) v(base) v(ref) v(c1) v(c2) v(e1) i(vcc) i(vbb) i(vref)
+.end

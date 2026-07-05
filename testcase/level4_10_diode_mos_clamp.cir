@@ -1,0 +1,16 @@
+Level 4 - diode and mos clamp network
+.model DMOD D IS=5e-14 N=1.05
+.model NMOD NMOS VTO=0.65 KP=80u LAMBDA=0.03
+VDD vdd 0 DC 5
+VIN gate 0 DC 2.2
+VBIAS bias 0 DC 1.1
+R1 vdd out 4.7k
+R2 out bias 8.2k
+D1 out 0 DMOD
+D2 bias out DMOD
+D3 out gate DMOD
+M1 out gate 0 0 NMOD W=12u L=1u
+M2 bias gate 0 0 NMOD W=4u L=1u
+.op
+.print op v(vdd) v(gate) v(bias) v(out) i(vdd) i(vin) i(vbias)
+.end

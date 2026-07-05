@@ -1,0 +1,18 @@
+Level 4 - mos bjt hybrid load
+.model DMOD D IS=1e-14 N=1.02
+.model QN NPN IS=8e-17 BF=90 BR=1 NF=1 NR=1
+.model NMOD NMOS VTO=0.65 KP=70u LAMBDA=0.025
+VDD vdd 0 DC 5
+VG gate 0 DC 2.4
+RLOAD vdd out 3.3k
+RBASE vdd base 47k
+RPD base 0 12k
+RS source 0 560
+M1 out gate source 0 NMOD W=10u L=1u
+M2 base gate 0 0 NMOD W=2u L=1u
+Q1 out base 0 QN
+D1 base source DMOD
+D2 out base DMOD
+.op
+.print op v(vdd) v(gate) v(base) v(source) v(out) i(vdd) i(vg)
+.end

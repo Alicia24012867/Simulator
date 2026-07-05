@@ -11,7 +11,7 @@ ACTUAL_DIR ?= actual
 STANDARD_DIR ?= standard
 PYTHON ?= python3
 OP_ABS_TOL ?= 1e-3
-OP_REL_TOL ?= 2e-2
+OP_REL_TOL ?= 2e-3
 OP_COMPARE_FLAGS ?=
 
 UNAME_S := $(shell uname -s)
@@ -86,8 +86,10 @@ test: $(TARGET)
 	@mkdir -p $(ACTUAL_DIR)
 	@for f in $(TESTCASE_DIR)/*.cir; do \
 		base=$$(basename "$$f" .cir); \
+		out_dir="$(ACTUAL_DIR)/$$base"; \
+		mkdir -p "$$out_dir"; \
 		echo "Running $$base"; \
-		./$(TARGET) "$$f" > "$(ACTUAL_DIR)/$$base.out" 2> "$(ACTUAL_DIR)/$$base.err"; \
+		./$(TARGET) "$$f" > "$$out_dir/$$base.out" 2> "$$out_dir/$$base.err"; \
 	done
 	@$(PYTHON) scripts/compare_op.py \
 		--standard "$(STANDARD_DIR)" \

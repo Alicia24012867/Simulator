@@ -1,0 +1,23 @@
+Level 4 - mixed npn mos diode ring
+.model DMOD D IS=3e-14 N=1.05
+.model QN NPN IS=1e-16 BF=100 BR=1 NF=1 NR=1
+.model NMOD NMOS VTO=0.7 KP=60u LAMBDA=0.02
+VDD vdd 0 DC 5
+VIN in 0 DC 0.75
+VCTRL ctrl 0 DC 2.1
+R1 vdd n1 3.3k
+R2 vdd out 4.7k
+R3 n2 0 3.3k
+RE emit 0 680
+ROUT out 0 22k
+D1 n1 in DMOD
+D2 out n2 DMOD
+D3 n2 0 DMOD
+D4 ctrl out DMOD
+M1 out ctrl 0 0 NMOD W=8u L=1u
+M2 n2 ctrl 0 0 NMOD W=4u L=1u
+Q1 n1 in emit QN
+Q2 out n2 0 QN
+.op
+.print op v(vdd) v(in) v(ctrl) v(n1) v(n2) v(emit) v(out) i(vdd) i(vin) i(vctrl)
+.end

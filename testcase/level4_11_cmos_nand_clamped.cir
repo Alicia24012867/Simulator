@@ -1,0 +1,20 @@
+Level 4 - coupled cmos inverters with diode clamps
+.model DMOD D IS=2e-14 N=1
+.model NMOD NMOS VTO=0.7 KP=90u LAMBDA=0.02
+.model PMOD PMOS VTO=-0.7 KP=45u LAMBDA=0.02
+VDD vdd 0 DC 5
+VA a 0 DC 2.8
+VB b 0 DC 2.1
+MP1 x a vdd vdd PMOD W=18u L=1u
+MN1 x a 0 0 NMOD W=12u L=1u
+MP2 out b vdd vdd PMOD W=18u L=1u
+MN2 out b 0 0 NMOD W=12u L=1u
+RCOUP x out 5.6k
+RXLEAK x 0 100k
+RLEAK out 0 100k
+D1 x 0 DMOD
+D2 out 0 DMOD
+D3 x out DMOD
+.op
+.print op v(vdd) v(a) v(b) v(x) v(out) i(vdd) i(va) i(vb)
+.end

@@ -6,6 +6,7 @@
 #include "device.hpp"
 #include "../math/mna.hpp"
 #include "../models/model.hpp"
+#include "../math/limiting.hpp"
 
 class Diode: public Device{
 public:
@@ -52,11 +53,21 @@ public:
 
         const auto& dc = model_->diodeDc();
         const double area = area_ > 0.0 ? area_ : 1.0;
-        const double vd = voltage(solP_) - voltage(solN_);
+
+        double vd = voltage(solP_) - voltage(solN_);
         const double nvt = dc.n * dc.vt;
+
+        const double is = dc.is * area;
+
+        if(hasPreviousVd_){
+            vd = limitPnJunctionCombined(vd, previousVd_, nvt, is);
+        }
+        
+        previousVd_ = vd;
+        hasPreviousVd_ = true;
+
         const double arg = std::clamp(vd / nvt, -40.0, 40.0);
         const double evd = std::exp(arg);
-        const double is = dc.is * area;
         const double id = is * (evd - 1.0) + dc.gmin * vd;
         const double gd = is * evd / nvt + dc.gmin;
         const double bp = gd * vd - id;
@@ -85,4 +96,7 @@ private:
     double* rhsN_ = nullptr;
     const double* solP_ = nullptr;
     const double* solN_ = nullptr;
+
+    double previousVd_ = 0.0;
+    bool hasPreviousVd_ = false;
 };

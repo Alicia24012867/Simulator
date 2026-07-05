@@ -6,6 +6,7 @@
 
 #include "device.hpp"
 #include "../math/mna.hpp"
+#include "../math/limiting.hpp"
 #include "../models/model.hpp"
 
 class MOSFET: public Device{
@@ -60,8 +61,20 @@ public:
         const double length = l_ > 0.0 ? l_ : 1.0;
         const double beta = dc.kp * width / length;
         const double vto = std::abs(dc.vto);
-        const double vgs = polarity * (vg - vs);
-        const double vds = polarity * (vd - vs);
+        double vgs = polarity * (vg - vs);
+        double vds = polarity * (vd - vs);
+        double vgd = vgs - vds;
+
+        if(hasPreviousVoltages_){
+            vgs = limitMosfetVoltage(vgs, previousVgs_, vto);
+            vgd = limitMosfetVoltage(vgd, previousVgd_, vto);
+            vds = vgs - vgd;
+        }
+
+        previousVgs_ = vgs;
+        previousVgd_ = vgd;
+        hasPreviousVoltages_ = true;
+
         const double overdrive = vgs - vto;
 
         double id = 0.0;
@@ -129,4 +142,8 @@ private:
     std::array<std::array<double*, 4>, 4> A_ = {};
     std::array<double*, 4> rhs_ = {};
     std::array<const double*, 4> sol_ = {};
+
+    double previousVgs_ = 0.0;
+    double previousVgd_ = 0.0;
+    bool hasPreviousVoltages_ = false;
 };

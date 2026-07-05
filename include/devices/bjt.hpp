@@ -7,6 +7,7 @@
 #include "device.hpp"
 #include "../math/mna.hpp"
 #include "../models/model.hpp"
+#include "../math/limiting.hpp"
 
 class BJT: public Device{
 public:
@@ -45,20 +46,35 @@ public:
         const double vc = voltage(sol_[0]);
         const double vb = voltage(sol_[1]);
         const double ve = voltage(sol_[2]);
-        const double vbe = polarity * (vb - ve);
-        const double vbc = polarity * (vb - vc);
-        const double argBe = std::clamp(vbe / (dc.nf * dc.vt), -40.0, 40.0);
-        const double argBc = std::clamp(vbc / (dc.nr * dc.vt), -40.0, 40.0);
+
+        double vbe = polarity * (vb - ve);
+        double vbc = polarity * (vb - vc);
+        
+        const double nvtBe = dc.nf * dc.vt;
+        const double nvtBc = dc.nr * dc.vt;
+
+        const double is = dc.is * area;
+
+        if(hasPreviousVoltages_){
+            vbe = limitPnJunctionCombined(vbe, previousVbe_, nvtBe, is);
+            vbc = limitPnJunctionCombined(vbc, previousVbc_, nvtBc, is);
+        }
+
+        previousVbe_ = vbe;
+        previousVbc_ = vbc;
+        hasPreviousVoltages_ = true;
+
+        const double argBe = std::clamp(vbe / nvtBe, -40.0, 40.0);
+        const double argBc = std::clamp(vbc / nvtBc, -40.0, 40.0);
         const double ebe = std::exp(argBe);
         const double ebc = std::exp(argBc);
-        const double is = dc.is * area;
         const double ibe = polarity * (is / dc.bf) * (ebe - 1.0);
         const double ibc = polarity * (is / dc.br) * (ebc - 1.0);
         const double icc = polarity * is * ((ebe - 1.0) - (ebc - 1.0));
-        const double gbe = is * ebe / (dc.bf * dc.nf * dc.vt) + dc.gmin;
-        const double gbc = is * ebc / (dc.br * dc.nr * dc.vt) + dc.gmin;
-        const double gmF = is * ebe / (dc.nf * dc.vt);
-        const double gmR = is * ebc / (dc.nr * dc.vt);
+        const double gbe = is * ebe / (dc.bf * nvtBe) + dc.gmin;
+        const double gbc = is * ebc / (dc.br * nvtBc) + dc.gmin;
+        const double gmF = is * ebe / nvtBe;
+        const double gmR = is * ebc / nvtBc;
 
         std::array<double, 3> f = {0.0, 0.0, 0.0};
         std::array<std::array<double, 3>, 3> j = {};
@@ -125,4 +141,8 @@ private:
     std::array<std::array<double*, 3>, 3> A_ = {};
     std::array<double*, 3> rhs_ = {};
     std::array<const double*, 3> sol_ = {};
+
+    double previousVbe_ = 0.0;
+    double previousVbc_ = 0.0;
+    bool hasPreviousVoltages_ = false;
 };

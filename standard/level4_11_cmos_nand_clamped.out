@@ -1,0 +1,4 @@
+Level 4 - coupled cmos inverters with diode clamps
+Operating Point Reference
+Index   v(vdd)          v(a)            v(b)            v(x)            v(out)          vdd#branch      va#branch       vb#branch       
+0       5.0000000000e+00 2.8000000000e+00 2.1000000000e+00 5.0001929831e-01 6.4441727610e-01 -3.1242184223e-03 0.0000000000e+00 0.0000000000e+00

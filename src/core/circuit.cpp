@@ -85,22 +85,24 @@ bool Circuit::solve(){
         }
 
         Eigen::VectorXd current = mna->solution();
-        if(current.size() == previous.size()){
-            Eigen::VectorXd step = current - previous;
-            const double rawDelta = step.lpNorm<Eigen::Infinity>();
-            if(rawDelta > maxStep){
-                current = previous + step * (maxStep / rawDelta);
-                mna->setSolution(current);
-                ++solveStats.dampedSteps;
-            }
+        if(current.size() != previous.size()){
+            return false;
+        }
 
-            const double delta = (current - previous).lpNorm<Eigen::Infinity>();
-            solveStats.finalDelta = delta;
-            if(delta < tolerance){
-                solveStats.converged = true;
-                solveStats.cpuSeconds = double(std::clock() - startClock) / CLOCKS_PER_SEC;
-                return true;
-            }
+        Eigen::VectorXd step = current - previous;
+        const double rawDelta = step.lpNorm<Eigen::Infinity>();
+        if(rawDelta > maxStep){
+            current = previous + step * (maxStep / rawDelta);
+            mna->setSolution(current);
+            ++solveStats.dampedSteps;
+        }
+
+        const double delta = (current - previous).lpNorm<Eigen::Infinity>();
+        solveStats.finalDelta = delta;
+        if(delta < tolerance){
+            solveStats.converged = true;
+            solveStats.cpuSeconds = double(std::clock() - startClock) / CLOCKS_PER_SEC;
+            return true;
         }
 
         previous = current;
