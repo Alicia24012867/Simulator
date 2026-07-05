@@ -122,6 +122,18 @@ public:
         }
     }
 
+    void saveState() override{
+        savedPreviousVgs_ = previousVgs_;
+        savedPreviousVgd_ = previousVgd_;
+        savedHasPreviousVoltages_ = hasPreviousVoltages_;
+    }
+
+    void restoreState() override{
+        previousVgs_ = savedPreviousVgs_;
+        previousVgd_ = savedPreviousVgd_;
+        hasPreviousVoltages_ = savedHasPreviousVoltages_;
+    }
+
 private:
     static double voltage(const double* ptr){
         return ptr ? *ptr : 0.0;
@@ -146,4 +158,7 @@ private:
     double previousVgs_ = 0.0;
     double previousVgd_ = 0.0;
     bool hasPreviousVoltages_ = false;
+    double savedPreviousVgs_ = 0.0;
+    double savedPreviousVgd_ = 0.0;
+    bool savedHasPreviousVoltages_ = false;
 };

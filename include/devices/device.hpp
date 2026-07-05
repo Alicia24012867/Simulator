@@ -87,6 +87,12 @@ public:
 
     virtual void stamp() = 0;
 
+    virtual void setSourceScale(double) {}
+
+    virtual void saveState() {}
+
+    virtual void restoreState() {}
+
 protected:
     std::string name;
     std::vector<std::string> nodes;

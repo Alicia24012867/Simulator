@@ -60,7 +60,7 @@ public:
         const double is = dc.is * area;
 
         if(hasPreviousVd_){
-            vd = limitPnJunctionCombined(vd, previousVd_, nvt, is);
+            vd = limitPnJunctionColon(vd, previousVd_, nvt, is);
         }
         
         previousVd_ = vd;
@@ -78,6 +78,16 @@ public:
         if(A22) *A22 += gd;
         if(rhsP_) *rhsP_ += bp;
         if(rhsN_) *rhsN_ -= bp;
+    }
+
+    void saveState() override{
+        savedPreviousVd_ = previousVd_;
+        savedHasPreviousVd_ = hasPreviousVd_;
+    }
+
+    void restoreState() override{
+        previousVd_ = savedPreviousVd_;
+        hasPreviousVd_ = savedHasPreviousVd_;
     }
 
 private:
@@ -99,4 +109,6 @@ private:
 
     double previousVd_ = 0.0;
     bool hasPreviousVd_ = false;
+    double savedPreviousVd_ = 0.0;
+    bool savedHasPreviousVd_ = false;
 };

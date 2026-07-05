@@ -57,11 +57,16 @@ public:
         if(branchPos)    *branchPos += 1.0;
         if(branchNeg)    *branchNeg -= 1.0;
 
-        *rhs += v;
+        *rhs += sourceScale_ * v;
+    }
+
+    void setSourceScale(double scale) override{
+        sourceScale_ = scale;
     }
 
 private:
     double v;
+    double sourceScale_ = 1.0;
 
     double* posBranch = nullptr;
     double* negBranch = nullptr;

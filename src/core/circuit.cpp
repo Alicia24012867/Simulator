@@ -1,5 +1,6 @@
 #include "../include/core/circuit.h"
 
+#include <algorithm>
 #include <ctime>
 #include <iomanip>
 #include <ostream>
@@ -8,6 +9,17 @@
 #include "../include/devices/device.hpp"
 #include "../include/math/mna.hpp"
 #include "../include/models/model.hpp"
+
+namespace {
+constexpr int kMaxNewtonIterations = 1000;
+constexpr double kNewtonTolerance = 1.0e-9;
+constexpr double kSolutionMaxStep = 1.0;
+constexpr double kInitialSourceStep = 0.1;
+constexpr double kMaxSourceStep = 0.25;
+constexpr double kMinSourceStep = 1.0e-4;
+constexpr double kSourceStepGrowth = 1.5;
+constexpr double kSourceScaleDone = 1.0 - 1.0e-12;
+}
 
 Circuit::Circuit():
     mna(std::make_unique<MNA>()),
@@ -60,19 +72,65 @@ bool Circuit::build(){
 }
 
 bool Circuit::solve(){
-    constexpr int maxIterations = 150;
-    constexpr double tolerance = 1.0e-9;
-    constexpr double maxStep = 1.0;
-
     solveStats = {};
-    solveStats.maxIterations = maxIterations;
-    solveStats.tolerance = tolerance;
+    solveStats.maxIterations = kMaxNewtonIterations;
+    solveStats.tolerance = kNewtonTolerance;
+    solveStats.minSourceStep = kMinSourceStep;
 
     const std::clock_t startClock = std::clock();
+    Eigen::VectorXd acceptedSolution = mna->solution();
+    double acceptedScale = 0.0;
+    double sourceStep = kInitialSourceStep;
+
+    while(acceptedScale < kSourceScaleDone){
+        const double trialScale = std::min(1.0, acceptedScale + sourceStep);
+
+        mna->setSolution(acceptedSolution);
+        saveDeviceStates();
+        setSourceScale(trialScale);
+
+        NewtonStats trialStats;
+        const bool converged = solveNewton(trialStats);
+
+        solveStats.iterations += trialStats.iterations;
+        solveStats.dampedSteps += trialStats.dampedSteps;
+        solveStats.finalDelta = trialStats.finalDelta;
+
+        if(converged){
+            acceptedScale = trialScale;
+            acceptedSolution = mna->solution();
+            solveStats.sourceScale = acceptedScale;
+            ++solveStats.sourceSteps;
+            sourceStep = std::min(kMaxSourceStep, sourceStep * kSourceStepGrowth);
+            continue;
+        }
+
+        restoreDeviceStates();
+        mna->setSolution(acceptedSolution);
+        setSourceScale(acceptedScale);
+        ++solveStats.failedSourceSteps;
+
+        sourceStep *= 0.5;
+        if(sourceStep < kMinSourceStep){
+            solveStats.cpuSeconds = double(std::clock() - startClock) / CLOCKS_PER_SEC;
+            return false;
+        }
+    }
+
+    setSourceScale(1.0);
+    mna->setSolution(acceptedSolution);
+    solveStats.converged = true;
+    solveStats.cpuSeconds = double(std::clock() - startClock) / CLOCKS_PER_SEC;
+    return true;
+}
+
+bool Circuit::solveNewton(NewtonStats& stats){
+    stats = {};
+
     Eigen::VectorXd previous = mna->solution();
 
-    for(int iter = 0; iter < maxIterations; ++iter){
-        solveStats.iterations = iter + 1;
+    for(int iter = 0; iter < kMaxNewtonIterations; ++iter){
+        stats.iterations = iter + 1;
         mna->clear();
 
         for(auto& d: devices){
@@ -80,7 +138,6 @@ bool Circuit::solve(){
         }
 
         if(!mna->solve()){
-            solveStats.cpuSeconds = double(std::clock() - startClock) / CLOCKS_PER_SEC;
             return false;
         }
 
@@ -91,25 +148,40 @@ bool Circuit::solve(){
 
         Eigen::VectorXd step = current - previous;
         const double rawDelta = step.lpNorm<Eigen::Infinity>();
-        if(rawDelta > maxStep){
-            current = previous + step * (maxStep / rawDelta);
+        if(rawDelta > kSolutionMaxStep){
+            current = previous + step * (kSolutionMaxStep / rawDelta);
             mna->setSolution(current);
-            ++solveStats.dampedSteps;
+            ++stats.dampedSteps;
         }
 
         const double delta = (current - previous).lpNorm<Eigen::Infinity>();
-        solveStats.finalDelta = delta;
-        if(delta < tolerance){
-            solveStats.converged = true;
-            solveStats.cpuSeconds = double(std::clock() - startClock) / CLOCKS_PER_SEC;
+        stats.finalDelta = delta;
+        if(delta < kNewtonTolerance){
             return true;
         }
 
         previous = current;
     }
 
-    solveStats.cpuSeconds = double(std::clock() - startClock) / CLOCKS_PER_SEC;
     return false;
+}
+
+void Circuit::setSourceScale(double scale){
+    for(auto& d: devices){
+        d->setSourceScale(scale);
+    }
+}
+
+void Circuit::saveDeviceStates(){
+    for(auto& d: devices){
+        d->saveState();
+    }
+}
+
+void Circuit::restoreDeviceStates(){
+    for(auto& d: devices){
+        d->restoreState();
+    }
 }
 
 void Circuit::printOperatingPoint(std::ostream& os) const{
@@ -123,6 +195,10 @@ void Circuit::printOperatingPoint(std::ostream& os) const{
     os << "final_delta " << solveStats.finalDelta << '\n';
     os << "tolerance " << solveStats.tolerance << '\n';
     os << "damped_steps " << solveStats.dampedSteps << '\n';
+    os << "source_steps " << solveStats.sourceSteps << '\n';
+    os << "failed_source_steps " << solveStats.failedSourceSteps << '\n';
+    os << "source_scale " << solveStats.sourceScale << '\n';
+    os << "min_source_step " << solveStats.minSourceStep << '\n';
     os << "cpu_time_seconds " << solveStats.cpuSeconds << '\n';
 
     const auto& names = nodeMap->nodeNameByIdx();

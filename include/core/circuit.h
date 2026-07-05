@@ -43,10 +43,28 @@ private:
         int iterations = 0;
         int maxIterations = 0;
         int dampedSteps = 0;
+        int sourceSteps = 0;
+        int failedSourceSteps = 0;
         double finalDelta = 0.0;
         double tolerance = 0.0;
         double cpuSeconds = 0.0;
+        double sourceScale = 0.0;
+        double minSourceStep = 0.0;
     };
+
+    struct NewtonStats {
+        int iterations = 0;
+        int dampedSteps = 0;
+        double finalDelta = 0.0;
+    };
+
+    bool solveNewton(NewtonStats& stats);
+
+    void setSourceScale(double scale);
+
+    void saveDeviceStates();
+
+    void restoreDeviceStates();
 
     std::unique_ptr<MNA> mna;
 

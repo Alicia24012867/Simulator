@@ -254,7 +254,7 @@ utils/           字符串和 SPICE 数值解析工具
 - `.op` 和 `.print` 还没有完整语义。
 - 输出格式不是 ngspice 兼容格式。
 - 非线性模型是简化 DC 模型，与真实 SPICE 模型仍有差距。
-- 收敛控制较基础，尚未实现 gmin stepping、source stepping、PN junction limiting、pseudo-transient 等高级策略。
+- 已实现 PN 结 COLON current-basis limiting、MOSFET 电压限制和动态 source stepping；尚未实现 gmin stepping、pseudo-transient 等高级策略。
 - 浮空节点、奇异矩阵、冲突电压源等错误诊断还不够友好。
 - 不支持 `.include`, `.lib`, `.param`, `.options`, `.temp`, `.nodeset`, `.ic`, `.subckt`。
 - 不支持受控源 `E/F/G/H` 和行为源。

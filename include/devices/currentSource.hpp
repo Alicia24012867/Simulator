@@ -25,12 +25,17 @@ public:
     }
 
     void stamp() override {
-        if(pos) *pos -= i;
-        if(neg) *neg += i;
+        if(pos) *pos -= sourceScale_ * i;
+        if(neg) *neg += sourceScale_ * i;
+    }
+
+    void setSourceScale(double scale) override{
+        sourceScale_ = scale;
     }
 
 private:
     double i;
+    double sourceScale_ = 1.0;
 
     double* pos = nullptr;
     double* neg = nullptr;

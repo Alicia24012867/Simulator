@@ -3,25 +3,6 @@
 #include <cmath>
 #include <algorithm>
 
-inline double limitPnJunctionVoltage(double newV, double oldV, double vt){
-    const double tenVt = 10.0 * vt;
-    const double twoVt = 2.0 * vt;
-
-    if(newV <= oldV){
-        return newV;
-    }
-
-    if(newV < tenVt){
-        return newV;
-    }
-
-    if(newV - oldV > twoVt){
-        return std::max(tenVt, oldV + twoVt);
-    }
-
-    return newV;
-}
-
 inline double limitMosfetVoltage(double newV, double oldV, double threshold){
     const double absThreshold = std::abs(threshold);
     const double highStep = std::abs(2.0 * (oldV - absThreshold)) + 2.0;
@@ -68,12 +49,16 @@ inline double limitMosfetVoltage(double newV, double oldV, double threshold){
     return weakOn;
 }
 
-inline double criticalVoltage(double vt, double is){
+inline double colonCriticalVoltage(double vt, double is){
     return vt * std::log(vt / (is * std::sqrt(2)));
 }
 
-inline double limitPnJunctionCurrent(double newV, double oldV, double vt, double is){
-    const double vcrit = criticalVoltage(vt, is);
+inline double limitPnJunctionColon(double newV, double oldV, double vt, double is){
+    if(!std::isfinite(newV) || !std::isfinite(oldV) || vt <= 0.0 || is <= 0.0){
+        return newV;
+    }
+
+    const double vcrit = colonCriticalVoltage(vt, is);
 
     if(newV <= vcrit)  return newV;
 
@@ -88,15 +73,8 @@ inline double limitPnJunctionCurrent(double newV, double oldV, double vt, double
     if(newI <= 0.0){
         return vcrit;
     }
-    return vt * std::log1p(newI / is);
-}
 
-inline double limitPnJunctionCombined(double newV, double oldV, double vt, double is){
-    double limited = limitPnJunctionCurrent(newV, oldV, vt, is);
+    const double limited = vt * std::log1p(newI / is);
 
-    if(!std::isfinite(limited)){
-        return limitPnJunctionVoltage(newV, oldV, vt);
-    }
-
-    return limited;
+    return std::isfinite(limited) ? limited : vcrit;
 }

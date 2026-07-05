@@ -56,8 +56,8 @@ public:
         const double is = dc.is * area;
 
         if(hasPreviousVoltages_){
-            vbe = limitPnJunctionCombined(vbe, previousVbe_, nvtBe, is);
-            vbc = limitPnJunctionCombined(vbc, previousVbc_, nvtBc, is);
+            vbe = limitPnJunctionColon(vbe, previousVbe_, nvtBe, is);
+            vbc = limitPnJunctionColon(vbc, previousVbc_, nvtBc, is);
         }
 
         previousVbe_ = vbe;
@@ -92,6 +92,18 @@ public:
         j[2][0] -= gmR;
 
         stampLinearization(f, j);
+    }
+
+    void saveState() override{
+        savedPreviousVbe_ = previousVbe_;
+        savedPreviousVbc_ = previousVbc_;
+        savedHasPreviousVoltages_ = hasPreviousVoltages_;
+    }
+
+    void restoreState() override{
+        previousVbe_ = savedPreviousVbe_;
+        previousVbc_ = savedPreviousVbc_;
+        hasPreviousVoltages_ = savedHasPreviousVoltages_;
     }
 
 private:
@@ -145,4 +157,7 @@ private:
     double previousVbe_ = 0.0;
     double previousVbc_ = 0.0;
     bool hasPreviousVoltages_ = false;
+    double savedPreviousVbe_ = 0.0;
+    double savedPreviousVbc_ = 0.0;
+    bool savedHasPreviousVoltages_ = false;
 };
