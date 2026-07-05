@@ -15,6 +15,10 @@ public:
 
     const Model* model() const { return model_; }
 
+    bool isNonlinear() const override{
+        return true;
+    }
+
     void pattern(MNA& mna) override{
         const int p = nodeIds[0];
         const int n = nodeIds[1];

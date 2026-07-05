@@ -60,6 +60,18 @@ private:
 
     bool solveNewton(NewtonStats& stats);
 
+    bool solveLinear(NewtonStats& stats);
+
+    bool solveWithDynamicSourceStepping();
+
+    void addNewtonStats(const NewtonStats& stats);
+
+    void cacheDeviceRoles();
+
+    void assembleSystem();
+
+    bool hasNonlinearDevices() const;
+
     void setSourceScale(double scale);
 
     void saveDeviceStates();
@@ -70,9 +82,17 @@ private:
 
     std::vector<std::unique_ptr<Device>> devices;
 
+    std::vector<Device*> sourceDevices;
+
+    std::vector<Device*> statefulDevices;
+
     std::unordered_map<std::string, std::unique_ptr<Model>> models;
 
     int nextUnknown = 0;
+
+    bool hasNonlinearDevices_ = false;
+
+    double currentSourceScale_ = 1.0;
 
     std::unique_ptr<NodeMap> nodeMap;
 

@@ -16,6 +16,10 @@ public:
 
     const Model* model() const { return model_; }
 
+    bool isNonlinear() const override{
+        return true;
+    }
+
     void pattern(MNA& mna) override{
         addFullPattern(mna);
     }

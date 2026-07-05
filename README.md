@@ -1,6 +1,6 @@
 # DC Operating Point SPICE-like Simulator
 
-这是一个类 SPICE 的电路仿真器原型，目前目标明确限定为 **DC operating point** 求解。它可以解析一部分 SPICE 风格 netlist，构建 MNA 方程，并用 Newton 迭代求解节点电压和部分支路电流。
+这是一个类 SPICE 的电路仿真器原型，当前仅支持 **DC operating point** 求解。它可以解析一部分 SPICE 风格 netlist，构建 MNA 方程，并用 Newton 迭代求解节点电压和部分支路电流。
 
 当前项目不是完整 SPICE 兼容实现：暂不支持瞬态分析、交流小信号分析、子电路、参数表达式、复杂模型库等功能。
 
@@ -12,9 +12,9 @@
 2. 解析器件和 `.model`。
 3. 建立节点编号表。
 4. 为电压源、电感等器件分配额外 branch unknown。
-5. 构建稀疏 MNA 矩阵结构。
+5. 构建稀疏 MNA 矩阵结构，并缓存非线性器件、独立源和状态回滚器件列表。
 6. 对线性和非线性器件进行 stamp。
-7. 使用 Eigen SparseLU 解线性方程。
+7. 使用 Eigen SparseLU 解线性方程，并复用固定稀疏结构的 symbolic analysis。
 8. 对非线性器件执行 Newton 迭代。
 9. 输出 DC operating point 结果。
 10. 使用测试脚本和参考输出做自动数值判定。
@@ -76,21 +76,32 @@
 
 核心求解流程在 `Circuit::solve()` 中完成：
 
-- 最大 Newton 迭代次数：`150`
-- 收敛阈值：`1.0e-9`
-- 最大步长限制：`1.0`
-- 收敛判据：相邻两轮解向量的 infinity norm 变化量小于阈值
+- MNA 稀疏矩阵结构在 `build()` 阶段固定，预留 pattern/locator 存储，并复用 Eigen SparseLU 的 symbolic analysis。
+- 构建阶段缓存独立源和非线性器件列表，source scaling 与 limiter state save/restore 只遍历相关器件。
+- 纯线性电路直接进行一次稀疏线性求解，不进入 Newton 迭代和步长限制。
+- 优先使用 `source_scale = 1.0` 的完整电源直接 Newton 求解。
+- 如果直接求解失败，则恢复初始解和器件 limiting 状态，进入动态 source stepping。
+- 动态 source stepping 会缩放独立电压源和独立电流源，从较小 `source_scale` 逐步推进到 `1.0`。
+- source step 成功时步长放大，失败时回滚到上一个 accepted solution 并将步长减半。
+- 每个 Newton attempt 的最大迭代次数：`1000`
+- Newton 收敛阈值：`1.0e-9`
+- 解向量最大步长限制：`1.0`
+- Newton 收敛判据：相邻两轮解向量的 infinity norm 变化量小于阈值
 
 输出中的 Newton 信息含义：
 
 | 字段 | 含义 |
 | --- | --- |
 | `converged` | 是否在最大迭代次数内收敛 |
-| `iterations` | 实际 Newton 迭代次数 |
-| `max_iterations` | 最大允许迭代次数 |
-| `final_delta` | 最后一轮解向量最大变化量 |
+| `iterations` | 累计求解迭代次数；纯线性电路为一次直接线性求解，非线性电路为 Newton 迭代累计 |
+| `max_iterations` | 单次 Newton attempt 的最大允许迭代次数 |
+| `final_delta` | 最后一轮 Newton 解向量最大变化量；纯线性直接求解时为 `0` |
 | `tolerance` | 收敛阈值 |
 | `damped_steps` | 被步长限制处理的迭代次数 |
+| `source_steps` | 动态 source stepping 中成功接受的 source step 数量；直接求解成功时为 `0` |
+| `failed_source_steps` | 动态 source stepping 中失败并回滚的 trial 数量 |
+| `source_scale` | 最终接受的独立源缩放比例，成功时应为 `1.0` |
+| `min_source_step` | 动态 source stepping 允许的最小 source step |
 | `cpu_time_seconds` | 求解 CPU 时间 |
 
 ## 输出格式
@@ -104,10 +115,14 @@ Operating Point
 Newton Info
 converged yes
 iterations 11
-max_iterations 150
+max_iterations 1000
 final_delta 0.0000000000e+00
 tolerance 1.0000000000e-09
 damped_steps 5
+source_steps 0
+failed_source_steps 0
+source_scale 1.0000000000e+00
+min_source_step 1.0000000000e-04
 cpu_time_seconds 4.8000000000e-04
 Node Voltages
 v(vdd) 5.0000000000e+00
@@ -260,10 +275,9 @@ utils/           字符串和 SPICE 数值解析工具
 - 不支持受控源 `E/F/G/H` 和行为源。
 - 器件级电流、功耗和模型详细报告尚未完整输出。
 
-后续优先级建议：
+后续待办：
 
 1. 完善 `.op` / `.print op` 的语义。
 2. 增加更细的错误诊断和 netlist 报错位置。
 3. 改进非线性器件模型和收敛算法。
-4. 增加器件电流和功耗输出。
-5. 扩充测试覆盖，并把测试结果纳入持续检查流程。
+4. 扩充测试覆盖，并把测试结果纳入持续检查流程。

@@ -2,9 +2,11 @@
 
 #include <Eigen/Sparse>
 #include <Eigen/SparseLU>
-#include <vector>
+#include <algorithm>
+#include <cstddef>
 #include <stdexcept>
 #include <unordered_map>
+#include <vector>
 
 class MNA{
 public:
@@ -27,6 +29,10 @@ public:
 
     int size() const { return n_; }
 
+    void reservePattern(std::size_t count){
+        pattern_.reserve(count);
+    }
+
     void addPattern(int row, int col){
         pattern_.emplace_back(row, col, 0.0);
     }
@@ -40,6 +46,7 @@ public:
         A_.makeCompressed();
 
         buildLocator();
+        solver_.analyzePattern(A_);
     }
 
     double* ptr(int row, int col){
@@ -78,7 +85,7 @@ public:
     }
 
     bool solve(){
-        solver_.compute(A_);
+        solver_.factorize(A_);
 
         if(solver_.info()!=Eigen::Success){
             return false;
@@ -129,6 +136,7 @@ private:
 
     void buildLocator(){
         locator_.clear();
+        locator_.reserve(static_cast<std::size_t>(A_.nonZeros()));
 
         const int* outer = A_.outerIndexPtr();
         const int* inner = A_.innerIndexPtr();

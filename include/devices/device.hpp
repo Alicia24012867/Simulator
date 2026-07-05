@@ -81,6 +81,10 @@ public:
         return -1;
     }
 
+    virtual bool isNonlinear() const {
+        return false;
+    }
+
     virtual void pattern(MNA& mna) = 0;
 
     virtual void bindMatrix(MNA& mna) = 0;

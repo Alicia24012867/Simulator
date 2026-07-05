@@ -50,6 +50,8 @@ bool Circuit::build(){
         d->bindNodes(*nodeMap);
     }
 
+    cacheDeviceRoles();
+
     nextUnknown = nodeMap->nodeCount();
 
     for(auto& d: devices){
@@ -57,6 +59,7 @@ bool Circuit::build(){
     }
 
     mna->resize(nextUnknown);
+    mna->reservePattern(devices.size() * 12 + static_cast<std::size_t>(nextUnknown));
 
     for(auto& d: devices){
         d->pattern(*mna);
@@ -64,7 +67,7 @@ bool Circuit::build(){
 
     mna->build();
 
-    for(auto&d: devices){
+    for(auto& d: devices){
         d->bindMatrix(*mna);
     }
 
@@ -78,6 +81,51 @@ bool Circuit::solve(){
     solveStats.minSourceStep = kMinSourceStep;
 
     const std::clock_t startClock = std::clock();
+    const Eigen::VectorXd initialSolution = mna->solution();
+
+    if(!hasNonlinearDevices()){
+        setSourceScale(1.0);
+
+        NewtonStats linearStats;
+        const bool linearSolved = solveLinear(linearStats);
+        addNewtonStats(linearStats);
+
+        solveStats.sourceScale = linearSolved ? 1.0 : 0.0;
+        solveStats.converged = linearSolved;
+        solveStats.cpuSeconds = double(std::clock() - startClock) / CLOCKS_PER_SEC;
+        return linearSolved;
+    }
+
+    saveDeviceStates();
+    setSourceScale(1.0);
+
+    NewtonStats directStats;
+    const bool directConverged = solveNewton(directStats);
+    addNewtonStats(directStats);
+
+    if(directConverged){
+        solveStats.sourceScale = 1.0;
+        solveStats.converged = true;
+        solveStats.cpuSeconds = double(std::clock() - startClock) / CLOCKS_PER_SEC;
+        return true;
+    }
+
+    restoreDeviceStates();
+    mna->setSolution(initialSolution);
+    setSourceScale(0.0);
+
+    if(!solveWithDynamicSourceStepping()){
+        solveStats.cpuSeconds = double(std::clock() - startClock) / CLOCKS_PER_SEC;
+        return false;
+    }
+
+    setSourceScale(1.0);
+    solveStats.converged = true;
+    solveStats.cpuSeconds = double(std::clock() - startClock) / CLOCKS_PER_SEC;
+    return true;
+}
+
+bool Circuit::solveWithDynamicSourceStepping(){
     Eigen::VectorXd acceptedSolution = mna->solution();
     double acceptedScale = 0.0;
     double sourceStep = kInitialSourceStep;
@@ -91,10 +139,7 @@ bool Circuit::solve(){
 
         NewtonStats trialStats;
         const bool converged = solveNewton(trialStats);
-
-        solveStats.iterations += trialStats.iterations;
-        solveStats.dampedSteps += trialStats.dampedSteps;
-        solveStats.finalDelta = trialStats.finalDelta;
+        addNewtonStats(trialStats);
 
         if(converged){
             acceptedScale = trialScale;
@@ -112,15 +157,24 @@ bool Circuit::solve(){
 
         sourceStep *= 0.5;
         if(sourceStep < kMinSourceStep){
-            solveStats.cpuSeconds = double(std::clock() - startClock) / CLOCKS_PER_SEC;
             return false;
         }
     }
 
-    setSourceScale(1.0);
     mna->setSolution(acceptedSolution);
-    solveStats.converged = true;
-    solveStats.cpuSeconds = double(std::clock() - startClock) / CLOCKS_PER_SEC;
+    return true;
+}
+
+bool Circuit::solveLinear(NewtonStats& stats){
+    stats = {};
+    assembleSystem();
+
+    if(!mna->solve()){
+        return false;
+    }
+
+    stats.iterations = 1;
+    stats.finalDelta = 0.0;
     return true;
 }
 
@@ -131,11 +185,7 @@ bool Circuit::solveNewton(NewtonStats& stats){
 
     for(int iter = 0; iter < kMaxNewtonIterations; ++iter){
         stats.iterations = iter + 1;
-        mna->clear();
-
-        for(auto& d: devices){
-            d->stamp();
-        }
+        assembleSystem();
 
         if(!mna->solve()){
             return false;
@@ -166,21 +216,61 @@ bool Circuit::solveNewton(NewtonStats& stats){
     return false;
 }
 
+void Circuit::addNewtonStats(const NewtonStats& stats){
+    solveStats.iterations += stats.iterations;
+    solveStats.dampedSteps += stats.dampedSteps;
+    solveStats.finalDelta = stats.finalDelta;
+}
+
+void Circuit::cacheDeviceRoles(){
+    sourceDevices.clear();
+    statefulDevices.clear();
+    hasNonlinearDevices_ = false;
+
+    for(auto& device: devices){
+        if(device->getType() == DeviceType::VoltageSource ||
+           device->getType() == DeviceType::CurrentSource){
+            sourceDevices.push_back(device.get());
+        }
+
+        if(device->isNonlinear()){
+            hasNonlinearDevices_ = true;
+            statefulDevices.push_back(device.get());
+        }
+    }
+}
+
+void Circuit::assembleSystem(){
+    mna->clear();
+    for(auto& device: devices){
+        device->stamp();
+    }
+}
+
+bool Circuit::hasNonlinearDevices() const{
+    return hasNonlinearDevices_;
+}
+
 void Circuit::setSourceScale(double scale){
-    for(auto& d: devices){
-        d->setSourceScale(scale);
+    if(scale == currentSourceScale_){
+        return;
+    }
+
+    currentSourceScale_ = scale;
+    for(auto* device: sourceDevices){
+        device->setSourceScale(scale);
     }
 }
 
 void Circuit::saveDeviceStates(){
-    for(auto& d: devices){
-        d->saveState();
+    for(auto* device: statefulDevices){
+        device->saveState();
     }
 }
 
 void Circuit::restoreDeviceStates(){
-    for(auto& d: devices){
-        d->restoreState();
+    for(auto* device: statefulDevices){
+        device->restoreState();
     }
 }
 
