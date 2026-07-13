@@ -1,6 +1,7 @@
 #pragma once
-#include <memory>
+#include <functional>
 #include <iosfwd>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -18,7 +19,7 @@ public:
 
     template<class T, class... Args>
     void addDevice(Args&&... args){
-        devices.emplace_back(
+        devices_.emplace_back(
             std::make_unique<T>(
                 std::forward<Args>(args)...
             )
@@ -33,12 +34,16 @@ public:
 
     int allocateUnknown();
 
-    bool solve();
+    bool solve(); // Backward-compatible OP entry point.
+
+    bool solveOperatingPoint();
 
     void printOperatingPoint(std::ostream& os) const;
 
 private:
-    struct SolveStats {
+    using AssembleCallback = std::function<void()>;
+
+    struct OperatingPointStats {
         bool converged = false;
         int iterations = 0;
         int maxIterations = 0;
@@ -58,43 +63,46 @@ private:
         double finalDelta = 0.0;
     };
 
-    bool solveNewton(NewtonStats& stats);
+    bool solveNewtonSystem(const AssembleCallback& assemble,
+                           NewtonStats& stats);
 
-    bool solveLinear(NewtonStats& stats);
+    bool solveLinearSystem(const AssembleCallback& assemble,
+                           NewtonStats& stats);
 
-    bool solveWithDynamicSourceStepping();
+    bool solveOperatingPointWithSourceStepping(
+        const AssembleCallback& assemble);
 
     void addNewtonStats(const NewtonStats& stats);
 
-    void cacheDeviceRoles();
+    void cacheOperatingPointDeviceRoles();
 
-    void assembleSystem();
+    void assembleOperatingPointSystem();
 
     bool hasNonlinearDevices() const;
 
-    void setSourceScale(double scale);
+    void setOperatingPointSourceScale(double scale);
 
-    void saveDeviceStates();
+    void saveNonlinearIterationStates();
 
-    void restoreDeviceStates();
+    void restoreNonlinearIterationStates();
 
-    std::unique_ptr<MNA> mna;
+    std::unique_ptr<MNA> mna_;
 
-    std::vector<std::unique_ptr<Device>> devices;
+    std::vector<std::unique_ptr<Device>> devices_;
 
-    std::vector<Device*> sourceDevices;
+    std::vector<Device*> sourceSteppingDevices_;
 
-    std::vector<Device*> statefulDevices;
+    std::vector<Device*> iterationStateDevices_;
 
-    std::unordered_map<std::string, std::unique_ptr<Model>> models;
+    std::unordered_map<std::string, std::unique_ptr<Model>> models_;
 
-    int nextUnknown = 0;
+    int nextUnknown_ = 0;
 
     bool hasNonlinearDevices_ = false;
 
-    double currentSourceScale_ = 1.0;
+    double operatingPointSourceScale_ = 1.0;
 
-    std::unique_ptr<NodeMap> nodeMap;
+    std::unique_ptr<NodeMap> nodeMap_;
 
-    SolveStats solveStats;
+    OperatingPointStats operatingPointStats_;
 };

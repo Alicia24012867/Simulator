@@ -22,138 +22,156 @@ constexpr double kSourceScaleDone = 1.0 - 1.0e-12;
 }
 
 Circuit::Circuit():
-    mna(std::make_unique<MNA>()),
-    nodeMap(std::make_unique<NodeMap>()) {}
+    mna_(std::make_unique<MNA>()),
+    nodeMap_(std::make_unique<NodeMap>()) {}
 
 Circuit::~Circuit() = default;
 
 const Model* Circuit::addModel(std::unique_ptr<Model> model){
     const std::string name = model->name();
-    auto& slot = models[name];
+    auto& slot = models_[name];
     slot = std::move(model);
     return slot.get();
 }
 
 const Model* Circuit::findModel(const std::string& name) const{
-    auto it = models.find(name);
-    return it == models.end() ? nullptr : it->second.get();
+    auto it = models_.find(name);
+    return it == models_.end() ? nullptr : it->second.get();
 }
 
 int Circuit::allocateUnknown(){
-    return nextUnknown++;
+    return nextUnknown_++;
 }
 
 bool Circuit::build(){
-    nodeMap->build(devices);
+    nodeMap_->build(devices_);
 
-    for(auto& d: devices){
-        d->bindNodes(*nodeMap);
+    for(auto& device: devices_){
+        device->bindNodes(*nodeMap_);
     }
 
-    cacheDeviceRoles();
+    cacheOperatingPointDeviceRoles();
 
-    nextUnknown = nodeMap->nodeCount();
+    nextUnknown_ = nodeMap_->nodeCount();
 
-    for(auto& d: devices){
-        d->allocateUnknown(*this);
+    for(auto& device: devices_){
+        device->allocateUnknown(*this);
     }
 
-    mna->resize(nextUnknown);
-    mna->reservePattern(devices.size() * 12 + static_cast<std::size_t>(nextUnknown));
+    mna_->resize(nextUnknown_);
+    mna_->reservePattern(
+        devices_.size() * 12 + static_cast<std::size_t>(nextUnknown_)
+    );
 
-    for(auto& d: devices){
-        d->pattern(*mna);
+    for(auto& device: devices_){
+        device->pattern(*mna_);
     }
 
-    mna->build();
+    mna_->build();
 
-    for(auto& d: devices){
-        d->bindMatrix(*mna);
+    for(auto& device: devices_){
+        device->bindMatrix(*mna_);
     }
 
     return true;
 }
 
 bool Circuit::solve(){
-    solveStats = {};
-    solveStats.maxIterations = kMaxNewtonIterations;
-    solveStats.tolerance = kNewtonTolerance;
-    solveStats.minSourceStep = kMinSourceStep;
+    return solveOperatingPoint();
+}
 
+bool Circuit::solveOperatingPoint(){
+    operatingPointStats_ = {};
+    operatingPointStats_.maxIterations = kMaxNewtonIterations;
+    operatingPointStats_.tolerance = kNewtonTolerance;
+    operatingPointStats_.minSourceStep = kMinSourceStep;
+
+    const AssembleCallback assemble = [this] {
+        assembleOperatingPointSystem();
+    };
     const std::clock_t startClock = std::clock();
-    const Eigen::VectorXd initialSolution = mna->solution();
+    const Eigen::VectorXd initialSolution = mna_->solution();
 
     if(!hasNonlinearDevices()){
-        setSourceScale(1.0);
+        setOperatingPointSourceScale(1.0);
 
         NewtonStats linearStats;
-        const bool linearSolved = solveLinear(linearStats);
+        const bool linearSolved = solveLinearSystem(assemble, linearStats);
         addNewtonStats(linearStats);
 
-        solveStats.sourceScale = linearSolved ? 1.0 : 0.0;
-        solveStats.converged = linearSolved;
-        solveStats.cpuSeconds = double(std::clock() - startClock) / CLOCKS_PER_SEC;
+        operatingPointStats_.sourceScale = linearSolved ? 1.0 : 0.0;
+        operatingPointStats_.converged = linearSolved;
+        operatingPointStats_.cpuSeconds =
+            double(std::clock() - startClock) / CLOCKS_PER_SEC;
         return linearSolved;
     }
 
-    saveDeviceStates();
-    setSourceScale(1.0);
+    saveNonlinearIterationStates();
+    setOperatingPointSourceScale(1.0);
 
     NewtonStats directStats;
-    const bool directConverged = solveNewton(directStats);
+    const bool directConverged = solveNewtonSystem(assemble, directStats);
     addNewtonStats(directStats);
 
     if(directConverged){
-        solveStats.sourceScale = 1.0;
-        solveStats.converged = true;
-        solveStats.cpuSeconds = double(std::clock() - startClock) / CLOCKS_PER_SEC;
+        operatingPointStats_.sourceScale = 1.0;
+        operatingPointStats_.converged = true;
+        operatingPointStats_.cpuSeconds =
+            double(std::clock() - startClock) / CLOCKS_PER_SEC;
         return true;
     }
 
-    restoreDeviceStates();
-    mna->setSolution(initialSolution);
-    setSourceScale(0.0);
+    restoreNonlinearIterationStates();
+    mna_->setSolution(initialSolution);
+    setOperatingPointSourceScale(0.0);
 
-    if(!solveWithDynamicSourceStepping()){
-        solveStats.cpuSeconds = double(std::clock() - startClock) / CLOCKS_PER_SEC;
+    if(!solveOperatingPointWithSourceStepping(assemble)){
+        operatingPointStats_.cpuSeconds =
+            double(std::clock() - startClock) / CLOCKS_PER_SEC;
         return false;
     }
 
-    setSourceScale(1.0);
-    solveStats.converged = true;
-    solveStats.cpuSeconds = double(std::clock() - startClock) / CLOCKS_PER_SEC;
+    setOperatingPointSourceScale(1.0);
+    operatingPointStats_.converged = true;
+    operatingPointStats_.cpuSeconds =
+        double(std::clock() - startClock) / CLOCKS_PER_SEC;
     return true;
 }
 
-bool Circuit::solveWithDynamicSourceStepping(){
-    Eigen::VectorXd acceptedSolution = mna->solution();
+bool Circuit::solveOperatingPointWithSourceStepping(
+    const AssembleCallback& assemble)
+{
+    Eigen::VectorXd acceptedSolution = mna_->solution();
     double acceptedScale = 0.0;
     double sourceStep = kInitialSourceStep;
 
     while(acceptedScale < kSourceScaleDone){
         const double trialScale = std::min(1.0, acceptedScale + sourceStep);
 
-        mna->setSolution(acceptedSolution);
-        saveDeviceStates();
-        setSourceScale(trialScale);
+        mna_->setSolution(acceptedSolution);
+        saveNonlinearIterationStates();
+        setOperatingPointSourceScale(trialScale);
 
         NewtonStats trialStats;
-        const bool converged = solveNewton(trialStats);
+        const bool converged = solveNewtonSystem(assemble, trialStats);
         addNewtonStats(trialStats);
 
         if(converged){
             acceptedScale = trialScale;
-            acceptedSolution = mna->solution();
-            solveStats.sourceScale = acceptedScale;
-            ++solveStats.sourceSteps;
-            sourceStep = std::min(kMaxSourceStep, sourceStep * kSourceStepGrowth);
+            acceptedSolution = mna_->solution();
+            operatingPointStats_.sourceScale = acceptedScale;
+            ++operatingPointStats_.sourceSteps;
+            sourceStep = std::min(
+                kMaxSourceStep,
+                sourceStep * kSourceStepGrowth
+            );
             continue;
         }
 
-        restoreDeviceStates();
-        mna->setSolution(acceptedSolution);
-        setSourceScale(acceptedScale);
-        ++solveStats.failedSourceSteps;
+        restoreNonlinearIterationStates();
+        mna_->setSolution(acceptedSolution);
+        setOperatingPointSourceScale(acceptedScale);
+        ++operatingPointStats_.failedSourceSteps;
 
         sourceStep *= 0.5;
         if(sourceStep < kMinSourceStep){
@@ -161,15 +179,16 @@ bool Circuit::solveWithDynamicSourceStepping(){
         }
     }
 
-    mna->setSolution(acceptedSolution);
+    mna_->setSolution(acceptedSolution);
     return true;
 }
 
-bool Circuit::solveLinear(NewtonStats& stats){
+bool Circuit::solveLinearSystem(const AssembleCallback& assemble,
+                                NewtonStats& stats){
     stats = {};
-    assembleSystem();
+    assemble();
 
-    if(!mna->solve()){
+    if(!mna_->solve()){
         return false;
     }
 
@@ -178,29 +197,30 @@ bool Circuit::solveLinear(NewtonStats& stats){
     return true;
 }
 
-bool Circuit::solveNewton(NewtonStats& stats){
+bool Circuit::solveNewtonSystem(const AssembleCallback& assemble,
+                                NewtonStats& stats){
     stats = {};
 
-    Eigen::VectorXd previous = mna->solution();
+    Eigen::VectorXd previous = mna_->solution();
 
     for(int iter = 0; iter < kMaxNewtonIterations; ++iter){
         stats.iterations = iter + 1;
-        assembleSystem();
+        assemble();
 
-        if(!mna->solve()){
+        if(!mna_->solve()){
             return false;
         }
 
-        Eigen::VectorXd current = mna->solution();
+        Eigen::VectorXd current = mna_->solution();
         if(current.size() != previous.size()){
             return false;
         }
 
-        Eigen::VectorXd step = current - previous;
+        const Eigen::VectorXd step = current - previous;
         const double rawDelta = step.lpNorm<Eigen::Infinity>();
         if(rawDelta > kSolutionMaxStep){
             current = previous + step * (kSolutionMaxStep / rawDelta);
-            mna->setSolution(current);
+            mna_->setSolution(current);
             ++stats.dampedSteps;
         }
 
@@ -217,33 +237,33 @@ bool Circuit::solveNewton(NewtonStats& stats){
 }
 
 void Circuit::addNewtonStats(const NewtonStats& stats){
-    solveStats.iterations += stats.iterations;
-    solveStats.dampedSteps += stats.dampedSteps;
-    solveStats.finalDelta = stats.finalDelta;
+    operatingPointStats_.iterations += stats.iterations;
+    operatingPointStats_.dampedSteps += stats.dampedSteps;
+    operatingPointStats_.finalDelta = stats.finalDelta;
 }
 
-void Circuit::cacheDeviceRoles(){
-    sourceDevices.clear();
-    statefulDevices.clear();
+void Circuit::cacheOperatingPointDeviceRoles(){
+    sourceSteppingDevices_.clear();
+    iterationStateDevices_.clear();
     hasNonlinearDevices_ = false;
 
-    for(auto& device: devices){
+    for(auto& device: devices_){
         if(device->getType() == DeviceType::VoltageSource ||
            device->getType() == DeviceType::CurrentSource){
-            sourceDevices.push_back(device.get());
+            sourceSteppingDevices_.push_back(device.get());
         }
 
         if(device->isNonlinear()){
             hasNonlinearDevices_ = true;
-            statefulDevices.push_back(device.get());
+            iterationStateDevices_.push_back(device.get());
         }
     }
 }
 
-void Circuit::assembleSystem(){
-    mna->clear();
-    for(auto& device: devices){
-        device->stamp();
+void Circuit::assembleOperatingPointSystem(){
+    mna_->clear();
+    for(auto& device: devices_){
+        device->stampOperatingPoint();
     }
 }
 
@@ -251,26 +271,26 @@ bool Circuit::hasNonlinearDevices() const{
     return hasNonlinearDevices_;
 }
 
-void Circuit::setSourceScale(double scale){
-    if(scale == currentSourceScale_){
+void Circuit::setOperatingPointSourceScale(double scale){
+    if(scale == operatingPointSourceScale_){
         return;
     }
 
-    currentSourceScale_ = scale;
-    for(auto* device: sourceDevices){
-        device->setSourceScale(scale);
+    operatingPointSourceScale_ = scale;
+    for(auto* device: sourceSteppingDevices_){
+        device->setOperatingPointSourceScale(scale);
     }
 }
 
-void Circuit::saveDeviceStates(){
-    for(auto* device: statefulDevices){
-        device->saveState();
+void Circuit::saveNonlinearIterationStates(){
+    for(auto* device: iterationStateDevices_){
+        device->saveIterationState();
     }
 }
 
-void Circuit::restoreDeviceStates(){
-    for(auto* device: statefulDevices){
-        device->restoreState();
+void Circuit::restoreNonlinearIterationStates(){
+    for(auto* device: iterationStateDevices_){
+        device->restoreIterationState();
     }
 }
 
@@ -279,20 +299,20 @@ void Circuit::printOperatingPoint(std::ostream& os) const{
     os << std::scientific << std::setprecision(10);
 
     os << "Newton Info\n";
-    os << "converged " << (solveStats.converged ? "yes" : "no") << '\n';
-    os << "iterations " << solveStats.iterations << '\n';
-    os << "max_iterations " << solveStats.maxIterations << '\n';
-    os << "final_delta " << solveStats.finalDelta << '\n';
-    os << "tolerance " << solveStats.tolerance << '\n';
-    os << "damped_steps " << solveStats.dampedSteps << '\n';
-    os << "source_steps " << solveStats.sourceSteps << '\n';
-    os << "failed_source_steps " << solveStats.failedSourceSteps << '\n';
-    os << "source_scale " << solveStats.sourceScale << '\n';
-    os << "min_source_step " << solveStats.minSourceStep << '\n';
-    os << "cpu_time_seconds " << solveStats.cpuSeconds << '\n';
+    os << "converged " << (operatingPointStats_.converged ? "yes" : "no") << '\n';
+    os << "iterations " << operatingPointStats_.iterations << '\n';
+    os << "max_iterations " << operatingPointStats_.maxIterations << '\n';
+    os << "final_delta " << operatingPointStats_.finalDelta << '\n';
+    os << "tolerance " << operatingPointStats_.tolerance << '\n';
+    os << "damped_steps " << operatingPointStats_.dampedSteps << '\n';
+    os << "source_steps " << operatingPointStats_.sourceSteps << '\n';
+    os << "failed_source_steps " << operatingPointStats_.failedSourceSteps << '\n';
+    os << "source_scale " << operatingPointStats_.sourceScale << '\n';
+    os << "min_source_step " << operatingPointStats_.minSourceStep << '\n';
+    os << "cpu_time_seconds " << operatingPointStats_.cpuSeconds << '\n';
 
-    const auto& names = nodeMap->nodeNameByIdx();
-    const auto& x = mna->solution();
+    const auto& names = nodeMap_->nodeNameByIdx();
+    const auto& x = mna_->solution();
 
     os << "Node Voltages\n";
     for(std::size_t i = 0; i < names.size(); ++i){
@@ -300,7 +320,7 @@ void Circuit::printOperatingPoint(std::ostream& os) const{
     }
 
     os << "Branch Currents\n";
-    for(const auto& device: devices){
+    for(const auto& device: devices_){
         const int branch = device->branchUnknown();
         if(branch >= 0){
             os << "i(" << device->getName() << ") " << x[branch] << '\n';

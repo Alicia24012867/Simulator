@@ -53,7 +53,7 @@ public:
         }
     }
 
-    void stamp() override{
+    void stampOperatingPoint() override{
         if(!model_) return;
 
         const auto& dc = model_->mosDc();
@@ -126,13 +126,13 @@ public:
         }
     }
 
-    void saveState() override{
+    void saveIterationState() override{
         savedPreviousVgs_ = previousVgs_;
         savedPreviousVgd_ = previousVgd_;
         savedHasPreviousVoltages_ = hasPreviousVoltages_;
     }
 
-    void restoreState() override{
+    void restoreIterationState() override{
         previousVgs_ = savedPreviousVgs_;
         previousVgd_ = savedPreviousVgd_;
         hasPreviousVoltages_ = savedHasPreviousVoltages_;

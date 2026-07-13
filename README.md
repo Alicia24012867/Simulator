@@ -74,7 +74,7 @@
 
 ## 求解方法
 
-核心求解流程在 `Circuit::solve()` 中完成：
+核心求解流程在 `Circuit::solveOperatingPoint()` 中完成：
 
 - MNA 稀疏矩阵结构在 `build()` 阶段固定，预留 pattern/locator 存储，并复用 Eigen SparseLU 的 symbolic analysis。
 - 构建阶段缓存独立源和非线性器件列表，source scaling 与 limiter state save/restore 只遍历相关器件。

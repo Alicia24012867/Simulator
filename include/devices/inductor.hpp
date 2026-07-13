@@ -6,12 +6,6 @@
 #include "../core/circuit.h"
 #include "../math/mna.hpp"
 
-/** Actually, in dc op analysis, 
- * the inductor is just treated same as 0V voltage source
- *
- *  Also, the value of the inductor is not used in the dc op analysis
- *  So we just check the value of it satisfies L > 0
- */
 
 class Inductor: public Device{
 public:
@@ -58,7 +52,7 @@ public:
         }
     }
 
-    void stamp() override {
+    void stampOperatingPoint() override {
         if(posBranch)    *posBranch += 1.0;
         if(negBranch)    *negBranch -= 1.0;
         if(branchPos)    *branchPos += 1.0;

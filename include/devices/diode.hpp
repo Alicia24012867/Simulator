@@ -52,7 +52,7 @@ public:
         }
     }
 
-    void stamp() override{
+    void stampOperatingPoint() override{
         if(!model_) return;
 
         const auto& dc = model_->diodeDc();
@@ -84,12 +84,12 @@ public:
         if(rhsN_) *rhsN_ -= bp;
     }
 
-    void saveState() override{
+    void saveIterationState() override{
         savedPreviousVd_ = previousVd_;
         savedHasPreviousVd_ = hasPreviousVd_;
     }
 
-    void restoreState() override{
+    void restoreIterationState() override{
         previousVd_ = savedPreviousVd_;
         hasPreviousVd_ = savedHasPreviousVd_;
     }

@@ -35,7 +35,7 @@ int main(int argc, char* argv[]){
         return 1;
     }
 
-    if(!circuit.solve()){
+    if(!circuit.solveOperatingPoint()){
         std::cerr << "Fail to solve circuit <" << argv[1] << "> " << std::endl;
         return 1;
     }

@@ -41,7 +41,7 @@ public:
         }
     }
 
-    void stamp() override{
+    void stampOperatingPoint() override{
         if(!model_) return;
 
         const auto& dc = model_->bjtDc();
@@ -98,13 +98,13 @@ public:
         stampLinearization(f, j);
     }
 
-    void saveState() override{
+    void saveIterationState() override{
         savedPreviousVbe_ = previousVbe_;
         savedPreviousVbc_ = previousVbc_;
         savedHasPreviousVoltages_ = hasPreviousVoltages_;
     }
 
-    void restoreState() override{
+    void restoreIterationState() override{
         previousVbe_ = savedPreviousVbe_;
         previousVbc_ = savedPreviousVbc_;
         hasPreviousVoltages_ = savedHasPreviousVoltages_;

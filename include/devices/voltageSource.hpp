@@ -51,22 +51,22 @@ public:
         rhs = &mna.rhs(branch);
     }
 
-    void stamp() override {
+    void stampOperatingPoint() override {
         if(posBranch)    *posBranch += 1.0;
         if(negBranch)    *negBranch -= 1.0;
         if(branchPos)    *branchPos += 1.0;
         if(branchNeg)    *branchNeg -= 1.0;
 
-        *rhs += sourceScale_ * v;
+        *rhs += operatingPointSourceScale_ * v;
     }
 
-    void setSourceScale(double scale) override{
-        sourceScale_ = scale;
+    void setOperatingPointSourceScale(double scale) override{
+        operatingPointSourceScale_ = scale;
     }
 
 private:
     double v;
-    double sourceScale_ = 1.0;
+    double operatingPointSourceScale_ = 1.0;
 
     double* posBranch = nullptr;
     double* negBranch = nullptr;

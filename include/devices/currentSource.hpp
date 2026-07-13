@@ -24,18 +24,18 @@ public:
         }
     }
 
-    void stamp() override {
-        if(pos) *pos -= sourceScale_ * i;
-        if(neg) *neg += sourceScale_ * i;
+    void stampOperatingPoint() override {
+        if(pos) *pos -= operatingPointSourceScale_ * i;
+        if(neg) *neg += operatingPointSourceScale_ * i;
     }
 
-    void setSourceScale(double scale) override{
-        sourceScale_ = scale;
+    void setOperatingPointSourceScale(double scale) override{
+        operatingPointSourceScale_ = scale;
     }
 
 private:
     double i;
-    double sourceScale_ = 1.0;
+    double operatingPointSourceScale_ = 1.0;
 
     double* pos = nullptr;
     double* neg = nullptr;

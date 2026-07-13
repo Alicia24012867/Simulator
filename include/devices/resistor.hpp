@@ -44,7 +44,7 @@ class Resistor: public Device{
         }
     }
 
-    void stamp() override {
+    void stampOperatingPoint() override {
         const double g = 1.0/r;
 
         if(A11) *A11 += g;

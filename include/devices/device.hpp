@@ -89,13 +89,13 @@ public:
 
     virtual void bindMatrix(MNA& mna) = 0;
 
-    virtual void stamp() = 0;
+    virtual void stampOperatingPoint() = 0;
 
-    virtual void setSourceScale(double) {}
+    virtual void setOperatingPointSourceScale(double) {}
 
-    virtual void saveState() {}
+    virtual void saveIterationState() {}
 
-    virtual void restoreState() {}
+    virtual void restoreIterationState() {}
 
 protected:
     std::string name;
