@@ -5,14 +5,15 @@
 #include "device.hpp"
 #include "../core/circuit.h"
 #include "../math/mna.hpp"
+#include "../core/transientContext.h"
 
 
 class Inductor: public Device{
 public:
     Inductor(std::string name, std::vector<std::string> nodes, double L):
-                Device(name, nodes, DeviceType::Inductor){
-        assert(L > 0.0);
-    }
+                Device(name, nodes, DeviceType::Inductor), inductance_(L) {
+                    assert(L > 0.0);
+                }
 
     void allocateUnknown(Circuit& circuit) override{
         branch = circuit.allocateUnknown();
@@ -36,6 +37,8 @@ public:
             mna.addPattern(n,branch);
             mna.addPattern(branch,n);
         }
+
+        mna.addPattern(branch, branch);
     }
 
     void bindMatrix(MNA& mna) override{
@@ -50,6 +53,9 @@ public:
             negBranch = mna.ptr(n, branch);
             branchNeg = mna.ptr(branch, n);
         }
+
+        bb = mna.ptr(branch, branch);
+        rhs = &mna.rhs(branch);
     }
 
     void stampOperatingPoint() override {
@@ -59,11 +65,25 @@ public:
         if(branchNeg)    *branchNeg -= 1.0;
     }
 
+    void stampTransient(const TransientStampContext& ctx) override {
+        const double preI = ctx.previousSolutionVal(branch);
+        const double r = inductance_ / ctx.timeStep;
+    
+        stampOperatingPoint();
+        *bb -= r;
+        *rhs -= r * preI;
+    }
+
 private:
+    double inductance_;
+
     double* posBranch = nullptr;
     double* negBranch = nullptr;
     double* branchPos = nullptr;
     double* branchNeg = nullptr;
+
+    double* bb = nullptr;
+    double* rhs = nullptr;
 
     int branch = -1;
 };

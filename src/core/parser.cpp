@@ -34,7 +34,7 @@ bool Parser::parse(Circuit& circuit){
         return false;
     }
 
-    tranAnalysis_.reset();
+    analysisPlan_ = {};
 
     std::string line;
     bool firstLine = true;
@@ -73,7 +73,7 @@ bool Parser::parse(Circuit& circuit){
 
     try {
         for(const auto& tokens: lines){
-            if(tokens[0][0] == '.' && !parseDirective(tokens)){
+            if(tokens[0][0] == '.' && !parseAnalysisDirective(tokens)){
                 return false;
             }
         }
@@ -100,36 +100,41 @@ bool Parser::parse(Circuit& circuit){
     return true;
 }
 
-bool Parser::parseDirective(const std::vector<std::string>& tokens){
+bool Parser::parseAnalysisDirective(const std::vector<std::string>& tokens){
+    if(equal_ignore_case(tokens[0], ".op")){
+        analysisPlan_.operatingPointRequested = true;
+        return true;
+    }
+
     if(!equal_ignore_case(tokens[0], ".tran")){
         return true;
     }
 
-    if(tranAnalysis_){
+    if(analysisPlan_.transient){
         throw std::runtime_error("Multiple .tran directives are not supported");
     }
     if(tokens.size() < 3){
         throw std::runtime_error(".tran requires TSTEP and TSTOP");
     }
 
-    TranAnalysis analysis;
-    analysis.timeStep = parse_spice_number(tokens[1]);
-    analysis.stopTime = parse_spice_number(tokens[2]);
+    TransientAnalysisConfig config;
+    config.outputInterval = parse_spice_number(tokens[1]);
+    config.stopTime = parse_spice_number(tokens[2]);
 
-    if(analysis.timeStep <= 0.0){
+    if(config.outputInterval <= 0.0){
         throw std::runtime_error(".tran TSTEP must be positive");
     }
-    if(analysis.stopTime <= 0.0){
+    if(config.stopTime <= 0.0){
         throw std::runtime_error(".tran TSTOP must be positive");
     }
 
     std::vector<double> optionalTimes;
     for(std::size_t i = 3; i < tokens.size(); ++i){
         if(equal_ignore_case(tokens[i], "uic")){
-            if(analysis.useInitialConditions){
+            if(config.useInitialConditions){
                 throw std::runtime_error(".tran specifies UIC more than once");
             }
-            analysis.useInitialConditions = true;
+            config.useInitialConditions = true;
             continue;
         }
         optionalTimes.push_back(parse_spice_number(tokens[i]));
@@ -139,19 +144,20 @@ bool Parser::parseDirective(const std::vector<std::string>& tokens){
         throw std::runtime_error(".tran accepts at most TSTART and TMAX after TSTEP and TSTOP");
     }
     if(!optionalTimes.empty()){
-        analysis.startTime = optionalTimes[0];
-        if(*analysis.startTime < 0.0 || *analysis.startTime >= analysis.stopTime){
+        config.outputStartTime = optionalTimes[0];
+        if(config.outputStartTime < 0.0 ||
+           config.outputStartTime >= config.stopTime){
             throw std::runtime_error(".tran TSTART must be non-negative and smaller than TSTOP");
         }
     }
     if(optionalTimes.size() == 2){
-        analysis.maxTimeStep = optionalTimes[1];
-        if(*analysis.maxTimeStep <= 0.0){
+        config.maximumStep = optionalTimes[1];
+        if(*config.maximumStep <= 0.0){
             throw std::runtime_error(".tran TMAX must be positive");
         }
     }
 
-    tranAnalysis_ = analysis;
+    analysisPlan_.transient = config;
     return true;
 }
 

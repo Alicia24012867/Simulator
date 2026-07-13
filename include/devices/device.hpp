@@ -51,7 +51,7 @@ inline const char* deviceTypeName(DeviceType type){
 class Circuit;
 class MNA;
 class NodeMap;
-
+struct TransientStampContext;
 class Device{
 public:
     Device(std::string n, std::vector<std::string> ns, DeviceType t): name(n), nodes(ns), type(t){}
@@ -90,6 +90,11 @@ public:
     virtual void bindMatrix(MNA& mna) = 0;
 
     virtual void stampOperatingPoint() = 0;
+
+    virtual void stampTransient(const TransientStampContext&){
+        //default: 
+        stampOperatingPoint();
+    }
 
     virtual void setOperatingPointSourceScale(double) {}
 

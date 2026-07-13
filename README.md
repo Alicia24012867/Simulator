@@ -67,9 +67,10 @@
 - SPICE 数值后缀：`f`, `p`, `n`, `u`, `m`, `k`, `meg`, `g`, `t`, `mil`。
 - 电源值写法：`DC 5`, `DC=5`, 或直接写数值。
 
-当前会忽略除 `.model` 和 `.end` 以外的大多数点命令。例如：
+当前会记录 `.op` 与 `.tran` 分析请求，但执行路径仍仅为 operating point：
 
-- `.op` 目前不作为真正控制命令解析；程序默认执行 operating point。
+- `.op` 会记录为 operating-point 请求；程序仍默认执行 operating point。
+- `.tran` 会解析 `TSTEP`、`TSTOP`、可选的 `TSTART` / `TMAX` 与 `UIC`，但尚不执行瞬态求解。
 - `.print op ...` 目前不控制输出项；程序会输出所有节点电压和有 branch unknown 的器件电流。
 
 ## 求解方法
