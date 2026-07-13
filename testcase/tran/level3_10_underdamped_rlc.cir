@@ -1,0 +1,9 @@
+Level 3 - underdamped series RLC
+V1 in 0 DC 5
+R1 in n1 20
+L1 n1 out 10m
+C1 out 0 1u
+RLEAK out 0 10k
+.tran 20u 2m 0 5u UIC
+.print tran v(in) v(n1) v(out) i(v1) i(l1)
+.end

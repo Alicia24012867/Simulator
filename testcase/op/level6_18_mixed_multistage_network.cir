@@ -1,0 +1,35 @@
+Level 6 - mixed CMOS BJT MOS diode multi-stage network
+.model DMOD D IS=2e-14 N=1.04
+.model QN NPN IS=8e-17 BF=110 BR=2 NF=1 NR=1
+.model QP PNP IS=1e-16 BF=90 BR=2 NF=1 NR=1
+.model NMOD NMOS VTO=0.65 KP=75u LAMBDA=0.025
+.model PMOD PMOS VTO=-0.65 KP=38u LAMBDA=0.025
+VDD vdd 0 DC 6
+VIN in 0 DC 2.2
+VCTRL ctrl 0 DC 2.35
+VBP pb 0 DC 5.24
+LRAIL vdd rail 3m
+MPX x in rail rail PMOD W=22u L=1u
+MNX x in 0 0 NMOD W=10u L=1u
+RX x 0 120k
+RBX x base 39k
+RB0 base 0 15k
+RC1 rail c1 2.7k
+RE1 emit 0 680
+Q1 c1 base emit QN
+QP1 out pb rail QP AREA=0.7
+RLOAD rail out 5.6k
+M1 out ctrl source 0 NMOD W=10u L=1u
+RS source 0 330
+M2 c1 ctrl 0 0 NMOD W=3u L=1u
+D1 c1 base DMOD
+D2 out base DMOD AREA=1.5
+D3 ctrl out DMOD
+RCOUP c1 out 12k
+CIN x 0 12p
+CCOMP c1 base 8p
+COUT out 0 33p
+.op
+.print op v(vdd) v(rail) v(in) v(ctrl) v(pb) v(x) v(base) v(emit)
++ v(c1) v(source) v(out) i(vdd) i(vin) i(vctrl) i(vbp) i(lrail)
+.end

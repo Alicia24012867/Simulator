@@ -1,0 +1,12 @@
+Level 3 - dual RLC ladder
+V1 src 0 DC 5
+RS src n1 10
+L1 n1 n2 2m
+C1 n2 0 2u
+R2 n2 n3 15
+L2 n3 out 4m
+C2 out 0 1u
+RLOAD out 0 100
+.tran 10u 1m 0 2u UIC
+.print tran v(src) v(n1) v(n2) v(n3) v(out) i(v1) i(l1) i(l2)
+.end

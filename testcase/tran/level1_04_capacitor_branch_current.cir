@@ -1,0 +1,7 @@
+Level 1 - ideal source capacitor branch current
+V1 out 0 DC 2
+R1 out 0 1meg
+C1 out 0 1u
+.tran 20u 100u UIC
+.print tran v(out) i(v1)
+.end

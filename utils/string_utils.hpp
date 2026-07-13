@@ -1,5 +1,7 @@
 #pragma once
 #include <cctype>
+#include <cmath>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -42,7 +44,12 @@ inline bool equal_ignore_case(const std::string& a, const std::string& b){
 }
 
 inline std::string strip_spice_comment(const std::string& line){
-    std::size_t pos = line.find_first_of(";#");
+    std::size_t pos = line.find_first_of(";$");
+    const std::size_t slashPos = line.find("//");
+    if(slashPos != std::string::npos &&
+       (pos == std::string::npos || slashPos < pos)){
+        pos = slashPos;
+    }
     return pos == std::string::npos ? line : line.substr(0, pos);
 }
 
@@ -64,28 +71,41 @@ inline std::vector<std::string> tokenize_spice_line(const std::string& line){
 }
 
 inline double parse_spice_number(std::string text){
-    text = to_lower_copy(text);
-    std::size_t idx = 0;
-    double value = std::stod(text, &idx);
-    const std::string suffix = text.substr(idx);
-
-    if(suffix.empty()){
-        return value;
+    static const std::regex spiceNumber(
+        R"(^([+-]?(?:(?:[0-9]+(?:\.[0-9]*)?)|(?:\.[0-9]+))(?:[eE][+-]?[0-9]+)?)([A-Za-z]*)$)"
+    );
+    std::smatch match;
+    if(!std::regex_match(text, match, spiceNumber)){
+        throw std::runtime_error("Invalid SPICE number: " + text);
     }
 
-    if(suffix.rfind("meg", 0) == 0) return value * 1e6;
-    if(suffix.rfind("mil", 0) == 0) return value * 25.4e-6;
+    const double value = std::stod(match[1].str());
+    const std::string suffix = to_lower_copy(match[2].str());
+
+    auto scaled = [value](double multiplier){
+        const double result = value * multiplier;
+        if(!std::isfinite(result)){
+            throw std::runtime_error("SPICE number must be finite");
+        }
+        return result;
+    };
+
+    if(suffix.empty()) return scaled(1.0);
+
+    if(suffix.rfind("meg", 0) == 0) return scaled(1e6);
+    if(suffix.rfind("mil", 0) == 0) return scaled(25.4e-6);
 
     switch(suffix[0]){
-        case 'f': return value * 1e-15;
-        case 'p': return value * 1e-12;
-        case 'n': return value * 1e-9;
-        case 'u': return value * 1e-6;
-        case 'm': return value * 1e-3;
-        case 'k': return value * 1e3;
-        case 'g': return value * 1e9;
-        case 't': return value * 1e12;
-        default: return value;
+        case 'a': return scaled(1e-18);
+        case 'f': return scaled(1e-15);
+        case 'p': return scaled(1e-12);
+        case 'n': return scaled(1e-9);
+        case 'u': return scaled(1e-6);
+        case 'm': return scaled(1e-3);
+        case 'k': return scaled(1e3);
+        case 'g': return scaled(1e9);
+        case 't': return scaled(1e12);
+        default: return scaled(1.0);
     }
 }
 
@@ -105,25 +125,25 @@ inline bool read_spice_assignment(const std::vector<std::string>& tokens,
         return !key.empty() && !value.empty();
     }
 
-    if(i + 2 < tokens.size() && tokens[i + 1] == "="){
+    if(i + 1 < tokens.size() && tokens[i + 1] == "="){
+        if(i + 2 >= tokens.size()){
+            return false;
+        }
         key = to_lower_copy(tokens[i]);
         value = tokens[i + 2];
         i += 2;
         return !key.empty() && !value.empty();
     }
 
-    return false;
-}
+    if(i + 1 < tokens.size() && tokens[i + 1].size() > 1 &&
+       tokens[i + 1][0] == '='){
+        key = to_lower_copy(tokens[i]);
+        value = tokens[i + 1].substr(1);
+        ++i;
+        return !key.empty() && !value.empty();
+    }
 
-inline double parse_spice_value_text(const std::string& token){
-    const std::size_t eq = token.find('=');
-    if(eq == std::string::npos){
-        return parse_spice_number(token);
-    }
-    if(eq + 1 == token.size()){
-        throw std::runtime_error("Missing value after '='");
-    }
-    return parse_spice_number(token.substr(eq + 1));
+    return false;
 }
 
 inline double parse_spice_value_token(const std::vector<std::string>& tokens,
@@ -134,22 +154,35 @@ inline double parse_spice_value_token(const std::vector<std::string>& tokens,
 
     if(equal_ignore_case(tokens[first], "dc")){
         std::size_t valueIndex = first + 1;
+        bool separatedEquals = false;
         if(valueIndex < tokens.size() && tokens[valueIndex] == "="){
+            separatedEquals = true;
             ++valueIndex;
         }
         if(valueIndex >= tokens.size()){
             throw std::runtime_error("Missing DC value");
         }
-        return parse_spice_value_text(tokens[valueIndex]);
+        const std::string& value = tokens[valueIndex];
+        return parse_spice_number(
+            !separatedEquals && value.size() > 1 && value[0] == '='
+                ? value.substr(1)
+                : value
+        );
     }
 
     const std::string dcPrefix = "dc=";
     const std::string token = to_lower_copy(tokens[first]);
+    if(token == dcPrefix){
+        if(first + 1 >= tokens.size()){
+            throw std::runtime_error("Missing DC value");
+        }
+        return parse_spice_number(tokens[first + 1]);
+    }
     if(token.rfind(dcPrefix, 0) == 0){
         return parse_spice_number(token.substr(dcPrefix.size()));
     }
 
-    return parse_spice_value_text(tokens[first]);
+    return parse_spice_number(tokens[first]);
 }
 
 inline double parse_spice_named_value(const std::vector<std::string>& tokens,

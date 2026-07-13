@@ -1,6 +1,21 @@
 #pragma once
 
 #include <optional>
+#include <string>
+#include <vector>
+
+enum class PrintQuantity {
+    Voltage,
+    BranchCurrent
+};
+
+// One SPICE .print expression. For a voltage, name is the positive node and
+// reference is the optional negative node. For a current, name is the device.
+struct PrintVariable {
+    PrintQuantity quantity = PrintQuantity::Voltage;
+    std::string name;
+    std::string reference = "0";
+};
 
 // Parsed .tran parameters. This is declarative netlist data, not solver state.
 struct TransientAnalysisConfig {
@@ -15,5 +30,9 @@ struct TransientAnalysisConfig {
 // without changing Parser's public result interface.
 struct AnalysisPlan {
     bool operatingPointRequested = false;
+    bool operatingPointPrintRequested = false;
+    bool transientPrintRequested = false;
     std::optional<TransientAnalysisConfig> transient;
+    std::vector<PrintVariable> operatingPointPrints;
+    std::vector<PrintVariable> transientPrints;
 };

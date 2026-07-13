@@ -1,0 +1,20 @@
+Level 5 - BJT differential pair with DC reactive limits
+.model QN NPN IS=1e-16 BF=150 BR=2 NF=1 NR=1
+.model DMOD D IS=1e-14 N=1
+VCC vcc 0 DC 9
+VINP inp 0 DC 0.78
+VINN inn 0 DC 0.74
+LRAIL vcc rail 5m
+RC1 rail c1 4.7k
+RC2 rail c2 4.7k
+Q1 c1 inp emit QN
+Q2 c2 inn emit QN
+ITAIL emit 0 DC 1m
+RE emit 0 100k
+RREF rail ref 12k
+DREF ref 0 DMOD
+CCOMP c1 c2 20p
+.op
+.print op v(vcc) v(rail) v(inp) v(inn) v(emit) v(c1) v(c2) v(ref)
++ i(vcc) i(vinp) i(vinn) i(lrail)
+.end

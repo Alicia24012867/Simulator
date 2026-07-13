@@ -1,0 +1,25 @@
+Level 6 - complementary BJT push-pull bridge
+.model QN NPN IS=1e-16 BF=120 BR=2 NF=1 NR=1
+.model QP PNP IS=1e-16 BF=100 BR=2 NF=1 NR=1
+.model DMOD D IS=1e-14 N=1.02
+VCC vcc 0 DC 9
+VBP1 bp1 0 DC 8.24
+VBP2 bp2 0 DC 8.28
+VBN1 bn1 0 DC 0.72
+VBN2 bn2 0 DC 0.76
+QP1 left bp1 vcc QP
+QP2 right bp2 vcc QP AREA=1.2
+QN1 left bn1 0 QN
+QN2 right bn2 0 QN AREA=0.8
+RL left 0 12k
+RR right 0 15k
+RCROSS left right 3.3k
+D1 left sense DMOD
+D2 sense right DMOD
+RSENSE sense 0 47k
+C1 left 0 20p
+C2 right 0 25p
+.op
+.print op v(vcc) v(bp1) v(bp2) v(bn1) v(bn2) v(left) v(right) v(sense)
++ i(vcc) i(vbp1) i(vbp2) i(vbn1) i(vbn2)
+.end

@@ -1,0 +1,14 @@
+Level 3 - two source energy storage bridge
+V1 a 0 DC 12
+V2 b 0 DC 3
+R1 a n1 100
+L1 n1 x 2m
+C1 x 0 2u
+R2 x y 220
+C2 y 0 1u
+R3 y b 330
+L2 y z 1m
+R4 z 0 100
+.tran 20u 1m 0 5u UIC
+.print tran v(a) v(b) v(n1) v(x) v(y) v(z) i(v1) i(v2) i(l1) i(l2)
+.end

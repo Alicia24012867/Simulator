@@ -1,6 +1,8 @@
 #include "../include/core/nodeMap.h"
 #include "../include/devices/device.hpp"
 
+#include "../../utils/string_utils.hpp"
+
 void Device::bindNodes(const NodeMap& nodemap){
     nodeIds.resize(nodes.size());
 
@@ -16,7 +18,8 @@ void NodeMap::build(const std::vector<std::unique_ptr<Device>>& devices){
     for(auto& device : devices){
         std::vector<std::string> nodes = device->getNodes();
         for(auto& node : nodes){
-            if(node == "0" || node == "GND" || node == "gnd"){
+            node = to_lower_copy(node);
+            if(node == "0" || node == "gnd"){
                 continue;
             }
             auto it = name_to_idx.find(node);
@@ -30,7 +33,8 @@ void NodeMap::build(const std::vector<std::unique_ptr<Device>>& devices){
 }
 
 int NodeMap::idxOf(std::string name) const {
-    if(name == "0" || name == "GND" || name == "gnd"){
+    name = to_lower_copy(name);
+    if(name == "0" || name == "gnd"){
         return -1;
     }
     

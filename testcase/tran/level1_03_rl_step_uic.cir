@@ -1,0 +1,7 @@
+Level 1 - RL step with UIC
+V1 in 0 DC 5
+R1 in out 50
+L1 out 0 10m
+.tran 20u 1m UIC
+.print tran v(in) v(out) i(v1) i(l1)
+.end

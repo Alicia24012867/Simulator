@@ -1,0 +1,10 @@
+Level 4 - diode RC clamp
+.model DMOD D IS=1e-14 N=1
+V1 in 0 DC 1.5
+R1 in out 1k
+C1 out 0 500n
+D1 out 0 DMOD
+RLEAK out 0 100k
+.tran 10u 500u 0 2u UIC
+.print tran v(in) v(out) i(v1)
+.end

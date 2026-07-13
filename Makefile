@@ -4,15 +4,27 @@ CXX_FLAGS = -std=$(CXX_STD) -Wall -Wextra -I./include
 SRC = ./src/main.cpp \
 	  $(wildcard ./src/math/*.cpp) \
 	  $(wildcard ./src/devices/*.cpp) \
-	  $(wildcard ./src/core/*.cpp)
+	  $(wildcard ./src/core/*.cpp) \
+	  $(wildcard ./src/io/*.cpp)
+HEADERS = $(shell find ./include ./utils -type f 2>/dev/null)
 TARGET = spice
-TESTCASE_DIR ?= testcase
+TESTCASE_ROOT ?= testcase
+OP_TESTCASE_DIR ?= $(TESTCASE_ROOT)/op
+TRAN_TESTCASE_DIR ?= $(TESTCASE_ROOT)/tran
 ACTUAL_DIR ?= actual
-STANDARD_DIR ?= standard
+OP_ACTUAL_DIR ?= $(ACTUAL_DIR)/op
+TRAN_ACTUAL_DIR ?= $(ACTUAL_DIR)/tran
+STANDARD_ROOT ?= standard
+OP_STANDARD_DIR ?= $(STANDARD_ROOT)/op
+TRAN_STANDARD_DIR ?= $(STANDARD_ROOT)/tran
 PYTHON ?= python3
 OP_ABS_TOL ?= 1e-3
 OP_REL_TOL ?= 2e-3
+TRAN_ABS_TOL ?= 1e-7
+TRAN_REL_TOL ?= 1e-4
+TIME_ABS_TOL ?= 1e-15
 OP_COMPARE_FLAGS ?=
+TRAN_COMPARE_FLAGS ?=
 
 UNAME_S := $(shell uname -s)
 
@@ -49,7 +61,10 @@ else ifneq ($(strip $(EIGEN_PKG_CFLAGS)),)
 EIGEN_FLAGS := $(EIGEN_PKG_CFLAGS)
 endif
 
-.PHONY: clean test compare check-eigen check-deps
+.PHONY: all clean test test-io test-op test-tran compare compare-op compare-tran \
+	check-eigen check-deps
+
+all: $(TARGET)
 
 check-eigen:
 	@if [ -z "$(EIGEN_FLAGS)" ]; then \
@@ -79,33 +94,92 @@ check-eigen:
 
 check-deps: check-eigen
 
-$(TARGET):  check-eigen $(SRC)
+$(TARGET): check-eigen $(SRC) $(HEADERS)
 	$(CXX) $(CXX_FLAGS) $(EIGEN_FLAGS) -o $(TARGET) $(SRC)
 
-test: $(TARGET)
-	@mkdir -p $(ACTUAL_DIR)
-	@for f in $(TESTCASE_DIR)/*.cir; do \
-		base=$$(basename "$$f" .cir); \
-		out_dir="$(ACTUAL_DIR)/$$base"; \
-		mkdir -p "$$out_dir"; \
-		echo "Running $$base"; \
-		./$(TARGET) "$$f" > "$$out_dir/$$base.out" 2> "$$out_dir/$$base.err"; \
-	done
-	@$(PYTHON) scripts/compare_op.py \
-		--standard "$(STANDARD_DIR)" \
-		--actual "$(ACTUAL_DIR)" \
+test: test-io test-op test-tran
+
+test-io: $(TARGET)
+	@$(PYTHON) scripts/test_io.py ./$(TARGET)
+
+test-op: $(TARGET)
+	@rm -rf "$(OP_ACTUAL_DIR)"; \
+	mkdir -p "$(OP_ACTUAL_DIR)"; \
+	status=0; \
+	for f in "$(OP_TESTCASE_DIR)"/*.cir; do \
+		base=$${f##*/}; \
+		base=$${base%.cir}; \
+		out="$(OP_ACTUAL_DIR)/$$base.out"; \
+		raw="$(OP_ACTUAL_DIR)/$$base.raw"; \
+		err="$(OP_ACTUAL_DIR)/$$base.err"; \
+		rm -f "$$out" "$$raw" "$$err"; \
+		echo "Running OP $$base"; \
+		./$(TARGET) -b -o "$$out" -r "$$raw" "$$f" 2> "$$err" || status=1; \
+	done; \
+	$(PYTHON) scripts/validate_raw.py \
+		--analysis op \
+		--listing-dir "$(OP_ACTUAL_DIR)" \
+		"$(OP_ACTUAL_DIR)"/*.raw || status=1; \
+	$(PYTHON) scripts/compare_spice.py \
+		--analysis op \
+		--standard "$(OP_STANDARD_DIR)" \
+		--actual "$(OP_ACTUAL_DIR)" \
 		--atol "$(OP_ABS_TOL)" \
 		--rtol "$(OP_REL_TOL)" \
+		--time-atol "$(TIME_ABS_TOL)" \
+		$(OP_COMPARE_FLAGS) || status=1; \
+	exit $$status
+
+test-tran: $(TARGET)
+	@rm -rf "$(TRAN_ACTUAL_DIR)"; \
+	mkdir -p "$(TRAN_ACTUAL_DIR)"; \
+	status=0; \
+	for f in "$(TRAN_TESTCASE_DIR)"/*.cir; do \
+		base=$${f##*/}; \
+		base=$${base%.cir}; \
+		out="$(TRAN_ACTUAL_DIR)/$$base.out"; \
+		raw="$(TRAN_ACTUAL_DIR)/$$base.raw"; \
+		err="$(TRAN_ACTUAL_DIR)/$$base.err"; \
+		rm -f "$$out" "$$raw" "$$err"; \
+		echo "Running TRAN $$base"; \
+		./$(TARGET) -b -o "$$out" -r "$$raw" "$$f" 2> "$$err" || status=1; \
+	done; \
+	$(PYTHON) scripts/validate_raw.py \
+		--analysis tran \
+		--listing-dir "$(TRAN_ACTUAL_DIR)" \
+		"$(TRAN_ACTUAL_DIR)"/*.raw || status=1; \
+	$(PYTHON) scripts/compare_spice.py \
+		--analysis tran \
+		--standard "$(TRAN_STANDARD_DIR)" \
+		--actual "$(TRAN_ACTUAL_DIR)" \
+		--atol "$(TRAN_ABS_TOL)" \
+		--rtol "$(TRAN_REL_TOL)" \
+		--time-atol "$(TIME_ABS_TOL)" \
+		$(TRAN_COMPARE_FLAGS) || status=1; \
+	exit $$status
+
+compare: compare-op compare-tran
+
+compare-op:
+	@$(PYTHON) scripts/compare_spice.py \
+		--analysis op \
+		--standard "$(OP_STANDARD_DIR)" \
+		--actual "$(OP_ACTUAL_DIR)" \
+		--atol "$(OP_ABS_TOL)" \
+		--rtol "$(OP_REL_TOL)" \
+		--time-atol "$(TIME_ABS_TOL)" \
 		$(OP_COMPARE_FLAGS)
 
-compare:
-	@$(PYTHON) scripts/compare_op.py \
-		--standard "$(STANDARD_DIR)" \
-		--actual "$(ACTUAL_DIR)" \
-		--atol "$(OP_ABS_TOL)" \
-		--rtol "$(OP_REL_TOL)" \
-		$(OP_COMPARE_FLAGS)
+compare-tran:
+	@$(PYTHON) scripts/compare_spice.py \
+		--analysis tran \
+		--standard "$(TRAN_STANDARD_DIR)" \
+		--actual "$(TRAN_ACTUAL_DIR)" \
+		--atol "$(TRAN_ABS_TOL)" \
+		--rtol "$(TRAN_REL_TOL)" \
+		--time-atol "$(TIME_ABS_TOL)" \
+		$(TRAN_COMPARE_FLAGS)
 
 clean: 
 	rm -f $(TARGET)
-	rm -rf $(ACTUAL_DIR)/
+	rm -rf "$(ACTUAL_DIR)"

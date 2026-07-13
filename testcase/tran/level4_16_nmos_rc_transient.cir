@@ -1,0 +1,11 @@
+Level 4 - NMOS RC transient
+.model NMOD NMOS VTO=0.7 KP=80u LAMBDA=0.02
+VDD vdd 0 DC 5
+VG gate 0 DC 2
+R1 vdd out 5k
+M1 out gate 0 0 NMOD W=10u L=1u
+C1 out 0 1u
+RLEAK out 0 100k
+.tran 10u 500u 0 2u UIC
+.print tran v(vdd) v(gate) v(out) i(vdd) i(vg)
+.end

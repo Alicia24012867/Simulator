@@ -1,0 +1,12 @@
+Level 3 - three stage RC ladder
+V1 src 0 DC 5
+R1 src n1 500
+C1 n1 0 1u
+R2 n1 n2 1k
+C2 n2 0 500n
+R3 n2 out 2k
+C3 out 0 250n
+RLOAD out 0 10k
+.tran 50u 2m 100u 10u UIC
+.print tran v(src) v(n1) v(n2) v(out) i(v1)
+.end

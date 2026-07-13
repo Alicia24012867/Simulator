@@ -1,6 +1,6 @@
 #pragma once
-#include <fstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "analysisPlan.h"
@@ -9,7 +9,9 @@ class Circuit;
 
 class Parser{
 public:
-    Parser(std::string f): file(f), filename(f){}
+    explicit Parser(std::string filename):
+        filename_(std::move(filename)) {}
+
     ~Parser() = default;
 
     bool parse(Circuit& circuit);
@@ -18,12 +20,17 @@ public:
         return analysisPlan_;
     }
 
+    const std::string& title() const{
+        return title_;
+    }
+
 private:
     bool parseLine(Circuit& circuit, const std::vector<std::string>& tokens);
     bool parseModel(Circuit& circuit, const std::vector<std::string>& tokens);
     bool parseAnalysisDirective(const std::vector<std::string>& tokens);
+    void parsePrintDirective(const std::string& line);
 
-    std::ifstream file;
-    std::string filename;
+    std::string filename_;
+    std::string title_;
     AnalysisPlan analysisPlan_;
 };

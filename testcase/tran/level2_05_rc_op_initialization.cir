@@ -1,0 +1,7 @@
+Level 2 - RC initialized from operating point
+V1 in 0 DC 3
+R1 in out 2k
+C1 out 0 500n
+.tran 100u 500u
+.print tran v(in) v(out) i(v1)
+.end

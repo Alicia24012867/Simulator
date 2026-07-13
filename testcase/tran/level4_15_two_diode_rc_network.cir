@@ -1,0 +1,13 @@
+Level 4 - two diode RC network
+.model DMOD D IS=2e-14 N=1.05
+V1 src 0 DC 3
+RS src n1 470
+D1 n1 out DMOD
+C1 out 0 1u
+RLOAD out 0 10k
+D2 out clamp DMOD
+RCLAMP clamp 0 2.2k
+C2 clamp 0 470n
+.tran 10u 1m 0 2u UIC
+.print tran v(src) v(n1) v(out) v(clamp) i(v1)
+.end

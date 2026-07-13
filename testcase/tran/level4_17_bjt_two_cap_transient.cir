@@ -1,0 +1,12 @@
+Level 4 - BJT two capacitor transient
+.model QN NPN IS=1e-16 BF=100 BR=1 NF=1 NR=1
+VCC vcc 0 DC 5
+VBB base 0 DC 0.72
+RC vcc coll 2k
+RE emit 0 220
+Q1 coll base emit QN
+CC coll 0 500n
+CE emit 0 1u
+.tran 10u 1m 0 2u UIC
+.print tran v(vcc) v(base) v(coll) v(emit) i(vcc) i(vbb)
+.end

@@ -1,0 +1,25 @@
+Level 5 - two-stage CMOS NAND with diode clamps
+.model DMOD D IS=2e-14 N=1.03
+.model NMOD NMOS VTO=0.7 KP=90u LAMBDA=0.02
+.model PMOD PMOS VTO=-0.7 KP=45u LAMBDA=0.02
+VDD vdd 0 DC 5
+VA a 0 DC 3.0
+VB b 0 DC 2.2
+MP1 x a vdd vdd PMOD W=20u L=1u
+MP2 x b vdd vdd PMOD W=20u L=1u
+MN1 x a stack 0 NMOD W=14u L=1u
+MN2 stack b 0 0 NMOD W=14u L=1u
+MP3 out x vdd vdd PMOD W=24u L=1u
+MN3 out x 0 0 NMOD W=12u L=1u
+RSTACK stack 0 200k
+RCOUP x out 18k
+RX x 0 150k
+ROUT out 0 220k
+D1 x 0 DMOD
+D2 out 0 DMOD AREA=2
+D3 x out DMOD
+CX x 0 15p
+COUT out 0 30p
+.op
+.print op v(vdd) v(a) v(b) v(stack) v(x) v(out) i(vdd) i(va) i(vb)
+.end

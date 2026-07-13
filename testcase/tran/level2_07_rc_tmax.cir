@@ -1,0 +1,7 @@
+Level 2 - RC with smaller maximum step
+V1 in 0 DC 5
+R1 in out 1k
+C1 out 0 1u
+.tran 200u 1m 0 50u UIC
+.print tran v(in) v(out) i(v1)
+.end

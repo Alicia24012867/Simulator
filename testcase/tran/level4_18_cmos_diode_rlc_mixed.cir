@@ -1,0 +1,18 @@
+Level 4 - CMOS diode RLC mixed transient
+.model DMOD D IS=1e-14 N=1.02
+.model NMOD NMOS VTO=0.7 KP=80u LAMBDA=0.02
+.model PMOD PMOS VTO=-0.7 KP=40u LAMBDA=0.02
+VDD vdd 0 DC 5
+VIN in 0 DC 2.2
+RS vdd supply 20
+L1 supply rail 1m
+MP out in rail rail PMOD W=20u L=1u
+MN out in 0 0 NMOD W=10u L=1u
+C1 out 0 1u
+R1 out sense 1k
+C2 sense 0 500n
+D1 sense 0 DMOD
+RLEAK out 0 100k
+.tran 5u 500u 0 1u UIC
+.print tran v(vdd) v(in) v(supply) v(rail) v(out) v(sense) i(vdd) i(vin) i(l1)
+.end

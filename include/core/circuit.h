@@ -1,6 +1,7 @@
 #pragma once
+#include <Eigen/Core>
+
 #include <functional>
-#include <iosfwd>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -11,6 +12,9 @@ class Device;
 class MNA;
 class Model;
 class NodeMap;
+class SpiceOutputAccess;
+struct TransientAnalysisConfig;
+struct TransientStampContext;
 
 class Circuit{
 public:
@@ -38,9 +42,11 @@ public:
 
     bool solveOperatingPoint();
 
-    void printOperatingPoint(std::ostream& os) const;
+    bool solveTransient(const TransientAnalysisConfig& config);
 
 private:
+    friend class SpiceOutputAccess;
+
     using AssembleCallback = std::function<void()>;
 
     struct OperatingPointStats {
@@ -63,6 +69,25 @@ private:
         double finalDelta = 0.0;
     };
 
+    struct TransientStats {
+        bool converged = false;
+        int timeSteps = 0;
+        int outputPoints = 0;
+        int iterations = 0;
+        int maxIterations = 0;
+        int dampedSteps = 0;
+        double finalTime = 0.0;
+        double finalDelta = 0.0;
+        double tolerance = 0.0;
+        double initializationCpuSeconds = 0.0;
+        double cpuSeconds = 0.0;
+    };
+
+    struct TransientSample {
+        double time = 0.0;
+        Eigen::VectorXd solution;
+    };
+
     bool solveNewtonSystem(const AssembleCallback& assemble,
                            NewtonStats& stats);
 
@@ -78,6 +103,8 @@ private:
 
     void assembleOperatingPointSystem();
 
+    void assembleTransientSystem(const TransientStampContext& ctx);
+
     bool hasNonlinearDevices() const;
 
     void setOperatingPointSourceScale(double scale);
@@ -85,6 +112,8 @@ private:
     void saveNonlinearIterationStates();
 
     void restoreNonlinearIterationStates();
+
+    void recordTransientSample(double time);
 
     std::unique_ptr<MNA> mna_;
 
@@ -105,4 +134,8 @@ private:
     std::unique_ptr<NodeMap> nodeMap_;
 
     OperatingPointStats operatingPointStats_;
+
+    TransientStats transientStats_;
+
+    std::vector<TransientSample> transientSamples_;
 };

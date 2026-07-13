@@ -1,14 +1,16 @@
 #include "../include/core/circuit.h"
 
 #include <algorithm>
+#include <cmath>
 #include <ctime>
-#include <iomanip>
-#include <ostream>
+#include <limits>
 
 #include "../include/core/nodeMap.h"
 #include "../include/devices/device.hpp"
 #include "../include/math/mna.hpp"
 #include "../include/models/model.hpp"
+#include "../include/core/analysisPlan.h"
+#include "../include/core/transientContext.h"
 
 namespace {
 constexpr int kMaxNewtonIterations = 1000;
@@ -19,6 +21,34 @@ constexpr double kMaxSourceStep = 0.25;
 constexpr double kMinSourceStep = 1.0e-4;
 constexpr double kSourceStepGrowth = 1.5;
 constexpr double kSourceScaleDone = 1.0 - 1.0e-12;
+constexpr double kTimeRelativeTolerance =
+    64.0 * std::numeric_limits<double>::epsilon();
+
+bool timeReached(double time, double target){
+    const double scale = std::max(
+        std::abs(time),
+        std::abs(target)
+    );
+    return time >= target - kTimeRelativeTolerance * scale;
+}
+
+bool sameTime(double lhs, double rhs){
+    const double scale = std::max(std::abs(lhs), std::abs(rhs));
+    return std::abs(lhs - rhs) <= kTimeRelativeTolerance * scale;
+}
+
+bool advanceOutputTime(double& nextOutputTime,
+                       double currentTime,
+                       double outputInterval){
+    do {
+        const double previousOutputTime = nextOutputTime;
+        nextOutputTime += outputInterval;
+        if(nextOutputTime <= previousOutputTime){
+            return false;
+        }
+    } while(timeReached(currentTime, nextOutputTime));
+    return true;
+}
 }
 
 Circuit::Circuit():
@@ -134,6 +164,138 @@ bool Circuit::solveOperatingPoint(){
     setOperatingPointSourceScale(1.0);
     operatingPointStats_.converged = true;
     operatingPointStats_.cpuSeconds =
+        double(std::clock() - startClock) / CLOCKS_PER_SEC;
+    return true;
+}
+
+bool Circuit::solveTransient(const TransientAnalysisConfig& config){
+    transientStats_ = {};
+    transientStats_.maxIterations = kMaxNewtonIterations;
+    transientStats_.tolerance = kNewtonTolerance;
+    transientSamples_.clear();
+
+    const std::clock_t startClock = std::clock();
+    Eigen::VectorXd previousSolution;
+    double time = 0.0;
+
+    const double maximumIntegrationStep = config.maximumStep
+        ? *config.maximumStep
+        : config.outputInterval;
+
+    if(config.outputInterval <= 0.0 ||
+       maximumIntegrationStep <= 0.0 ||
+       config.outputStartTime < 0.0 ||
+       config.outputStartTime >= config.stopTime ||
+       config.stopTime <= 0.0){
+        transientStats_.cpuSeconds =
+            double(std::clock() - startClock) / CLOCKS_PER_SEC;
+        return false;
+    }
+
+    setOperatingPointSourceScale(1.0);
+    if(config.useInitialConditions){
+        previousSolution = Eigen::VectorXd::Zero(mna_->size());
+        mna_->setSolution(previousSolution);
+    } else {
+        if(!solveOperatingPoint()){
+            transientStats_.initializationCpuSeconds =
+                double(std::clock() - startClock) / CLOCKS_PER_SEC;
+            transientStats_.cpuSeconds =
+                transientStats_.initializationCpuSeconds;
+            return false;
+        }
+        previousSolution = mna_->solution();
+    }
+    transientStats_.initializationCpuSeconds =
+        double(std::clock() - startClock) / CLOCKS_PER_SEC;
+
+    double nextOutputTime = config.outputStartTime;
+    if(timeReached(time, nextOutputTime)){
+        recordTransientSample(time);
+        if(!advanceOutputTime(
+            nextOutputTime,
+            time,
+            config.outputInterval
+        )){
+            transientStats_.cpuSeconds =
+                double(std::clock() - startClock) / CLOCKS_PER_SEC;
+            return false;
+        }
+    }
+
+    while(time < config.stopTime){
+        const double nextTime = std::min(
+            {
+                time + maximumIntegrationStep,
+                nextOutputTime,
+                config.stopTime
+            }
+        );
+        const double step = nextTime - time;
+
+        if(step <= 0.0){
+            transientStats_.finalTime = time;
+            transientStats_.cpuSeconds =
+                double(std::clock() - startClock) / CLOCKS_PER_SEC;
+            return false;
+        }
+
+        mna_->setSolution(previousSolution);
+
+        const TransientStampContext ctx{
+            nextTime,
+            step,
+            previousSolution
+        };
+
+        const AssembleCallback assemble = [this, &ctx]{
+            assembleTransientSystem(ctx);
+        };
+
+        NewtonStats stats;
+        const bool solved = hasNonlinearDevices()
+            ? solveNewtonSystem(assemble, stats)
+            : solveLinearSystem(assemble, stats);
+
+        transientStats_.iterations += stats.iterations;
+        transientStats_.dampedSteps += stats.dampedSteps;
+        transientStats_.finalDelta = stats.finalDelta;
+
+        if(!solved){
+            transientStats_.finalTime = time;
+            transientStats_.cpuSeconds =
+                double(std::clock() - startClock) / CLOCKS_PER_SEC;
+            return false;
+        }
+
+        previousSolution = mna_->solution();
+        time = nextTime;
+        ++transientStats_.timeSteps;
+
+        if(timeReached(time, nextOutputTime)){
+            recordTransientSample(time);
+            if(time < config.stopTime &&
+               !advanceOutputTime(
+                   nextOutputTime,
+                   time,
+                   config.outputInterval
+               )){
+                transientStats_.finalTime = time;
+                transientStats_.cpuSeconds =
+                    double(std::clock() - startClock) / CLOCKS_PER_SEC;
+                return false;
+            }
+        }
+    }
+
+    if(transientSamples_.empty() ||
+       !sameTime(transientSamples_.back().time, time)){
+        recordTransientSample(time);
+    }
+
+    transientStats_.converged = true;
+    transientStats_.finalTime = time;
+    transientStats_.cpuSeconds =
         double(std::clock() - startClock) / CLOCKS_PER_SEC;
     return true;
 }
@@ -267,6 +429,13 @@ void Circuit::assembleOperatingPointSystem(){
     }
 }
 
+void Circuit::assembleTransientSystem(const TransientStampContext& ctx){
+    mna_->clear();
+    for(auto& device: devices_){
+        device->stampTransient(ctx);
+    }
+}
+
 bool Circuit::hasNonlinearDevices() const{
     return hasNonlinearDevices_;
 }
@@ -294,36 +463,7 @@ void Circuit::restoreNonlinearIterationStates(){
     }
 }
 
-void Circuit::printOperatingPoint(std::ostream& os) const{
-    os << "Operating Point\n";
-    os << std::scientific << std::setprecision(10);
-
-    os << "Newton Info\n";
-    os << "converged " << (operatingPointStats_.converged ? "yes" : "no") << '\n';
-    os << "iterations " << operatingPointStats_.iterations << '\n';
-    os << "max_iterations " << operatingPointStats_.maxIterations << '\n';
-    os << "final_delta " << operatingPointStats_.finalDelta << '\n';
-    os << "tolerance " << operatingPointStats_.tolerance << '\n';
-    os << "damped_steps " << operatingPointStats_.dampedSteps << '\n';
-    os << "source_steps " << operatingPointStats_.sourceSteps << '\n';
-    os << "failed_source_steps " << operatingPointStats_.failedSourceSteps << '\n';
-    os << "source_scale " << operatingPointStats_.sourceScale << '\n';
-    os << "min_source_step " << operatingPointStats_.minSourceStep << '\n';
-    os << "cpu_time_seconds " << operatingPointStats_.cpuSeconds << '\n';
-
-    const auto& names = nodeMap_->nodeNameByIdx();
-    const auto& x = mna_->solution();
-
-    os << "Node Voltages\n";
-    for(std::size_t i = 0; i < names.size(); ++i){
-        os << "v(" << names[i] << ") " << x[static_cast<int>(i)] << '\n';
-    }
-
-    os << "Branch Currents\n";
-    for(const auto& device: devices_){
-        const int branch = device->branchUnknown();
-        if(branch >= 0){
-            os << "i(" << device->getName() << ") " << x[branch] << '\n';
-        }
-    }
+void Circuit::recordTransientSample(double time){
+    transientSamples_.push_back({time, mna_->solution()});
+    ++transientStats_.outputPoints;
 }

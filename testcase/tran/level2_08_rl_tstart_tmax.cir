@@ -1,0 +1,7 @@
+Level 2 - RL with TSTART and TMAX
+V1 in 0 DC 12
+R1 in out 20
+L1 out 0 4m
+.tran 100u 1m 200u 25u UIC
+.print tran v(in) v(out) i(v1) i(l1)
+.end
