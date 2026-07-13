@@ -1,7 +1,0 @@
-Level 2 - linear inductor dc short
-V1 in 0 DC 5
-L1 in mid 1m
-R1 mid 0 1k
-.op
-.print op v(in) v(mid) i(v1)
-.end

@@ -1,6 +1,6 @@
 # SPICE-like Circuit Simulator
 
-这是一个基于 C++17 和 Eigen 的类 SPICE 电路仿真器。目前支持 DC operating point 与基础 transient analysis，使用稀疏 MNA、SparseLU、Newton 迭代和 source stepping 完成求解；电容与电感的瞬态离散采用 Backward Euler。
+这是一个基于 C++17 和 Eigen 的类 SPICE 电路仿真器。目前支持 DC operating point 与基础 transient analysis 最小闭环，使用稀疏 MNA、SparseLU、Newton 迭代和 source stepping 完成求解；电容与电感的瞬态离散采用固定步长 Backward Euler。这里的 TRAN 是可运行的 MVP，不等同于完整 SPICE 瞬态引擎。
 
 本项目实现的是明确受限的 SPICE 子集，并非完整 ngspice 替代品。I/O 层遵循常见 SPICE netlist、`.print` listing 和 ASCII rawfile 约定，未支持的控制卡或输出表达式会直接报错，不会静默忽略。
 
@@ -117,6 +117,7 @@ Values:
 - Eigen3
 - Python 3（测试脚本）
 - Make
+- ngspice 46（仅在重新生成独立参考结果时需要；普通构建与 `make test` 不需要）
 
 macOS 可安装 Eigen：
 
@@ -159,8 +160,8 @@ testcase/
   op/       18 个 operating-point netlist
   tran/     18 个 transient netlist
 standard/
-  op/       18 个 OP listing reference
-  tran/     18 个 TRAN listing reference
+  op/       18 个由 ngspice 独立生成的 OP listing reference
+  tran/     18 个由 ngspice 独立生成并重采样的 TRAN listing reference
 actual/
   op/       测试产生的 .out / .raw / .err
   tran/     测试产生的 .out / .raw / .err
@@ -176,6 +177,7 @@ make test
 
 ```sh
 make test-io
+make test-cases
 make test-op
 make test-tran
 make compare
@@ -187,9 +189,10 @@ make compare-tran
 
 1. 构建 simulator。
 2. 使用 `scripts/test_io.py` 检查 SPICE 注释、续行、大小写、严格数值/model/实例参数、`.end`、混合 OP/TRAN 输出、事务式文件替换、硬链接保护和 CLI。
-3. 对每个 netlist 同时生成 listing、ASCII rawfile 和 stderr 文件。
-4. 使用 `scripts/validate_raw.py` 校验 rawfile header、变量数量、点数、有限数值和瞬态时间单调性，并把 raw 数据与同次 listing 逐点、逐变量交叉核对。
-5. 使用 `scripts/compare_spice.py` 解析标准与实际 `Index` 表格，并按绝对误差加相对误差比较。
+3. 使用 `scripts/check_case_complexity.py` 检查两组各 18 个网表的命名、数量、分析类型、物理行数、有效语句以及最大案例规模。
+4. 对每个 netlist 同时生成 listing、ASCII rawfile 和 stderr 文件。
+5. 使用 `scripts/validate_raw.py` 校验 rawfile header、变量数量、点数、有限数值和瞬态时间单调性，并把 raw 数据与同次 listing 逐点、逐变量交叉核对。
+6. 使用 `scripts/compare_spice.py` 解析标准与实际 `Index` 表格，并按绝对误差加相对误差比较。
 
 默认容差：
 
@@ -213,7 +216,17 @@ TIME_ABS_TOL  ?= 1e-15
 make test OP_COMPARE_FLAGS=--verbose TRAN_COMPARE_FLAGS=--verbose
 ```
 
-原有 14 个 OP 用例及其 ngspice 风格参考输出保持不变，并新增 4 个高复杂度 OP 压力用例：BJT 差分对、CMOS NAND/二极管钳位、互补 BJT 桥和 CMOS/BJT/MOS/二极管多级网络。TRAN 的 18 个用例从 RC/RL 基础响应逐步扩展到 RLC ladder、双源储能桥、二极管、NMOS、BJT 和 CMOS/RLC 混合网络。
+OP 与 TRAN 各有 18 个由上游开源电路库拓扑改编的压力用例，Level 分布均为 `4/4/5/5`：Level 1 为 10-20 行，Level 2 为 20-40 行，Level 3 为 40-100 行，Level 4 大于 100 行；两组最大案例均为 340 个物理行。案例不是上游文件的原样复制，而是展平并约束到当前解析器所支持的 primitive-only 子集。详细来源、适配规则和逐级行数见 [`testcase/SOURCES.md`](testcase/SOURCES.md)。
+
+测试用例与参考值可分别复现：
+
+```sh
+python3 -B scripts/generate_complex_cases.py
+make test-cases
+make generate-standards  # 需要 ngspice
+```
+
+`standard/` 不使用本项目求解结果自我生成。OP 参考值直接来自 ngspice 46；TRAN 参考值来自 ngspice 的自适应时间点，并线性重采样到网表要求的输出时间网格。对于 `UIC` 网表，仅显式 `t=0` 行按本项目当前的全零采样约定处理，所有 `t>0` 数据均来自 ngspice。
 
 ## 目录结构
 
@@ -227,9 +240,10 @@ include/
 src/
   core/          核心实现
   io/            输出格式实现
-scripts/         listing 比较器与 rawfile 校验器
+scripts/         用例生成/审计、ngspice 参考生成、listing 比较器与 rawfile 校验器
 testcase/op/     OP netlist
 testcase/tran/   TRAN netlist
+testcase/SOURCES.md  测例来源与适配说明
 standard/op/     OP reference listing
 standard/tran/   TRAN reference listing
 ```
@@ -237,7 +251,9 @@ standard/tran/   TRAN reference listing
 ## 当前限制
 
 - 不支持 `PULSE`、`SIN`、`PWL` 等时变独立源，因此瞬态阶跃测试使用 `UIC` 和固定 DC 源构造 t=0 激励。
-- 不支持自适应步长、LTE 控制和高阶积分方法。
+- 瞬态当前是固定步长的一阶 Backward Euler；不支持 LTE 误差估计、自适应步长、断点对齐、步长拒绝/缩小重试或高阶积分方法。
+- `UIC` 当前把完整 MNA 解向量初始化为零；尚未支持器件 `IC=`、`.ic` 与一致初值求解。
+- 瞬态 Newton 失败会直接终止分析，不会缩小时间步后重试；收敛判据也尚未拆分电压/电流的相对与绝对容差。
 - 不支持 `.include`、`.lib`、`.param`、`.options`、`.temp`、`.nodeset`、`.ic`、`.subckt`、`.save`。
 - 不支持受控源 `E/F/G/H`、行为源、AC/noise 分析。
 - 二极管、BJT 和 MOSFET 是简化模型；瞬态中没有结电容等器件内部动态。

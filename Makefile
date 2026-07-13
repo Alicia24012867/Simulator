@@ -61,8 +61,8 @@ else ifneq ($(strip $(EIGEN_PKG_CFLAGS)),)
 EIGEN_FLAGS := $(EIGEN_PKG_CFLAGS)
 endif
 
-.PHONY: all clean test test-io test-op test-tran compare compare-op compare-tran \
-	check-eigen check-deps
+.PHONY: all clean test test-io test-cases test-op test-tran compare compare-op \
+	compare-tran generate-standards check-eigen check-deps
 
 all: $(TARGET)
 
@@ -94,13 +94,22 @@ check-eigen:
 
 check-deps: check-eigen
 
-$(TARGET): check-eigen $(SRC) $(HEADERS)
+$(TARGET): $(SRC) $(HEADERS) | check-eigen
 	$(CXX) $(CXX_FLAGS) $(EIGEN_FLAGS) -o $(TARGET) $(SRC)
 
-test: test-io test-op test-tran
+test: $(TARGET)
+	@status=0; \
+	$(MAKE) --no-print-directory test-io || status=1; \
+	$(MAKE) --no-print-directory test-cases || status=1; \
+	$(MAKE) --no-print-directory test-op || status=1; \
+	$(MAKE) --no-print-directory test-tran || status=1; \
+	exit $$status
 
 test-io: $(TARGET)
 	@$(PYTHON) scripts/test_io.py ./$(TARGET)
+
+test-cases:
+	@$(PYTHON) scripts/check_case_complexity.py
 
 test-op: $(TARGET)
 	@rm -rf "$(OP_ACTUAL_DIR)"; \
@@ -159,6 +168,9 @@ test-tran: $(TARGET)
 	exit $$status
 
 compare: compare-op compare-tran
+
+generate-standards: test-cases
+	@$(PYTHON) scripts/generate_ngspice_standards.py
 
 compare-op:
 	@$(PYTHON) scripts/compare_spice.py \

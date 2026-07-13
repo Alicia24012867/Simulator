@@ -1,9 +1,0 @@
-Level 2 - nmos resistor load
-.model NMOD NMOS LEVEL=1 VTO=0.7 KP=50u LAMBDA=0.02
-VDD vdd 0 DC 5
-VIN gate 0 DC 2
-R1 vdd out 10k
-M1 out gate 0 0 NMOD W=10u L=1u
-.op
-.print op v(vdd) v(gate) v(out) i(vdd)
-.end

@@ -1,6 +1,0 @@
-Level 1 - linear current source and resistor
-I1 out 0 DC 1m
-R1 out 0 2k
-.op
-.print op v(out)
-.end
