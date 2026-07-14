@@ -5,7 +5,7 @@
 #include "device.hpp"
 #include "../core/circuit.h"
 #include "../math/mna.hpp"
-#include "../core/transientContext.hpp"
+#include "../core/transientAnalysis.h"
 
 
 class Inductor: public Device{

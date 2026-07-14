@@ -10,8 +10,7 @@
 #include "../include/math/mna.hpp"
 #include "../include/models/model.hpp"
 #include "../include/core/analysisPlan.h"
-#include "../include/core/transientContext.hpp"
-#include "../include/core/transientIntegrator.h"
+#include "../include/core/transientAnalysis.h"
 
 namespace {
 constexpr int kMaxNewtonIterations = 1000;
@@ -177,7 +176,6 @@ bool Circuit::solveTransient(const TransientAnalysisConfig& config){
 
     const std::clock_t startClock = std::clock();
     TransientIntegrator integrator;
-    Eigen::VectorXd previousSolution;
     double time = 0.0;
 
     const double maximumIntegrationStep = config.maximumStep
@@ -194,10 +192,12 @@ bool Circuit::solveTransient(const TransientAnalysisConfig& config){
         return false;
     }
 
+    Eigen::VectorXd initialSolution;
+
     setOperatingPointSourceScale(1.0);
     if(config.useInitialConditions){
-        previousSolution = Eigen::VectorXd::Zero(mna_->size());
-        mna_->setSolution(previousSolution);
+        initialSolution = Eigen::VectorXd::Zero(mna_->size());
+        mna_->setSolution(initialSolution);
     } else {
         if(!solveOperatingPoint()){
             transientStats_.initializationCpuSeconds =
@@ -206,10 +206,10 @@ bool Circuit::solveTransient(const TransientAnalysisConfig& config){
                 transientStats_.initializationCpuSeconds;
             return false;
         }
-        previousSolution = mna_->solution();
+        initialSolution = mna_->solution();
     }
 
-    integrator.Initialize(time, previousSolution);
+    integrator.Initialize(time, initialSolution);
 
     transientStats_.initializationCpuSeconds =
         double(std::clock() - startClock) / CLOCKS_PER_SEC;
@@ -245,32 +245,25 @@ bool Circuit::solveTransient(const TransientAnalysisConfig& config){
             return false;
         }
 
-        mna_->setSolution(integrator.predict(nextTime));
+        const Eigen::VectorXd acceptedSolution = mna_->solution();
+        saveNonlinearIterationStates();
 
-        const TransientStampContext ctx = integrator.makeContext(nextTime);
+        TransientStepAttempt attempt = tryTransientStep(integrator, nextTime);
+        addTransientStats(attempt.newtonStats);
 
-        const AssembleCallback assemble = [this, &ctx]{
-            assembleTransientSystem(ctx);
-        };
+        if(!attempt.converged){
+            restoreTransientCheckpoint(acceptedSolution);
 
-        NewtonStats stats;
-        const bool solved = hasNonlinearDevices()
-            ? solveNewtonSystem(assemble, stats)
-            : solveLinearSystem(assemble, stats);
-
-        transientStats_.iterations += stats.iterations;
-        transientStats_.dampedSteps += stats.dampedSteps;
-        transientStats_.finalDelta = stats.finalDelta;
-
-        if(!solved){
             transientStats_.finalTime = time;
             transientStats_.cpuSeconds =
                 double(std::clock() - startClock) / CLOCKS_PER_SEC;
             return false;
         }
 
-        previousSolution = mna_->solution();
-        integrator.accept(nextTime, previousSolution);
+
+        mna_->setSolution(attempt.solution);
+        integrator.accept(nextTime, attempt.solution);
+
         time = nextTime;
         ++transientStats_.timeSteps;
 
@@ -300,6 +293,39 @@ bool Circuit::solveTransient(const TransientAnalysisConfig& config){
     transientStats_.cpuSeconds =
         double(std::clock() - startClock) / CLOCKS_PER_SEC;
     return true;
+}
+
+Circuit::TransientStepAttempt Circuit::tryTransientStep(
+    const TransientIntegrator& integrator,
+    double targetTime
+){
+    TransientStepAttempt attempt;
+
+    mna_->setSolution(integrator.predict(targetTime));
+    const TransientStampContext ctx = integrator.makeContext(targetTime);
+    const AssembleCallback assemble = [this, &ctx]{
+        assembleTransientSystem(ctx);
+    };
+    attempt.converged = hasNonlinearDevices()
+        ? solveNewtonSystem(assemble, attempt.newtonStats)
+        : solveLinearSystem(assemble, attempt.newtonStats);
+
+    if(attempt.converged){
+        attempt.solution = mna_->solution();
+    }
+
+    return attempt;
+}
+
+void Circuit::addTransientStats(const NewtonStats& stats){
+    transientStats_.iterations += stats.iterations;
+    transientStats_.dampedSteps += stats.dampedSteps;
+    transientStats_.finalDelta = stats.finalDelta;
+}
+
+void Circuit::restoreTransientCheckpoint(const Eigen::VectorXd& acceptedSolution){
+    restoreNonlinearIterationStates();
+    mna_->setSolution(acceptedSolution);
 }
 
 bool Circuit::solveOperatingPointWithSourceStepping(

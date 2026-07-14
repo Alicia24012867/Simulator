@@ -3,7 +3,7 @@
 #include <cassert>
 
 #include "device.hpp"
-#include "../core/transientContext.hpp"
+#include "../core/transientAnalysis.h"
 
 class Capacitor: public Device{
 public:

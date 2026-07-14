@@ -1,6 +1,6 @@
 # SPICE-like Circuit Simulator
 
-这是一个基于 C++17 和 Eigen 的类 SPICE 电路仿真器。目前支持 DC operating point 与基础 transient analysis 最小闭环，使用稀疏 MNA、SparseLU、Newton 迭代和 source stepping 完成求解；电容与电感的瞬态离散采用固定步长 Backward Euler。这里的 TRAN 是可运行的 MVP，不等同于完整 SPICE 瞬态引擎。
+这是一个基于 C++17 和 Eigen 的类 SPICE 电路仿真器。目前支持 DC operating point 与基础 transient analysis 最小闭环，使用稀疏 MNA、SparseLU、Newton 迭代、步长限制和 source stepping 完成求解。瞬态分析首个积分步采用 Backward Euler，后续在步长增长不超过前一步两倍时采用可变步长 BDF2。这里的 TRAN 是可运行的 MVP，不等同于完整 SPICE 瞬态引擎。
 
 本项目实现的是明确受限的 SPICE 子集，并非完整 ngspice 替代品。I/O 层遵循常见 SPICE netlist、`.print` listing 和 ASCII rawfile 约定，未支持的控制卡或输出表达式会直接报错，不会静默忽略。
 
@@ -11,22 +11,22 @@
 | 前缀 | 器件 | OP | TRAN |
 | --- | --- | --- | --- |
 | `R` | Resistor | 电导 stamp | 电导 stamp |
-| `C` | Capacitor | 开路 | Backward Euler companion model |
-| `L` | Inductor | 0 V 支路 | Backward Euler branch equation |
+| `C` | Capacitor | 开路 | Backward Euler / BDF2 companion model |
+| `L` | Inductor | 0 V 支路 | Backward Euler / BDF2 branch equation |
 | `V` | Independent voltage source | MNA branch | 当前仅支持固定 DC 值 |
 | `I` | Independent current source | RHS stamp | 当前仅支持固定 DC 值 |
 | `D` | Diode | 指数模型与 Newton 线性化 | 静态非线性模型 |
 | `Q` | NPN / PNP BJT | 简化 Ebers-Moll 风格模型 | 静态非线性模型 |
 | `M` | NMOS / PMOS | 简化 Level-1 平方律模型 | 静态非线性模型 |
 
-`.model` 支持 `D`、`NPN`、`PNP`、`NMOS`、`PMOS`、`NCH`、`PCH`。当前使用的主要参数包括：
+`.model` 支持 `D`、`NPN`、`PNP`、`NMOS`、`PMOS`、`NCH`、`PCH`。当前求解方程使用的模型参数包括：
 
-- Diode：`IS`, `N`, `VT`, `RS`, `GMIN`
-- BJT：`IS`, `BF` / `BETA`, `BR`, `NF`, `NR`, `VT`, `GMIN`, `RBE`, `RCE`
-- MOSFET：`LEVEL=1`, `VTO` / `VT0`, `KP` / `K`, `LAMBDA` / `LAM`, `GMIN`, `RDS`
+- Diode：`IS`, `N`, `VT`, `GMIN`
+- BJT：`IS`, `BF` / `BETA`, `BR`, `NF`, `NR`, `VT`, `GMIN`
+- MOSFET：`LEVEL=1`, `VTO` / `VT0`, `KP` / `K`, `LAMBDA` / `LAM`, `GMIN`
 - 实例参数：`AREA`, `W`, `L`
 
-上述是当前求解模型真正使用的参数集合。未知参数、非数值参数、非物理的负值以及非 `LEVEL=1` 的 MOSFET model 会在读取阶段明确报错，避免网表被静默降级求解。
+读取器还接受 Diode 的 `RS`、BJT 的 `RBE` / `RCE` 和 MOSFET 的 `RDS`，但这些参数尚未写入器件 stamp，因此暂不改变求解结果。未知参数、非数值参数、非物理的负值以及非 `LEVEL=1` 的 MOSFET model 会在读取阶段明确报错，避免网表被静默降级求解。
 
 ### Netlist 读取规则
 
@@ -61,7 +61,8 @@
 - `i(device)` 当前只适用于具有 branch unknown 的器件，即独立电压源和电感；请求其他器件电流会得到明确错误。
 - 没有分析卡时默认执行 `.op`。同时存在 `.op` 与 `.tran` 时依次输出两个分析块。
 - `.tran` 未指定 `UIC` 时先求 operating point；指定 `UIC` 时当前使用全零 MNA 初值。尚未支持器件 `IC=`。
-- `TSTEP` 控制输出间隔，`TSTART` 控制开始保存的时间，`TMAX` 限制内部积分步长。当前未指定 `TMAX` 时内部步长使用 `TSTEP`，这与 ngspice 的默认步长选择策略不同。
+- `TSTEP` 控制输出间隔，`TSTART` 控制开始保存的时间，`TMAX` 限制内部积分步长。当前未指定 `TMAX` 时内部最大步长使用 `TSTEP`；输出时间点也会强制成为积分点，因此与 ngspice 的默认自适应步长策略不同。
+- 每次瞬态分析的首步使用 Backward Euler；之后在新步长不大于前一步两倍时使用可变步长 BDF2。求解器不做 LTE 误差估计或自适应步长选择。
 
 ## 输出格式
 
@@ -134,15 +135,15 @@ make
 运行并输出 listing：
 
 ```sh
-./spice testcase/op/level1_01_resistor_divider.cir
-./spice testcase/op/level1_01_resistor_divider.cir result.out
-./spice -b -o result.out testcase/op/level1_01_resistor_divider.cir
+./spice testcase/op/level1_01_resistive_bridge_mesh.cir
+./spice testcase/op/level1_01_resistive_bridge_mesh.cir result.out
+./spice -b -o result.out testcase/op/level1_01_resistive_bridge_mesh.cir
 ```
 
 同时生成 listing 与 rawfile：
 
 ```sh
-./spice -b -o result.out -r result.raw testcase/tran/level1_01_rc_step_uic.cir
+./spice -b -o result.out -r result.raw testcase/tran/level1_01_rc_step_ladder.cir
 ```
 
 查看命令行帮助：
@@ -189,18 +190,19 @@ make compare-tran
 
 1. 构建 simulator。
 2. 使用 `scripts/test_io.py` 检查 SPICE 注释、续行、大小写、严格数值/model/实例参数、`.end`、混合 OP/TRAN 输出、事务式文件替换、硬链接保护和 CLI。
-3. 使用 `scripts/check_case_complexity.py` 检查两组各 18 个网表的命名、数量、分析类型、物理行数、有效语句以及最大案例规模。
-4. 对每个 netlist 同时生成 listing、ASCII rawfile 和 stderr 文件。
-5. 使用 `scripts/validate_raw.py` 校验 rawfile header、变量数量、点数、有限数值和瞬态时间单调性，并把 raw 数据与同次 listing 逐点、逐变量交叉核对。
-6. 使用 `scripts/compare_spice.py` 解析标准与实际 `Index` 表格，并按绝对误差加相对误差比较。
+3. 对每个 netlist 同时生成 listing、ASCII rawfile 和 stderr 文件。
+4. 使用 `scripts/validate_raw.py` 校验 rawfile header、变量数量、点数、有限数值和瞬态时间单调性，并把 raw 数据与同次 listing 逐点、逐变量交叉核对。
+5. 使用 `scripts/compare_spice.py` 解析标准与实际 `Index` 表格，并按绝对误差加相对误差比较。
+
+`make test-cases` 是独立的网表复杂度审计：检查两组各 18 个网表的命名、数量、分析类型、物理行数、有效语句以及最大案例规模；它不属于 `make test` 的常规回归流程。
 
 默认容差：
 
 ```make
 OP_ABS_TOL    ?= 1e-3
-OP_REL_TOL    ?= 2e-3
-TRAN_ABS_TOL  ?= 1e-7
-TRAN_REL_TOL  ?= 1e-4
+OP_REL_TOL    ?= 1e-3
+TRAN_ABS_TOL  ?= 1e-3
+TRAN_REL_TOL  ?= 1e-3
 TIME_ABS_TOL  ?= 1e-15
 ```
 
@@ -251,12 +253,12 @@ standard/tran/   TRAN reference listing
 ## 当前限制
 
 - 不支持 `PULSE`、`SIN`、`PWL` 等时变独立源，因此瞬态阶跃测试使用 `UIC` 和固定 DC 源构造 t=0 激励。
-- 瞬态当前是固定步长的一阶 Backward Euler；不支持 LTE 误差估计、自适应步长、断点对齐、步长拒绝/缩小重试或高阶积分方法。
+- 瞬态使用首步 Backward Euler 与受步长比限制的可变步长 BDF2；不支持 LTE 误差估计、自适应步长选择、断点对齐或步长拒绝/缩小重试。
 - `UIC` 当前把完整 MNA 解向量初始化为零；尚未支持器件 `IC=`、`.ic` 与一致初值求解。
 - 瞬态 Newton 失败会直接终止分析，不会缩小时间步后重试；收敛判据也尚未拆分电压/电流的相对与绝对容差。
 - 不支持 `.include`、`.lib`、`.param`、`.options`、`.temp`、`.nodeset`、`.ic`、`.subckt`、`.save`。
 - 不支持受控源 `E/F/G/H`、行为源、AC/noise 分析。
-- 二极管、BJT 和 MOSFET 是简化模型；瞬态中没有结电容等器件内部动态。
+- 二极管、BJT 和 MOSFET 是简化模型；`RS`、`RBE`、`RCE`、`RDS` 虽可解析但尚未参与 stamp，且瞬态中没有结电容等器件内部动态。
 - 电阻、电容、二极管、BJT、MOSFET 的器件电流尚不能通过 `.print i(...)` 输出。
 
 ## SPICE 格式参考

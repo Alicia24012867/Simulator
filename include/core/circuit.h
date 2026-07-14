@@ -13,9 +13,9 @@ class MNA;
 class Model;
 class NodeMap;
 class SpiceOutputAccess;
+class TransientIntegrator;
 struct TransientAnalysisConfig;
 struct TransientStampContext;
-
 class Circuit{
 public:
     Circuit();
@@ -69,6 +69,12 @@ private:
         double finalDelta = 0.0;
     };
 
+    struct TransientStepAttempt{
+        bool converged = false;
+        NewtonStats newtonStats;
+        Eigen::VectorXd solution;
+    };
+
     struct TransientStats {
         bool converged = false;
         int timeSteps = 0;
@@ -87,6 +93,17 @@ private:
         double time = 0.0;
         Eigen::VectorXd solution;
     };
+
+    TransientStepAttempt tryTransientStep(
+        const TransientIntegrator& integrator,
+        double targetTime
+    );
+
+    void addTransientStats(const NewtonStats& stats);
+
+    void restoreTransientCheckpoint(
+        const Eigen::VectorXd& acceptedSolution
+    );
 
     bool solveNewtonSystem(const AssembleCallback& assemble,
                            NewtonStats& stats);

@@ -18,8 +18,8 @@ STANDARD_ROOT ?= standard
 OP_STANDARD_DIR ?= $(STANDARD_ROOT)/op
 TRAN_STANDARD_DIR ?= $(STANDARD_ROOT)/tran
 PYTHON ?= python3
-OP_ABS_TOL ?= 1e-3
-OP_REL_TOL ?= 1e-3
+OP_ABS_TOL ?= 5e-4
+OP_REL_TOL ?= 1e-4
 TRAN_ABS_TOL ?= 1e-3
 TRAN_REL_TOL ?= 1e-3
 TIME_ABS_TOL ?= 1e-15
@@ -100,7 +100,6 @@ $(TARGET): $(SRC) $(HEADERS) | check-eigen
 test: $(TARGET)
 	@status=0; \
 	$(MAKE) --no-print-directory test-io || status=1; \
-	$(MAKE) --no-print-directory test-cases || status=1; \
 	$(MAKE) --no-print-directory test-op || status=1; \
 	$(MAKE) --no-print-directory test-tran || status=1; \
 	exit $$status
@@ -122,7 +121,6 @@ test-op: $(TARGET)
 		raw="$(OP_ACTUAL_DIR)/$$base.raw"; \
 		err="$(OP_ACTUAL_DIR)/$$base.err"; \
 		rm -f "$$out" "$$raw" "$$err"; \
-		echo "Running OP $$base"; \
 		./$(TARGET) -b -o "$$out" -r "$$raw" "$$f" 2> "$$err" || status=1; \
 	done; \
 	$(PYTHON) scripts/validate_raw.py \
@@ -150,7 +148,6 @@ test-tran: $(TARGET)
 		raw="$(TRAN_ACTUAL_DIR)/$$base.raw"; \
 		err="$(TRAN_ACTUAL_DIR)/$$base.err"; \
 		rm -f "$$out" "$$raw" "$$err"; \
-		echo "Running TRAN $$base"; \
 		./$(TARGET) -b -o "$$out" -r "$$raw" "$$f" 2> "$$err" || status=1; \
 	done; \
 	$(PYTHON) scripts/validate_raw.py \
