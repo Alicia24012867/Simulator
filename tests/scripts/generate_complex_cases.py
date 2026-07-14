@@ -7,9 +7,9 @@ topology *families* (ladders, filters, rectifiers, differential pairs and
 flattened CMOS logic), while using only the primitive subset accepted by the
 local parser.  No network access is needed when this script is run.
 
-Only ``testcase/op/*.cir`` and ``testcase/tran/*.cir`` are replaced.  Standards
-are intentionally not generated here: they must come from an explicitly chosen
-reference simulator or from a reviewed project baseline.
+Only ``tests/cases/op/*.cir`` and ``tests/cases/tran/*.cir`` are replaced.
+References are intentionally not generated here: they must come from an
+explicitly chosen reference simulator or from a reviewed project baseline.
 """
 
 from __future__ import annotations
@@ -426,9 +426,9 @@ def _render_all() -> dict[tuple[str, str], str]:
 
 
 def generate(repo_root: Path) -> None:
-    # Render and validate everything before touching an existing testcase tree.
+    # Render and validate everything before touching the existing case tree.
     rendered = _render_all()
-    testcase_root = repo_root / "testcase"
+    testcase_root = repo_root / "tests" / "cases"
     for analysis in ("op", "tran"):
         directory = testcase_root / analysis
         directory.mkdir(parents=True, exist_ok=True)
@@ -444,13 +444,13 @@ def generate(repo_root: Path) -> None:
 
 
 def _parse_args() -> argparse.Namespace:
-    default_root = Path(__file__).resolve().parents[1]
+    default_root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--root",
         type=Path,
         default=default_root,
-        help="repository root containing testcase/ (default: script parent)",
+        help="repository root containing tests/cases/ (default: repository root)",
     )
     return parser.parse_args()
 

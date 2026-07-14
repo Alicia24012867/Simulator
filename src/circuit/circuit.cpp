@@ -1,16 +1,16 @@
-#include "../include/core/circuit.h"
+#include "circuit/circuit.h"
 
 #include <algorithm>
 #include <cmath>
 #include <ctime>
 #include <limits>
 
-#include "../include/core/nodeMap.h"
-#include "../include/devices/device.hpp"
-#include "../include/math/mna.hpp"
-#include "../include/models/model.hpp"
-#include "../include/core/analysisPlan.h"
-#include "../include/core/transientAnalysis.h"
+#include "analysis/analysisPlan.h"
+#include "analysis/transientAnalysis.h"
+#include "circuit/nodeMap.h"
+#include "devices/device.hpp"
+#include "math/mna.hpp"
+#include "models/model.hpp"
 
 namespace {
 constexpr int kMaxNewtonIterations = 1000;

@@ -1,7 +1,7 @@
 #pragma once
 #include <cassert>
-#include "device.hpp"
-#include "../math/mna.hpp"
+#include "devices/device.hpp"
+#include "math/mna.hpp"
 
 class Resistor: public Device{
     public:

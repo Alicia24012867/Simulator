@@ -3,10 +3,10 @@
 #include <algorithm>
 #include <cmath>
 
-#include "device.hpp"
-#include "../math/mna.hpp"
-#include "../models/model.hpp"
-#include "../math/limiting.hpp"
+#include "devices/device.hpp"
+#include "math/limiting.hpp"
+#include "math/mna.hpp"
+#include "models/model.hpp"
 
 class Diode: public Device{
 public:

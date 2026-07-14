@@ -1,7 +1,7 @@
-#include "../include/core/nodeMap.h"
-#include "../include/devices/device.hpp"
+#include "circuit/nodeMap.h"
+#include "devices/device.hpp"
 
-#include "../../utils/string_utils.hpp"
+#include "utils/string_utils.hpp"
 
 void Device::bindNodes(const NodeMap& nodemap){
     nodeIds.resize(nodes.size());

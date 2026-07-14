@@ -333,14 +333,14 @@ def main():
     parser = argparse.ArgumentParser(
         description="Generate independent compact reference listings with ngspice."
     )
-    parser.add_argument("--root", type=Path, default=SCRIPT_DIR.parent)
+    parser.add_argument("--root", type=Path, default=SCRIPT_DIR.parents[1])
     parser.add_argument("--ngspice")
     args = parser.parse_args()
 
     root = args.root.resolve()
     ngspice = locate_ngspice(args.ngspice)
     cases = {
-        analysis: sorted((root / "testcase" / analysis).glob("*.cir"))
+        analysis: sorted((root / "tests" / "cases" / analysis).glob("*.cir"))
         for analysis in ("op", "tran")
     }
     for analysis, netlists in cases.items():
@@ -351,7 +351,7 @@ def main():
 
     with tempfile.TemporaryDirectory(prefix="ngspice-reference-", dir=root) as temp:
         temporary = Path(temp)
-        staging = temporary / "standard"
+        staging = temporary / "references"
         work = temporary / "work"
         work.mkdir()
         completed = 0
@@ -362,7 +362,7 @@ def main():
                 print(f"REFERENCE {analysis.upper()} {netlist.stem}")
 
         for analysis in ("op", "tran"):
-            destination = root / "standard" / analysis
+            destination = root / "tests" / "references" / analysis
             destination.mkdir(parents=True, exist_ok=True)
             for old in destination.glob("*.out"):
                 old.unlink()

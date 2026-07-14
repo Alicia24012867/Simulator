@@ -7,19 +7,18 @@
 #include <unordered_set>
 #include <utility>
 
-#include "../include/core/parser.h"
-#include "../include/core/circuit.h"
-#include "../include/devices/bjt.hpp"
-#include "../include/devices/capacitor.hpp"
-#include "../include/devices/currentSource.hpp"
-#include "../include/devices/diode.hpp"
-#include "../include/devices/inductor.hpp"
-#include "../include/devices/mosfet.hpp"
-#include "../include/devices/resistor.hpp"
-#include "../include/devices/voltageSource.hpp"
-#include "../include/models/model.hpp"
-
-#include "../../utils/string_utils.hpp"
+#include "netlist/parser.h"
+#include "circuit/circuit.h"
+#include "devices/bjt.hpp"
+#include "devices/capacitor.hpp"
+#include "devices/currentSource.hpp"
+#include "devices/diode.hpp"
+#include "devices/inductor.hpp"
+#include "devices/mosfet.hpp"
+#include "devices/resistor.hpp"
+#include "devices/voltageSource.hpp"
+#include "models/model.hpp"
+#include "utils/string_utils.hpp"
 
 namespace {
 struct LogicalLine {

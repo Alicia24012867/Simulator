@@ -10,9 +10,9 @@
 #include <utility>
 #include <vector>
 
-#include "../include/core/circuit.h"
-#include "../include/core/parser.h"
-#include "../include/io/spiceOutput.h"
+#include "circuit/circuit.h"
+#include "io/spiceOutput.h"
+#include "netlist/parser.h"
 
 namespace {
 struct CommandLineOptions {

@@ -43,11 +43,11 @@ comment padding are rejected by the audit script.
 Recreate and audit the cases with:
 
 ```sh
-python3 -B scripts/generate_complex_cases.py
+python3 -B tests/scripts/generate_complex_cases.py
 make test-cases
 ```
 
-Reference listings under `standard/` are independently generated with ngspice
+Reference listings under `tests/references/` are independently generated with ngspice
 46 rather than this project's solver:
 
 ```sh

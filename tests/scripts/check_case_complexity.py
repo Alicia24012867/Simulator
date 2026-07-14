@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit testcase OP/TRAN counts, naming, line tiers and basic deck shape."""
+"""Audit OP/TRAN case counts, naming, line tiers and basic deck shape."""
 
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ def _check_deck_shape(
 
 def inspect(root: Path) -> list[str]:
     errors: list[str] = []
-    testcase_root = root / "testcase"
+    testcase_root = root / "tests" / "cases"
 
     for analysis in ("op", "tran"):
         directory = testcase_root / analysis
@@ -142,13 +142,13 @@ def inspect(root: Path) -> list[str]:
 
 
 def _parse_args() -> argparse.Namespace:
-    default_root = Path(__file__).resolve().parents[1]
+    default_root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--root",
         type=Path,
         default=default_root,
-        help="repository root containing testcase/ (default: script parent)",
+        help="repository root containing tests/cases/ (default: repository root)",
     )
     return parser.parse_args()
 

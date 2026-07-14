@@ -2,8 +2,8 @@
 
 #include <cassert>
 
-#include "device.hpp"
-#include "../core/transientAnalysis.h"
+#include "analysis/transientAnalysis.h"
+#include "devices/device.hpp"
 
 class Capacitor: public Device{
 public:

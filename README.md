@@ -135,15 +135,15 @@ make
 运行并输出 listing：
 
 ```sh
-./spice testcase/op/level1_01_resistive_bridge_mesh.cir
-./spice testcase/op/level1_01_resistive_bridge_mesh.cir result.out
-./spice -b -o result.out testcase/op/level1_01_resistive_bridge_mesh.cir
+./spice tests/cases/op/level1_01_resistive_bridge_mesh.cir
+./spice tests/cases/op/level1_01_resistive_bridge_mesh.cir result.out
+./spice -b -o result.out tests/cases/op/level1_01_resistive_bridge_mesh.cir
 ```
 
 同时生成 listing 与 rawfile：
 
 ```sh
-./spice -b -o result.out -r result.raw testcase/tran/level1_01_rc_step_ladder.cir
+./spice -b -o result.out -r result.raw tests/cases/tran/level1_01_rc_step_ladder.cir
 ```
 
 查看命令行帮助：
@@ -157,15 +157,16 @@ make
 测试与参考结果按分析类型分离：
 
 ```text
-testcase/
-  op/       18 个 operating-point netlist
-  tran/     18 个 transient netlist
-standard/
-  op/       18 个由 ngspice 独立生成的 OP listing reference
-  tran/     18 个由 ngspice 独立生成并重采样的 TRAN listing reference
-actual/
-  op/       测试产生的 .out / .raw / .err
-  tran/     测试产生的 .out / .raw / .err
+tests/
+  cases/
+    op/          18 个 operating-point netlist
+    tran/        18 个 transient netlist
+  references/
+    op/          18 个由 ngspice 独立生成的 OP listing reference
+    tran/        18 个由 ngspice 独立生成并重采样的 TRAN listing reference
+  output/
+    op/          测试产生的 .out / .raw / .err
+    tran/        测试产生的 .out / .raw / .err
 ```
 
 运行全部 36 个用例：
@@ -189,18 +190,18 @@ make compare-tran
 `make test` 会完成以下检查：
 
 1. 构建 simulator。
-2. 使用 `scripts/test_io.py` 检查 SPICE 注释、续行、大小写、严格数值/model/实例参数、`.end`、混合 OP/TRAN 输出、事务式文件替换、硬链接保护和 CLI。
+2. 使用 `tests/scripts/test_io.py` 检查 SPICE 注释、续行、大小写、严格数值/model/实例参数、`.end`、混合 OP/TRAN 输出、事务式文件替换、硬链接保护和 CLI。
 3. 对每个 netlist 同时生成 listing、ASCII rawfile 和 stderr 文件。
-4. 使用 `scripts/validate_raw.py` 校验 rawfile header、变量数量、点数、有限数值和瞬态时间单调性，并把 raw 数据与同次 listing 逐点、逐变量交叉核对。
-5. 使用 `scripts/compare_spice.py` 解析标准与实际 `Index` 表格，并按绝对误差加相对误差比较。
+4. 使用 `tests/scripts/validate_raw.py` 校验 rawfile header、变量数量、点数、有限数值和瞬态时间单调性，并把 raw 数据与同次 listing 逐点、逐变量交叉核对。
+5. 使用 `tests/scripts/compare_spice.py` 解析标准与实际 `Index` 表格，并按绝对误差加相对误差比较。
 
 `make test-cases` 是独立的网表复杂度审计：检查两组各 18 个网表的命名、数量、分析类型、物理行数、有效语句以及最大案例规模；它不属于 `make test` 的常规回归流程。
 
 默认容差：
 
 ```make
-OP_ABS_TOL    ?= 1e-3
-OP_REL_TOL    ?= 1e-3
+OP_ABS_TOL    ?= 5e-4
+OP_REL_TOL    ?= 1e-4
 TRAN_ABS_TOL  ?= 1e-3
 TRAN_REL_TOL  ?= 1e-3
 TIME_ABS_TOL  ?= 1e-15
@@ -218,37 +219,43 @@ TIME_ABS_TOL  ?= 1e-15
 make test OP_COMPARE_FLAGS=--verbose TRAN_COMPARE_FLAGS=--verbose
 ```
 
-OP 与 TRAN 各有 18 个由上游开源电路库拓扑改编的压力用例，Level 分布均为 `4/4/5/5`：Level 1 为 10-20 行，Level 2 为 20-40 行，Level 3 为 40-100 行，Level 4 大于 100 行；两组最大案例均为 340 个物理行。案例不是上游文件的原样复制，而是展平并约束到当前解析器所支持的 primitive-only 子集。详细来源、适配规则和逐级行数见 [`testcase/SOURCES.md`](testcase/SOURCES.md)。
+OP 与 TRAN 各有 18 个由上游开源电路库拓扑改编的压力用例，Level 分布均为 `4/4/5/5`：Level 1 为 10-20 行，Level 2 为 20-40 行，Level 3 为 40-100 行，Level 4 大于 100 行；两组最大案例均为 340 个物理行。案例不是上游文件的原样复制，而是展平并约束到当前解析器所支持的 primitive-only 子集。详细来源、适配规则和逐级行数见 [`tests/cases/SOURCES.md`](tests/cases/SOURCES.md)。
 
 测试用例与参考值可分别复现：
 
 ```sh
-python3 -B scripts/generate_complex_cases.py
+python3 -B tests/scripts/generate_complex_cases.py
 make test-cases
 make generate-standards  # 需要 ngspice
 ```
 
-`standard/` 不使用本项目求解结果自我生成。OP 参考值直接来自 ngspice 46；TRAN 参考值来自 ngspice 的自适应时间点，并线性重采样到网表要求的输出时间网格。对于 `UIC` 网表，仅显式 `t=0` 行按本项目当前的全零采样约定处理，所有 `t>0` 数据均来自 ngspice。
+`tests/references/` 不使用本项目求解结果自我生成。OP 参考值直接来自 ngspice 46；TRAN 参考值来自 ngspice 的自适应时间点，并线性重采样到网表要求的输出时间网格。对于 `UIC` 网表，仅显式 `t=0` 行按本项目当前的全零采样约定处理，所有 `t>0` 数据均来自 ngspice。
 
 ## 目录结构
 
 ```text
 include/
-  core/          Circuit、Parser、NodeMap 和分析配置
-  devices/       器件与 stamp
-  io/            SPICE listing / rawfile writer
-  math/          Eigen 稀疏 MNA 封装
+  analysis/      分析计划、瞬态配置、stamp 上下文与积分器
+  circuit/       Circuit 求解编排与 NodeMap 拓扑接口
+  devices/       器件定义及 OP / TRAN stamp
+  io/            SPICE listing / rawfile 输出接口
+  math/          Eigen 稀疏 MNA 与数值限制工具
   models/        .model 参数存储
+  netlist/       网表 Parser 接口
+  utils/         跨模块字符串与 SPICE 数值工具
 src/
-  core/          核心实现
-  io/            输出格式实现
-scripts/         用例生成/审计、ngspice 参考生成、listing 比较器与 rawfile 校验器
-testcase/op/     OP netlist
-testcase/tran/   TRAN netlist
-testcase/SOURCES.md  测例来源与适配说明
-standard/op/     OP reference listing
-standard/tran/   TRAN reference listing
+  circuit/       Circuit 与 NodeMap 实现
+  io/            listing / rawfile 输出实现
+  netlist/       网表解析实现
+  main.cpp       命令行入口与事务式输出流程
+tests/
+  cases/         OP / TRAN netlist 与 SOURCES.md
+  references/    ngspice 独立参考 listing
+  scripts/       用例生成、参考生成与回归校验脚本
+  output/        测试生成的 listing / rawfile / stderr（不纳入版本控制）
 ```
+
+项目内头文件统一相对于 `include/` 引用。`include/analysis`、`include/devices`、`include/math` 和 `include/models` 当前主要是 header-only 模块；存在独立实现文件的模块则在 `src/` 中使用对应职责目录。
 
 ## 当前限制
 

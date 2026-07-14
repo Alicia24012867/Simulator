@@ -3,7 +3,7 @@
 #include <utility>
 #include <vector>
 
-#include "analysisPlan.h"
+#include "analysis/analysisPlan.h"
 
 class Circuit;
 

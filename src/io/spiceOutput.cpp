@@ -1,4 +1,4 @@
-#include "../../include/io/spiceOutput.h"
+#include "io/spiceOutput.h"
 
 #include <algorithm>
 #include <cmath>
@@ -11,12 +11,12 @@
 #include <string>
 #include <vector>
 
-#include "../../include/core/analysisPlan.h"
-#include "../../include/core/circuit.h"
-#include "../../include/core/nodeMap.h"
-#include "../../include/devices/device.hpp"
-#include "../../include/math/mna.hpp"
-#include "../../utils/string_utils.hpp"
+#include "analysis/analysisPlan.h"
+#include "circuit/circuit.h"
+#include "circuit/nodeMap.h"
+#include "devices/device.hpp"
+#include "math/mna.hpp"
+#include "utils/string_utils.hpp"
 
 class SpiceOutputAccess {
 public:

@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "transientAnalysis.h"
+#include "analysis/transientAnalysis.h"
 
 enum class PrintQuantity {
     Voltage,

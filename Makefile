@@ -2,21 +2,21 @@ CXX = g++
 CXX_STD = c++17
 CXX_FLAGS = -std=$(CXX_STD) -Wall -Wextra -I./include
 SRC = ./src/main.cpp \
-	  $(wildcard ./src/math/*.cpp) \
-	  $(wildcard ./src/devices/*.cpp) \
-	  $(wildcard ./src/core/*.cpp) \
-	  $(wildcard ./src/io/*.cpp)
-HEADERS = $(shell find ./include ./utils -type f 2>/dev/null)
+	  $(wildcard ./src/circuit/*.cpp) \
+	  $(wildcard ./src/io/*.cpp) \
+	  $(wildcard ./src/netlist/*.cpp)
+HEADERS = $(shell find ./include -type f 2>/dev/null)
 TARGET = spice
-TESTCASE_ROOT ?= testcase
+TESTCASE_ROOT ?= tests/cases
 OP_TESTCASE_DIR ?= $(TESTCASE_ROOT)/op
 TRAN_TESTCASE_DIR ?= $(TESTCASE_ROOT)/tran
-ACTUAL_DIR ?= actual
+ACTUAL_DIR ?= tests/output
 OP_ACTUAL_DIR ?= $(ACTUAL_DIR)/op
 TRAN_ACTUAL_DIR ?= $(ACTUAL_DIR)/tran
-STANDARD_ROOT ?= standard
+STANDARD_ROOT ?= tests/references
 OP_STANDARD_DIR ?= $(STANDARD_ROOT)/op
 TRAN_STANDARD_DIR ?= $(STANDARD_ROOT)/tran
+TEST_SCRIPT_DIR ?= tests/scripts
 PYTHON ?= python3
 OP_ABS_TOL ?= 5e-4
 OP_REL_TOL ?= 1e-4
@@ -105,10 +105,10 @@ test: $(TARGET)
 	exit $$status
 
 test-io: $(TARGET)
-	@$(PYTHON) scripts/test_io.py ./$(TARGET)
+	@$(PYTHON) $(TEST_SCRIPT_DIR)/test_io.py ./$(TARGET)
 
 test-cases:
-	@$(PYTHON) scripts/check_case_complexity.py
+	@$(PYTHON) $(TEST_SCRIPT_DIR)/check_case_complexity.py
 
 test-op: $(TARGET)
 	@rm -rf "$(OP_ACTUAL_DIR)"; \
@@ -123,11 +123,11 @@ test-op: $(TARGET)
 		rm -f "$$out" "$$raw" "$$err"; \
 		./$(TARGET) -b -o "$$out" -r "$$raw" "$$f" 2> "$$err" || status=1; \
 	done; \
-	$(PYTHON) scripts/validate_raw.py \
+	$(PYTHON) $(TEST_SCRIPT_DIR)/validate_raw.py \
 		--analysis op \
 		--listing-dir "$(OP_ACTUAL_DIR)" \
 		"$(OP_ACTUAL_DIR)"/*.raw || status=1; \
-	$(PYTHON) scripts/compare_spice.py \
+	$(PYTHON) $(TEST_SCRIPT_DIR)/compare_spice.py \
 		--analysis op \
 		--standard "$(OP_STANDARD_DIR)" \
 		--actual "$(OP_ACTUAL_DIR)" \
@@ -150,11 +150,11 @@ test-tran: $(TARGET)
 		rm -f "$$out" "$$raw" "$$err"; \
 		./$(TARGET) -b -o "$$out" -r "$$raw" "$$f" 2> "$$err" || status=1; \
 	done; \
-	$(PYTHON) scripts/validate_raw.py \
+	$(PYTHON) $(TEST_SCRIPT_DIR)/validate_raw.py \
 		--analysis tran \
 		--listing-dir "$(TRAN_ACTUAL_DIR)" \
 		"$(TRAN_ACTUAL_DIR)"/*.raw || status=1; \
-	$(PYTHON) scripts/compare_spice.py \
+	$(PYTHON) $(TEST_SCRIPT_DIR)/compare_spice.py \
 		--analysis tran \
 		--standard "$(TRAN_STANDARD_DIR)" \
 		--actual "$(TRAN_ACTUAL_DIR)" \
@@ -167,10 +167,10 @@ test-tran: $(TARGET)
 compare: compare-op compare-tran
 
 generate-standards: test-cases
-	@$(PYTHON) scripts/generate_ngspice_standards.py
+	@$(PYTHON) $(TEST_SCRIPT_DIR)/generate_ngspice_standards.py
 
 compare-op:
-	@$(PYTHON) scripts/compare_spice.py \
+	@$(PYTHON) $(TEST_SCRIPT_DIR)/compare_spice.py \
 		--analysis op \
 		--standard "$(OP_STANDARD_DIR)" \
 		--actual "$(OP_ACTUAL_DIR)" \
@@ -180,7 +180,7 @@ compare-op:
 		$(OP_COMPARE_FLAGS)
 
 compare-tran:
-	@$(PYTHON) scripts/compare_spice.py \
+	@$(PYTHON) $(TEST_SCRIPT_DIR)/compare_spice.py \
 		--analysis tran \
 		--standard "$(TRAN_STANDARD_DIR)" \
 		--actual "$(TRAN_ACTUAL_DIR)" \
