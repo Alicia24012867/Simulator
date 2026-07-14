@@ -5,7 +5,7 @@
 #include "device.hpp"
 #include "../core/circuit.h"
 #include "../math/mna.hpp"
-#include "../core/transientContext.h"
+#include "../core/transientContext.hpp"
 
 
 class Inductor: public Device{
@@ -66,12 +66,13 @@ public:
     }
 
     void stampTransient(const TransientStampContext& ctx) override {
-        const double preI = ctx.previousSolutionVal(branch);
-        const double r = inductance_ / ctx.timeStep;
+        const double r = inductance_ * ctx.derivative.alpha0;
+        const double history = inductance_ * ctx.historyDerivativeVal(branch);
     
         stampOperatingPoint();
+        
         *bb -= r;
-        *rhs -= r * preI;
+        *rhs += history;
     }
 
 private:

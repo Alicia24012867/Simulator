@@ -10,7 +10,7 @@
 #include "../include/math/mna.hpp"
 #include "../include/models/model.hpp"
 #include "../include/core/analysisPlan.h"
-#include "../include/core/transientContext.h"
+#include "../include/core/transientContext.hpp"
 
 namespace {
 constexpr int kMaxNewtonIterations = 1000;

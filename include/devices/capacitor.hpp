@@ -3,7 +3,7 @@
 #include <cassert>
 
 #include "device.hpp"
-#include "../core/transientContext.h"
+#include "../core/transientContext.hpp"
 
 class Capacitor: public Device{
 public:
@@ -52,19 +52,17 @@ public:
         const int p = nodeIds[0];
         const int n = nodeIds[1];
 
-        const double g = capacitance_ / ctx.timeStep;
-        
-        const double preVp = ctx.previousSolutionVal(p);
-        const double preVn = ctx.previousSolutionVal(n);
-        const double i = g * (preVp - preVn);
+        const double g = capacitance_ * ctx.derivative.alpha0;
+        const double history = capacitance_ *
+                    ctx.historyDerivativeDifference(p, n);
 
         if(aPp_) *aPp_ += g;
         if(aNn_) *aNn_ += g;
         if(aPn_) *aPn_ -= g;
         if(aNp_) *aNp_ -= g;
 
-        if(rhsP_) *rhsP_ += i;
-        if(rhsN_) *rhsN_ -= i;
+        if(rhsP_) *rhsP_ -= history;
+        if(rhsN_) *rhsN_ += history;
     }
 
 private:
