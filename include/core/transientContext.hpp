@@ -28,13 +28,18 @@ struct TransientStampContext{
 
     double olderSolutionVal(int idx) const {
         if(idx < 0) return 0.0;
+        assert(olderSolution != nullptr);
         assert(idx < olderSolution->size());
         return (*olderSolution)[idx];
     }
 
     double historyDerivativeVal(int idx) const {
-        return derivative.alpha1 * previousSolutionVal(idx)
-            + derivative.alpha2 * olderSolutionVal(idx);
+        double history = derivative.alpha1 * previousSolutionVal(idx);
+
+        if(derivative.alpha2 == 0)  return history;
+
+        history += derivative.alpha2 * olderSolutionVal(idx);
+        return history;
     }
 
     double historyDerivativeDifference(int p, int n) const {

@@ -11,27 +11,27 @@ void TransientIntegrator::Initialize(
     const Eigen::VectorXd& initialSolution
 ){
     acceptedTime_ = initialTime;
+    previousStep_ = 0.0;
     solutionN_ = initialSolution;
 
     initialized_ = true;
+    hasOlderSolution_ = false;
 }
 
 void TransientIntegrator::restartFrom(
     double time,
     const Eigen::VectorXd& solution
 ){
-    acceptedTime_ = time;
-    solutionN_ = solution;
-
-    initialized_ = true;
-    hasOlderSolution_ = false;
+    Initialize(time, solution);
 }
 
 bool TransientIntegrator::canUseBdf2(double targetTime) const{
     if(!initialized_ || !hasOlderSolution_ || previousStep_ <= 0.0) return false;
 
-    assert(targetTime > acceptedTime_);
-    double ratio = (targetTime - acceptedTime_) / previousStep_;
+    const double dt = targetTime - acceptedTime_;
+    if(dt <= 0.0)   return false;
+
+    double ratio = dt / previousStep_;
     if(ratio > maximumBdf2StepRatio_)   return false;
 
     return true;
@@ -40,20 +40,26 @@ bool TransientIntegrator::canUseBdf2(double targetTime) const{
 TransientDerivativeCoefficients TransientIntegrator::coefficients(double targetTime) const {
     const double dt = targetTime - acceptedTime_;
 
+    assert(initialized_);
+    assert(dt > 0.0);
+
     if(!canUseBdf2(targetTime)){
         return {
             1,
             1.0 / dt,
             -1.0 / dt,
-            0
+            0.0
         };
     }
 
+    const double ratio = dt / previousStep_;
+    const double dominator = (1.0 + ratio) * dt;
+
     return {
         2,
-        3.0 / (2.0 * dt),
-        -2.0 / dt,
-        1.0 / (2.0 * dt)
+        (1.0 + 2.0 * ratio) / dominator,
+        -(1.0 + ratio) / dt,
+        ratio * ratio / dominator
     };
 }
 
@@ -62,9 +68,12 @@ Eigen::VectorXd TransientIntegrator::predict(double targetTime) const{
         return solutionN_;
     }
 
-    double ratio = (targetTime - acceptedTime_) / previousStep_;
-    Eigen::VectorXd delta = solutionN_ - solutionNm1_;
-    return solutionN_ + ratio * delta;
+    const double ratio = (targetTime - acceptedTime_) / previousStep_;
+
+    Eigen::VectorXd prediction = solutionN_ - solutionNm1_;
+    prediction *= ratio;
+    prediction += solutionN_;
+    return prediction;
 }
 
 TransientStampContext TransientIntegrator::makeContext(double targetTime) const{
@@ -78,10 +87,15 @@ TransientStampContext TransientIntegrator::makeContext(double targetTime) const{
 }
 
 void TransientIntegrator::accept(
-    double acceptedTime,
+    double nextAcceptedTime,
     const Eigen::VectorXd& acceptedSolution
 ){
-    acceptedTime_ = acceptedTime;
+    assert(initialized_);
+    assert(nextAcceptedTime > acceptedTime_);
+    assert(solutionN_.size() == acceptedSolution.size());
+
+    previousStep_ = nextAcceptedTime - acceptedTime_;
+    acceptedTime_ = nextAcceptedTime;
     solutionNm1_ = solutionN_;
     solutionN_ = acceptedSolution;
 
@@ -101,5 +115,5 @@ const Eigen::VectorXd& TransientIntegrator::currentSolution() const noexcept{
 }
 
 const Eigen::VectorXd* TransientIntegrator::olderSolution() const noexcept{
-    return &solutionNm1_;
+    return hasOlderSolution_ ? &solutionNm1_ : nullptr;
 }

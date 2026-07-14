@@ -30,7 +30,7 @@ public:
     TransientStampContext makeContext(double targetTime) const;
 
     void accept(
-        double acceptedTime,
+        double nextAcceptedTime,
         const Eigen::VectorXd& acceptedSolution
     );
 

@@ -11,6 +11,7 @@
 #include "../include/models/model.hpp"
 #include "../include/core/analysisPlan.h"
 #include "../include/core/transientContext.hpp"
+#include "../include/core/transientIntegrator.h"
 
 namespace {
 constexpr int kMaxNewtonIterations = 1000;
@@ -175,6 +176,7 @@ bool Circuit::solveTransient(const TransientAnalysisConfig& config){
     transientSamples_.clear();
 
     const std::clock_t startClock = std::clock();
+    TransientIntegrator integrator;
     Eigen::VectorXd previousSolution;
     double time = 0.0;
 
@@ -206,6 +208,9 @@ bool Circuit::solveTransient(const TransientAnalysisConfig& config){
         }
         previousSolution = mna_->solution();
     }
+
+    integrator.Initialize(time, previousSolution);
+
     transientStats_.initializationCpuSeconds =
         double(std::clock() - startClock) / CLOCKS_PER_SEC;
 
@@ -240,13 +245,9 @@ bool Circuit::solveTransient(const TransientAnalysisConfig& config){
             return false;
         }
 
-        mna_->setSolution(previousSolution);
+        mna_->setSolution(integrator.predict(nextTime));
 
-        const TransientStampContext ctx{
-            nextTime,
-            step,
-            previousSolution
-        };
+        const TransientStampContext ctx = integrator.makeContext(nextTime);
 
         const AssembleCallback assemble = [this, &ctx]{
             assembleTransientSystem(ctx);
@@ -269,6 +270,7 @@ bool Circuit::solveTransient(const TransientAnalysisConfig& config){
         }
 
         previousSolution = mna_->solution();
+        integrator.accept(nextTime, previousSolution);
         time = nextTime;
         ++transientStats_.timeSteps;
 
