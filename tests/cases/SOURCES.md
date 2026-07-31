@@ -54,8 +54,11 @@ Reference listings under `tests/references/` are independently generated with ng
 make generate-standards
 ```
 
-ngspice chooses its own transient integration points; the reference generator
-linearly resamples those values onto each deck's requested `.tran` output grid.
+For TRAN references, the generator injects a fixed high-accuracy ngspice policy
+into a temporary copy of each deck: `reltol=1e-8`, `vntol=1e-10`,
+`abstol=1e-12`, `trtol=1`, and an internal maximum step of `TSTEP / 2000`.
+The source netlists remain unchanged. ngspice data is then linearly resampled
+onto each deck's requested `.tran` output grid.
 For a `UIC` deck only, the explicit `t=0` row follows this project's documented
 all-zero initial-sample convention; every reference value at `t>0` comes from
 ngspice.

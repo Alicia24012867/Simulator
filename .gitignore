@@ -1,5 +1,6 @@
 spice
 tests/output/
+tests/.build/
 
 .vscode/
 

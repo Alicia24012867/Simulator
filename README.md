@@ -62,7 +62,7 @@
 - 没有分析卡时默认执行 `.op`。同时存在 `.op` 与 `.tran` 时依次输出两个分析块。
 - `.tran` 未指定 `UIC` 时先求 operating point；指定 `UIC` 时当前使用全零 MNA 初值。尚未支持器件 `IC=`。
 - `TSTEP` 控制输出间隔，`TSTART` 控制开始保存的时间，`TMAX` 限制内部积分步长。当前未指定 `TMAX` 时内部最大步长使用 `TSTEP`；输出时间点也会强制成为积分点，因此与 ngspice 的默认自适应步长策略不同。
-- 每次瞬态分析的首步使用 Backward Euler；之后在新步长不大于前一步两倍时使用可变步长 BDF2。求解器不做 LTE 误差估计或自适应步长选择。
+- 每次瞬态分析的首步使用 Backward Euler 的 step-doubling 误差估计；之后在新步长不大于前一步两倍时使用可变步长 BDF2，并以预测—校正差估计误差。超过误差预算或 Newton 未收敛的步会回滚并缩小后重试；内部积分点仍不会越过输出时间点。
 
 ## 输出格式
 
@@ -229,7 +229,7 @@ make test-cases
 make generate-standards  # 需要 ngspice
 ```
 
-`tests/references/` 不使用本项目求解结果自我生成。OP 参考值直接来自 ngspice 46；TRAN 参考值来自 ngspice 的自适应时间点，并线性重采样到网表要求的输出时间网格。对于 `UIC` 网表，仅显式 `t=0` 行按本项目当前的全零采样约定处理，所有 `t>0` 数据均来自 ngspice。
+`tests/references/` 不使用本项目求解结果自我生成。OP 参考值直接来自 ngspice 46；生成 TRAN 参考时，脚本会向临时网表注入固定的高精度 ngspice 设置：`reltol=1e-8`、`vntol=1e-10`、`abstol=1e-12`、`trtol=1`，并将内部最大步长限制为 `TSTEP / 2000`。随后将 ngspice 结果线性重采样到网表要求的输出时间网格，原始测试网表不会被修改。对于 `UIC` 网表，仅显式 `t=0` 行按本项目当前的全零采样约定处理，所有 `t>0` 数据均来自 ngspice。
 
 ## 目录结构
 
@@ -260,9 +260,9 @@ tests/
 ## 当前限制
 
 - 不支持 `PULSE`、`SIN`、`PWL` 等时变独立源，因此瞬态阶跃测试使用 `UIC` 和固定 DC 源构造 t=0 激励。
-- 瞬态使用首步 Backward Euler 与受步长比限制的可变步长 BDF2；不支持 LTE 误差估计、自适应步长选择、断点对齐或步长拒绝/缩小重试。
+- 瞬态使用首步 Backward Euler 与受步长比限制的可变步长 BDF2；具备基于预测—校正差/step-doubling 的误差控制和步长拒绝重试，但尚未实现严格 LTE 估计、事件断点对齐或高阶积分公式。
 - `UIC` 当前把完整 MNA 解向量初始化为零；尚未支持器件 `IC=`、`.ic` 与一致初值求解。
-- 瞬态 Newton 失败会直接终止分析，不会缩小时间步后重试；收敛判据也尚未拆分电压/电流的相对与绝对容差。
+- 瞬态 Newton 失败会缩小时间步并在上一个已接受状态重试；非线性收敛判据本身仍未拆分电压/电流的相对与绝对容差。
 - 不支持 `.include`、`.lib`、`.param`、`.options`、`.temp`、`.nodeset`、`.ic`、`.subckt`、`.save`。
 - 不支持受控源 `E/F/G/H`、行为源、AC/noise 分析。
 - 二极管、BJT 和 MOSFET 是简化模型；`RS`、`RBE`、`RCE`、`RDS` 虽可解析但尚未参与 stamp，且瞬态中没有结电容等器件内部动态。

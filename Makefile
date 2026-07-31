@@ -7,6 +7,9 @@ SRC = ./src/main.cpp \
 	  $(wildcard ./src/netlist/*.cpp)
 HEADERS = $(shell find ./include -type f 2>/dev/null)
 TARGET = spice
+UNIT_TEST_SOURCE ?= tests/unit/transient_analysis_test.cpp
+UNIT_TEST_BUILD_DIR ?= tests/.build
+UNIT_TEST_TARGET ?= $(UNIT_TEST_BUILD_DIR)/transient_analysis_test
 TESTCASE_ROOT ?= tests/cases
 OP_TESTCASE_DIR ?= $(TESTCASE_ROOT)/op
 TRAN_TESTCASE_DIR ?= $(TESTCASE_ROOT)/tran
@@ -61,7 +64,7 @@ else ifneq ($(strip $(EIGEN_PKG_CFLAGS)),)
 EIGEN_FLAGS := $(EIGEN_PKG_CFLAGS)
 endif
 
-.PHONY: all clean test test-io test-cases test-op test-tran compare compare-op \
+.PHONY: all clean test test-unit test-io test-cases test-op test-tran compare compare-op \
 	compare-tran generate-standards check-eigen check-deps
 
 all: $(TARGET)
@@ -97,8 +100,16 @@ check-deps: check-eigen
 $(TARGET): $(SRC) $(HEADERS) | check-eigen
 	$(CXX) $(CXX_FLAGS) $(EIGEN_FLAGS) -o $(TARGET) $(SRC)
 
-test: $(TARGET)
+$(UNIT_TEST_TARGET): $(UNIT_TEST_SOURCE) include/analysis/transientAnalysis.h | check-eigen
+	@mkdir -p "$(@D)"
+	$(CXX) $(CXX_FLAGS) $(EIGEN_FLAGS) -o "$@" "$<"
+
+test-unit: $(UNIT_TEST_TARGET)
+	@"$(UNIT_TEST_TARGET)"
+
+test: $(TARGET) $(UNIT_TEST_TARGET)
 	@status=0; \
+	"$(UNIT_TEST_TARGET)" || status=1; \
 	$(MAKE) --no-print-directory test-io || status=1; \
 	$(MAKE) --no-print-directory test-op || status=1; \
 	$(MAKE) --no-print-directory test-tran || status=1; \
@@ -189,6 +200,7 @@ compare-tran:
 		--time-atol "$(TIME_ABS_TOL)" \
 		$(TRAN_COMPARE_FLAGS)
 
-clean: 
+clean:
 	rm -f $(TARGET)
 	rm -rf "$(ACTUAL_DIR)"
+	rm -rf "$(UNIT_TEST_BUILD_DIR)"

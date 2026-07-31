@@ -34,6 +34,15 @@ NUMBER_RE = re.compile(
 PRINT_RE = re.compile(r"(?i)([vi])\s*\(\s*([^)]*?)\s*\)")
 EPSILON = sys.float_info.epsilon
 
+# TRAN references must describe a numerically converged solution rather than
+# the result of ngspice's default, output-interval-dependent stepping policy.
+# Keep this configuration in the generator so the committed baselines are
+# reproducible without modifying the source netlists.
+TRAN_REFERENCE_MAX_STEP_DIVISOR = 2000
+TRAN_REFERENCE_OPTIONS = (
+    ".options reltol=1e-8 vntol=1e-10 abstol=1e-12 trtol=1"
+)
+
 
 def spice_number(text):
     match = NUMBER_RE.fullmatch(text.strip())
@@ -141,6 +150,47 @@ def tran_config(lines):
         raise ValueError("too many .tran time arguments")
     output_start = optional_times[0] if optional_times else 0.0
     return output_interval, stop_time, output_start, use_initial_conditions
+
+
+def high_accuracy_tran_netlist(netlist, work_root):
+    """Return a temporary TRAN deck with the reference accuracy policy."""
+    title, lines = logical_lines(netlist)
+    interval, stop_time, output_start, use_initial_conditions = tran_config(lines)
+    maximum_step = interval / TRAN_REFERENCE_MAX_STEP_DIVISOR
+
+    if not math.isfinite(maximum_step) or maximum_step <= 0.0:
+        raise ValueError(f"invalid high-accuracy maximum step for {netlist}")
+
+    rewritten = []
+    found_tran = False
+    found_end = False
+    for line in lines:
+        if line.lower().startswith(".tran "):
+            if found_tran:
+                raise ValueError(f"multiple .tran directives in {netlist}")
+            found_tran = True
+            directive = (
+                f".tran {interval:.15e} "
+                f"{stop_time:.15e} "
+                f"{output_start:.15e} {maximum_step:.15e}"
+            )
+            if use_initial_conditions:
+                directive += " UIC"
+            rewritten.append(directive)
+        elif line.lower() == ".end":
+            if found_end:
+                raise ValueError(f"multiple .end directives in {netlist}")
+            found_end = True
+            rewritten.extend((TRAN_REFERENCE_OPTIONS, line))
+        else:
+            rewritten.append(line)
+
+    if not found_tran or not found_end:
+        raise ValueError(f"missing .tran or .end in {netlist}")
+
+    destination = work_root / f"reference-{netlist.name}"
+    destination.write_text(title + "\n" + "\n".join(rewritten) + "\n")
+    return destination
 
 
 def same_time(left, right):
@@ -259,7 +309,12 @@ def generate_case(ngspice, netlist, analysis, staging_root, work_root):
     variables = print_variables(lines, analysis)
     raw_path = work_root / f"{analysis}-{netlist.stem}.raw"
     log_path = work_root / f"{analysis}-{netlist.stem}.log"
-    plots = run_ngspice(ngspice, netlist, raw_path, log_path)
+    simulation_netlist = (
+        high_accuracy_tran_netlist(netlist, work_root)
+        if analysis == "tran"
+        else netlist
+    )
+    plots = run_ngspice(ngspice, simulation_netlist, raw_path, log_path)
     plot_name = "Operating Point" if analysis == "op" else "Transient Analysis"
     candidates = [plot for plot in plots if plot["plotname"] == plot_name]
     if len(candidates) != 1:

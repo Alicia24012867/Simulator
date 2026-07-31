@@ -14,8 +14,10 @@ class Model;
 class NodeMap;
 class SpiceOutputAccess;
 class TransientIntegrator;
+
 struct TransientAnalysisConfig;
 struct TransientStampContext;
+struct TransientSolverOptions;
 class Circuit{
 public:
     Circuit();
@@ -70,6 +72,11 @@ private:
     };
 
     struct TransientStepAttempt{
+        Eigen::VectorXd prediction;
+        int integrationOrder = 1;
+        bool errorEstimateValid = false;
+        double normalizedError = 0.0;
+        double suggestedStepScale = 1.0;
         bool converged = false;
         NewtonStats newtonStats;
         Eigen::VectorXd solution;
@@ -87,6 +94,12 @@ private:
         double tolerance = 0.0;
         double initializationCpuSeconds = 0.0;
         double cpuSeconds = 0.0;
+
+        int attemptedSteps = 0;
+        int rejectedSteps = 0;
+        int convergenceRejectedSteps = 0;
+        int errorRejectedSteps = 0;
+        int invalidEstimateFailures = 0;
     };
 
     struct TransientSample {
@@ -96,7 +109,8 @@ private:
 
     TransientStepAttempt tryTransientStep(
         const TransientIntegrator& integrator,
-        double targetTime
+        double targetTime,
+        const TransientSolverOptions& options
     );
 
     void addTransientStats(const NewtonStats& stats);

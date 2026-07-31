@@ -182,11 +182,16 @@ bool Circuit::solveTransient(const TransientAnalysisConfig& config){
         ? *config.maximumStep
         : config.outputInterval;
 
-    if(config.outputInterval <= 0.0 ||
+    if(!std::isfinite(config.outputInterval) ||
+       !std::isfinite(config.stopTime) ||
+       !std::isfinite(config.outputStartTime) ||
+       !std::isfinite(maximumIntegrationStep) ||
+       config.outputInterval <= 0.0 ||
        maximumIntegrationStep <= 0.0 ||
        config.outputStartTime < 0.0 ||
        config.outputStartTime >= config.stopTime ||
-       config.stopTime <= 0.0){
+       config.stopTime <= 0.0 ||
+       !config.solverOptions.validFor(maximumIntegrationStep)){
         transientStats_.cpuSeconds =
             double(std::clock() - startClock) / CLOCKS_PER_SEC;
         return false;
@@ -228,58 +233,217 @@ bool Circuit::solveTransient(const TransientAnalysisConfig& config){
         }
     }
 
-    while(time < config.stopTime){
-        const double nextTime = std::min(
+    double proposedStep = maximumIntegrationStep;
+
+    const auto failTransient = [&] {
+        transientStats_.finalTime = time;
+        transientStats_.cpuSeconds =
+            double(std::clock() - startClock) / CLOCKS_PER_SEC;
+        return false;
+    };
+
+    while(!timeReached(time, config.stopTime)){
+        double hardStepLimit = std::min(
             {
-                time + maximumIntegrationStep,
-                nextOutputTime,
-                config.stopTime
+                maximumIntegrationStep,
+                nextOutputTime - time,
+                config.stopTime - time
             }
         );
-        const double step = nextTime - time;
 
-        if(step <= 0.0){
-            transientStats_.finalTime = time;
-            transientStats_.cpuSeconds =
-                double(std::clock() - startClock) / CLOCKS_PER_SEC;
-            return false;
+        const bool hasBdf2History = integrator.olderSolution() != nullptr;
+        if(hasBdf2History){
+            const double bdf2StepLimit = std::nextafter(
+                integrator.previousStep() * integrator.maximumBdf2StepRatio(),
+                0.0
+            );
+            hardStepLimit = std::min(hardStepLimit, bdf2StepLimit);
         }
 
-        const Eigen::VectorXd acceptedSolution = mna_->solution();
-        saveNonlinearIterationStates();
+        if(!std::isfinite(hardStepLimit) || hardStepLimit <= 0.0){
+            return failTransient();
+        }
 
-        TransientStepAttempt attempt = tryTransientStep(integrator, nextTime);
-        addTransientStats(attempt.newtonStats);
+        double candidateStep = std::min(proposedStep, hardStepLimit);
+        if(!std::isfinite(candidateStep) ||
+           candidateStep <= 0.0 ||
+           time + candidateStep <= time){
+            return failTransient();
+        }
 
-        if(!attempt.converged){
+        int rejectedAttempts = 0;
+
+        while(true){
+            const double nextTime = time + candidateStep;
+            if(!std::isfinite(nextTime) || nextTime <= time){
+                return failTransient();
+            }
+
+            const Eigen::VectorXd acceptedSolution = mna_->solution();
+            saveNonlinearIterationStates();
+
+            const auto runTransientAttempt =
+                [&](const TransientIntegrator& trialIntegrator,
+                    double trialTime) {
+                    TransientStepAttempt trial = tryTransientStep(
+                        trialIntegrator,
+                        trialTime,
+                        config.solverOptions
+                    );
+                    ++transientStats_.attemptedSteps;
+                    addTransientStats(trial.newtonStats);
+                    return trial;
+                };
+
+            TransientStepAttempt attempt;
+
+            if(!hasBdf2History){
+                const double halfStep = 0.5 * candidateStep;
+                const double halfTime = time + halfStep;
+
+                if(!std::isfinite(halfStep) ||
+                   halfStep < config.solverOptions.minimumStep ||
+                   !std::isfinite(halfTime) ||
+                   halfTime <= time ||
+                   nextTime <= halfTime){
+                    restoreTransientCheckpoint(acceptedSolution);
+                    return failTransient();
+                }
+
+                TransientStepAttempt coarse = runTransientAttempt(
+                    integrator,
+                    nextTime
+                );
+                attempt = coarse;
+
+                if(coarse.converged && coarse.integrationOrder == 1){
+                    // The coarse solve may change nonlinear limiting state;
+                    // start the fine pair from the same accepted checkpoint.
+                    restoreTransientCheckpoint(acceptedSolution);
+
+                    TransientIntegrator fineIntegrator(
+                        integrator.maximumBdf2StepRatio()
+                    );
+                    fineIntegrator.restartFrom(time, acceptedSolution);
+
+                    TransientStepAttempt firstHalf = runTransientAttempt(
+                        fineIntegrator,
+                        halfTime
+                    );
+                    attempt = firstHalf;
+
+                    if(firstHalf.converged &&
+                       firstHalf.integrationOrder == 1){
+                        // restartFrom deliberately clears history: the
+                        // second half is BE rather than an internal BDF2 step.
+                        fineIntegrator.restartFrom(
+                            halfTime,
+                            firstHalf.solution
+                        );
+
+                        TransientStepAttempt secondHalf =
+                            runTransientAttempt(
+                                fineIntegrator,
+                                nextTime
+                            );
+                        attempt = secondHalf;
+
+                        if(secondHalf.converged &&
+                           secondHalf.integrationOrder == 1){
+                            const TransientErrorEstimate estimate =
+                                estimateTransientSolutionDifference(
+                                    acceptedSolution,
+                                    secondHalf.solution,
+                                    coarse.solution,
+                                    nodeMap_->nodeCount(),
+                                    config.solverOptions
+                                );
+
+                            // Commit the fine endpoint, never the coarse
+                            // whole-step solution or a Richardson extrapolate.
+                            attempt.solution = secondHalf.solution;
+                            attempt.errorEstimateValid = estimate.valid;
+                            attempt.normalizedError =
+                                estimate.normalizedError;
+                            attempt.suggestedStepScale =
+                                estimate.suggestedScale;
+                        }
+                    }
+                }
+            } else {
+                attempt = runTransientAttempt(integrator, nextTime);
+            }
+
+            TransientStepControlInput controlInput;
+            controlInput.converged = attempt.converged;
+            controlInput.requiresBdf2 = hasBdf2History;
+            controlInput.integrationOrder = attempt.integrationOrder;
+            controlInput.errorEstimateValid = attempt.errorEstimateValid;
+            controlInput.normalizedError = attempt.normalizedError;
+            controlInput.suggestedStepScale = attempt.suggestedStepScale;
+            controlInput.currentTime = time;
+            controlInput.attemptedStep = candidateStep;
+            controlInput.hardStepLimit = hardStepLimit;
+            controlInput.rejectedAttempts = rejectedAttempts;
+
+            const TransientStepControlDecision decision =
+                decideTransientStep(controlInput, config.solverOptions);
+
+            if(decision.action == TransientStepAction::Accept){
+                mna_->setSolution(attempt.solution);
+                integrator.accept(nextTime, attempt.solution);
+
+                time = nextTime;
+                if(timeReached(time, config.stopTime)){
+                    time = config.stopTime;
+                }
+                ++transientStats_.timeSteps;
+
+                proposedStep = std::min(
+                    maximumIntegrationStep,
+                    decision.nextStep
+                );
+
+                if(!std::isfinite(proposedStep) || proposedStep <= 0.0){
+                    return failTransient();
+                }
+
+                if(timeReached(time, nextOutputTime)){
+                    recordTransientSample(time);
+                    if(!timeReached(time, config.stopTime) &&
+                       !advanceOutputTime(
+                           nextOutputTime,
+                           time,
+                           config.outputInterval
+                       )){
+                        return failTransient();
+                    }
+                }
+
+                break;
+            }
+
+            ++transientStats_.rejectedSteps;
+            if(!attempt.converged){
+                ++transientStats_.convergenceRejectedSteps;
+            } else if(decision.action ==
+                      TransientStepAction::FailInvalidEstimate){
+                ++transientStats_.invalidEstimateFailures;
+            } else if(attempt.errorEstimateValid &&
+                      attempt.normalizedError > 1.0){
+                ++transientStats_.errorRejectedSteps;
+            }
+
             restoreTransientCheckpoint(acceptedSolution);
 
-            transientStats_.finalTime = time;
-            transientStats_.cpuSeconds =
-                double(std::clock() - startClock) / CLOCKS_PER_SEC;
-            return false;
-        }
-
-
-        mna_->setSolution(attempt.solution);
-        integrator.accept(nextTime, attempt.solution);
-
-        time = nextTime;
-        ++transientStats_.timeSteps;
-
-        if(timeReached(time, nextOutputTime)){
-            recordTransientSample(time);
-            if(time < config.stopTime &&
-               !advanceOutputTime(
-                   nextOutputTime,
-                   time,
-                   config.outputInterval
-               )){
-                transientStats_.finalTime = time;
-                transientStats_.cpuSeconds =
-                    double(std::clock() - startClock) / CLOCKS_PER_SEC;
-                return false;
+            if(decision.action == TransientStepAction::RetryConvergence ||
+               decision.action == TransientStepAction::RetryError){
+                candidateStep = decision.nextStep;
+                ++rejectedAttempts;
+                continue;
             }
+
+            return failTransient();
         }
     }
 
@@ -297,12 +461,18 @@ bool Circuit::solveTransient(const TransientAnalysisConfig& config){
 
 Circuit::TransientStepAttempt Circuit::tryTransientStep(
     const TransientIntegrator& integrator,
-    double targetTime
+    double targetTime,
+    const TransientSolverOptions& options
 ){
     TransientStepAttempt attempt;
 
-    mna_->setSolution(integrator.predict(targetTime));
+    attempt.prediction = integrator.predict(targetTime);
+    mna_->setSolution(attempt.prediction);
+
     const TransientStampContext ctx = integrator.makeContext(targetTime);
+
+    attempt.integrationOrder = ctx.derivative.order;
+
     const AssembleCallback assemble = [this, &ctx]{
         assembleTransientSystem(ctx);
     };
@@ -312,6 +482,17 @@ Circuit::TransientStepAttempt Circuit::tryTransientStep(
 
     if(attempt.converged){
         attempt.solution = mna_->solution();
+
+        const TransientErrorEstimate estimate = integrator.estimateError(
+            targetTime,
+            attempt.solution,
+            nodeMap_->nodeCount(),
+            options
+        );
+
+        attempt.errorEstimateValid = estimate.valid;
+        attempt.normalizedError = estimate.normalizedError;
+        attempt.suggestedStepScale = estimate.suggestedScale;
     }
 
     return attempt;

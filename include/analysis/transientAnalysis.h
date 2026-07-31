@@ -2,6 +2,8 @@
 
 #include <cassert>
 #include <optional>
+#include <algorithm>
+#include <cmath>
 
 #include <Eigen/Core>
 
@@ -18,6 +20,39 @@ struct TransientSolverOptions {
     double convergenceFailureScale = 0.25;
 
     int maximumRejects = 10;
+
+    bool validFor(double maximumIntegrationStep) const noexcept {
+        return std::isfinite(maximumIntegrationStep) &&
+            maximumIntegrationStep > 0.0 &&
+            std::isfinite(relativeTolerance) &&
+            relativeTolerance >= 0.0 &&
+            std::isfinite(voltageAbsoluteTolerance) &&
+            voltageAbsoluteTolerance > 0.0 &&
+            std::isfinite(currentAbsoluteTolerance) &&
+            currentAbsoluteTolerance > 0.0 &&
+            std::isfinite(minimumStep) &&
+            minimumStep > 0.0 &&
+            minimumStep <= maximumIntegrationStep &&
+            std::isfinite(safetyFactor) &&
+            safetyFactor > 0.0 &&
+            safetyFactor <= 1.0 &&
+            std::isfinite(minimumScale) &&
+            minimumScale > 0.0 &&
+            minimumScale < 1.0 &&
+            std::isfinite(maximumScale) &&
+            maximumScale >= 1.0 &&
+            maximumScale >= minimumScale &&
+            std::isfinite(convergenceFailureScale) &&
+            convergenceFailureScale > 0.0 &&
+            convergenceFailureScale < 1.0 &&
+            maximumRejects >= 0;
+    }
+};
+
+struct TransientErrorEstimate {
+    bool valid = false;
+    double normalizedError = 0.0;
+    double suggestedScale = 1.0;
 };
 
 // Parsed .tran parameters plus transient solver configuration.
@@ -73,6 +108,207 @@ struct TransientStampContext {
         return historyDerivativeVal(p) - historyDerivativeVal(n);
     }
 };
+
+inline TransientErrorEstimate estimateTransientSolutionDifference(
+    const Eigen::VectorXd& acceptedSolution,
+    const Eigen::VectorXd& correctedSolution,
+    const Eigen::VectorXd& referenceSolution,
+    int voltageUnknownCount,
+    const TransientSolverOptions& options
+){
+    TransientErrorEstimate result;
+
+    const Eigen::Index size = correctedSolution.size();
+    const bool optionsValid =
+        std::isfinite(options.relativeTolerance) &&
+        std::isfinite(options.voltageAbsoluteTolerance) &&
+        std::isfinite(options.currentAbsoluteTolerance) &&
+        std::isfinite(options.safetyFactor) &&
+        std::isfinite(options.minimumScale) &&
+        std::isfinite(options.maximumScale) &&
+        options.relativeTolerance >= 0.0 &&
+        options.voltageAbsoluteTolerance > 0.0 &&
+        options.currentAbsoluteTolerance > 0.0 &&
+        options.safetyFactor > 0.0 &&
+        options.minimumScale > 0.0 &&
+        options.maximumScale >= options.minimumScale;
+
+    if(!optionsValid || size == 0 ||
+       acceptedSolution.size() != size ||
+       referenceSolution.size() != size ||
+       voltageUnknownCount < 0 || voltageUnknownCount > size){
+        return result;
+    }
+
+    double normalizedError = 0.0;
+
+    for(Eigen::Index i = 0; i < size; ++i){
+        const double accepted = acceptedSolution[i];
+        const double corrected = correctedSolution[i];
+        const double reference = referenceSolution[i];
+
+        if(!std::isfinite(accepted) ||
+           !std::isfinite(corrected) ||
+           !std::isfinite(reference)){
+            return result;
+        }
+
+        const double absoluteTolerance =
+            i < static_cast<Eigen::Index>(voltageUnknownCount)
+            ? options.voltageAbsoluteTolerance
+            : options.currentAbsoluteTolerance;
+
+        const double weight = absoluteTolerance +
+            options.relativeTolerance *
+            std::max(std::abs(corrected), std::abs(accepted));
+        const double difference = corrected - reference;
+
+        if(!std::isfinite(weight) || weight <= 0.0 ||
+           !std::isfinite(difference)){
+            return result;
+        }
+
+        const double componentError = std::abs(difference) / weight;
+        if(!std::isfinite(componentError)){
+            return result;
+        }
+
+        normalizedError = std::max(normalizedError, componentError);
+    }
+
+    result.valid = true;
+    result.normalizedError = normalizedError;
+
+    if(normalizedError == 0.0){
+        result.suggestedScale = options.maximumScale;
+        return result;
+    }
+
+    result.suggestedScale = std::clamp(
+        options.safetyFactor / std::sqrt(normalizedError),
+        options.minimumScale,
+        options.maximumScale
+    );
+    return result;
+}
+
+enum class TransientStepAction {
+    Accept,
+    RetryConvergence,
+    RetryError,
+    FailInvalidEstimate,
+    FailMinimumStep,
+    FailRejectLimit
+};
+
+struct TransientStepControlInput {
+    bool converged = false;
+    bool requiresBdf2 = false;
+    int integrationOrder = 1;
+    bool errorEstimateValid = false;
+    double normalizedError = 0.0;
+    double suggestedStepScale = 1.0;
+
+    double currentTime = 0.0;
+    double attemptedStep = 0.0;
+    double hardStepLimit = 0.0;
+    int rejectedAttempts = 0;
+};
+
+struct TransientStepControlDecision {
+    TransientStepAction action = TransientStepAction::FailMinimumStep;
+    double nextStep = 0.0;
+};
+
+inline TransientStepControlDecision decideTransientStep(
+    const TransientStepControlInput& input,
+    const TransientSolverOptions& options
+){
+    const bool stepInputValid =
+        std::isfinite(input.currentTime) &&
+        std::isfinite(input.attemptedStep) &&
+        std::isfinite(input.hardStepLimit) &&
+        input.attemptedStep > 0.0 &&
+        input.attemptedStep <= input.hardStepLimit &&
+        input.rejectedAttempts >= 0;
+
+    if(!stepInputValid){
+        return {TransientStepAction::FailMinimumStep, 0.0};
+    }
+
+    const auto retry = [&](TransientStepAction action, double scale) {
+        if(input.rejectedAttempts >= options.maximumRejects){
+            return TransientStepControlDecision{
+                TransientStepAction::FailRejectLimit,
+                0.0
+            };
+        }
+
+        if(!std::isfinite(scale) || scale <= 0.0 || scale >= 1.0){
+            return TransientStepControlDecision{
+                TransientStepAction::FailMinimumStep,
+                0.0
+            };
+        }
+
+        const double reducedStep = std::max(
+            options.minimumStep,
+            input.attemptedStep * scale
+        );
+        const double nextTime = input.currentTime + reducedStep;
+
+        if(!std::isfinite(reducedStep) ||
+           !std::isfinite(nextTime) ||
+           reducedStep >= input.attemptedStep ||
+           reducedStep > input.hardStepLimit ||
+           nextTime <= input.currentTime){
+            return TransientStepControlDecision{
+                TransientStepAction::FailMinimumStep,
+                0.0
+            };
+        }
+
+        return TransientStepControlDecision{action, reducedStep};
+    };
+
+    if(!input.converged){
+        return retry(
+            TransientStepAction::RetryConvergence,
+            options.convergenceFailureScale
+        );
+    }
+
+    if(input.requiresBdf2 && input.integrationOrder != 2){
+        return {TransientStepAction::FailInvalidEstimate, 0.0};
+    }
+
+    if(!input.errorEstimateValid ||
+       !std::isfinite(input.normalizedError) ||
+       input.normalizedError < 0.0 ||
+       !std::isfinite(input.suggestedStepScale) ||
+       input.suggestedStepScale <= 0.0){
+        return {TransientStepAction::FailInvalidEstimate, 0.0};
+    }
+
+    if(input.normalizedError > 1.0){
+        return retry(
+            TransientStepAction::RetryError,
+            input.suggestedStepScale
+        );
+    }
+
+    const double recommendedStep =
+        input.attemptedStep * input.suggestedStepScale;
+
+    if(!std::isfinite(recommendedStep) || recommendedStep <= 0.0){
+        return {TransientStepAction::FailInvalidEstimate, 0.0};
+    }
+
+    return {
+        TransientStepAction::Accept,
+        recommendedStep
+    };
+}
 
 class TransientIntegrator {
 public:
@@ -145,6 +381,26 @@ public:
         return solutionN_ + ratio * (solutionN_ - solutionNm1_);
     }
 
+    TransientErrorEstimate estimateError(
+        double targetTime,
+        const Eigen::VectorXd& correctedSolution,
+        int voltageUnknownCount,
+        const TransientSolverOptions& options
+    ) const{
+        if(!initialized_ || !std::isfinite(targetTime) ||
+           !canUseBdf2(targetTime)){
+            return {};
+        }
+
+        return estimateTransientSolutionDifference(
+            solutionN_,
+            correctedSolution,
+            predict(targetTime),
+            voltageUnknownCount,
+            options
+        );
+    }
+
     TransientStampContext makeContext(double targetTime) const {
         return {
             targetTime,
@@ -176,6 +432,10 @@ public:
 
     double previousStep() const noexcept {
         return previousStep_;
+    }
+
+    double maximumBdf2StepRatio() const noexcept {
+        return maximumBdf2StepRatio_;
     }
 
     const Eigen::VectorXd& currentSolution() const noexcept {
