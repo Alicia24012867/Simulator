@@ -21,6 +21,7 @@ STANDARD_ROOT ?= tests/references
 OP_STANDARD_DIR ?= $(STANDARD_ROOT)/op
 TRAN_STANDARD_DIR ?= $(STANDARD_ROOT)/tran
 TEST_SCRIPT_DIR ?= tests/scripts
+CASE_RUNNER ?= $(TEST_SCRIPT_DIR)/run_cases.py
 PYTHON ?= python3
 OP_ABS_TOL ?= 5e-4
 OP_REL_TOL ?= 1e-4
@@ -126,15 +127,11 @@ test-op: $(TARGET)
 	@rm -rf "$(OP_ACTUAL_DIR)"; \
 	mkdir -p "$(OP_ACTUAL_DIR)"; \
 	status=0; \
-	for f in "$(OP_TESTCASE_DIR)"/*.cir; do \
-		base=$${f##*/}; \
-		base=$${base%.cir}; \
-		out="$(OP_ACTUAL_DIR)/$$base.out"; \
-		raw="$(OP_ACTUAL_DIR)/$$base.raw"; \
-		err="$(OP_ACTUAL_DIR)/$$base.err"; \
-		rm -f "$$out" "$$raw" "$$err"; \
-		./$(TARGET) -b -o "$$out" -r "$$raw" "$$f" 2> "$$err" || status=1; \
-	done; \
+	$(PYTHON) "$(CASE_RUNNER)" \
+		--analysis op \
+		--simulator "./$(TARGET)" \
+		--case-dir "$(OP_TESTCASE_DIR)" \
+		--output-dir "$(OP_ACTUAL_DIR)" || status=1; \
 	$(PYTHON) $(TEST_SCRIPT_DIR)/validate_raw.py \
 		--analysis op \
 		--listing-dir "$(OP_ACTUAL_DIR)" \
@@ -153,15 +150,11 @@ test-tran: $(TARGET)
 	@rm -rf "$(TRAN_ACTUAL_DIR)"; \
 	mkdir -p "$(TRAN_ACTUAL_DIR)"; \
 	status=0; \
-	for f in "$(TRAN_TESTCASE_DIR)"/*.cir; do \
-		base=$${f##*/}; \
-		base=$${base%.cir}; \
-		out="$(TRAN_ACTUAL_DIR)/$$base.out"; \
-		raw="$(TRAN_ACTUAL_DIR)/$$base.raw"; \
-		err="$(TRAN_ACTUAL_DIR)/$$base.err"; \
-		rm -f "$$out" "$$raw" "$$err"; \
-		./$(TARGET) -b -o "$$out" -r "$$raw" "$$f" 2> "$$err" || status=1; \
-	done; \
+	$(PYTHON) "$(CASE_RUNNER)" \
+		--analysis tran \
+		--simulator "./$(TARGET)" \
+		--case-dir "$(TRAN_TESTCASE_DIR)" \
+		--output-dir "$(TRAN_ACTUAL_DIR)" || status=1; \
 	$(PYTHON) $(TEST_SCRIPT_DIR)/validate_raw.py \
 		--analysis tran \
 		--listing-dir "$(TRAN_ACTUAL_DIR)" \

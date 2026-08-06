@@ -175,6 +175,9 @@ tests/
 make test
 ```
 
+`make test-op` 与 `make test-tran` 会在每个网表执行后输出一条
+`TIME <analysis> <case> <milliseconds> PASS/FAIL`，并输出该分析组的总墙钟时间。单例时间覆盖 simulator 子进程启动、解析、建模、求解以及 `.out` / `.raw` 写出；rawfile 校验和 ngspice 对照时间不包含在其中，便于 PTA 前后比较求解端到端开销。
+
 也可以分别运行或只比较已有结果：
 
 ```sh
