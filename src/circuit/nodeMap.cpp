@@ -15,10 +15,17 @@ void NodeMap::build(const std::vector<std::unique_ptr<Device>>& devices){
     name_to_idx.clear();
     idx_to_name.clear();
 
-    for(auto& device : devices){
-        std::vector<std::string> nodes = device->getNodes();
-        for(auto& node : nodes){
-            node = to_lower_copy(node);
+    std::size_t nodeReferences = 0;
+    for(const auto& device: devices){
+        nodeReferences += device->getNodes().size();
+    }
+    name_to_idx.reserve(nodeReferences);
+    idx_to_name.reserve(nodeReferences);
+
+    for(const auto& device : devices){
+        const auto& nodes = device->getNodes();
+        for(const auto& nodeName : nodes){
+            const std::string node = to_lower_copy(nodeName);
             if(node == "0" || node == "gnd"){
                 continue;
             }

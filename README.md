@@ -202,7 +202,7 @@ make compare-tran
 ```make
 OP_ABS_TOL    ?= 5e-4
 OP_REL_TOL    ?= 1e-4
-TRAN_ABS_TOL  ?= 1e-3
+TRAN_ABS_TOL  ?= 1e-4
 TRAN_REL_TOL  ?= 1e-3
 TIME_ABS_TOL  ?= 1e-15
 ```
@@ -239,7 +239,7 @@ include/
   circuit/       Circuit 求解编排与 NodeMap 拓扑接口
   devices/       器件定义及 OP / TRAN stamp
   io/            SPICE listing / rawfile 输出接口
-  math/          Eigen 稀疏 MNA 与数值限制工具
+  math/          Eigen 稀疏 MNA、Newton 步长控制与数值限制工具
   models/        .model 参数存储
   netlist/       网表 Parser 接口
   utils/         跨模块字符串与 SPICE 数值工具
@@ -255,7 +255,7 @@ tests/
   output/        测试生成的 listing / rawfile / stderr（不纳入版本控制）
 ```
 
-项目内头文件统一相对于 `include/` 引用。`include/analysis`、`include/devices`、`include/math` 和 `include/models` 当前主要是 header-only 模块；存在独立实现文件的模块则在 `src/` 中使用对应职责目录。
+项目内头文件统一相对于 `include/` 引用。`include/analysis`、`include/devices`、`include/math` 和 `include/models` 当前主要是 header-only 模块；存在独立实现文件的模块则在 `src/` 中使用对应职责目录。默认构建使用 `-O3`；调试时可用 `make OPT_FLAGS=-O0` 覆盖。
 
 ## 当前限制
 

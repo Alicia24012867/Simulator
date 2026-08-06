@@ -25,6 +25,9 @@ public:
 
         b_.setZero(n);
         x_.setZero(n);
+
+        pattern_.clear();
+        locator_.clear();
     }
 
     int size() const { return n_; }
@@ -100,12 +103,24 @@ public:
         return x_;
     }
 
+    Eigen::VectorXd& solution(){
+        return x_;
+    }
+
     void setSolution(const Eigen::VectorXd& x){
         x_ = x;
     }
 
     const double* solutionPtr(int row) const{
         return &x_[row];
+    }
+
+    // Pattern triplets and the lookup table are only needed while devices
+    // bind their direct matrix pointers.  They can be released before the
+    // iterative solve starts, where only the compressed sparse matrix remains.
+    void releaseBuildMetadata(){
+        std::vector<Triplet>().swap(pattern_);
+        std::unordered_map<uint64_t, int>().swap(locator_);
     }
 
     double voltage(int node) const{

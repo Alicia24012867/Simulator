@@ -1,4 +1,5 @@
 #include "analysis/transientAnalysis.h"
+#include "math/newtonStep.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -703,6 +704,42 @@ void testRestartForcesBackwardEuler(){
     );
 }
 
+void testNewtonStepLimiting(){
+    Eigen::VectorXd previous = makeVector({1.0, -2.0});
+    Eigen::VectorXd current = makeVector({4.0, -2.5});
+
+    const NewtonStepResult limited = limitNewtonStep(
+        current,
+        previous,
+        1.0
+    );
+    expect(limited.limited, "large Newton step is limited");
+    expectNear(limited.delta, 1.0, "limited Newton step reports bound");
+    expectNear(current[0], 2.0, "limited Newton step updates first value");
+    expectNear(
+        current[1],
+        -2.0 - (0.5 / 3.0),
+        "limited Newton step preserves update direction"
+    );
+
+    current = makeVector({1.2, -2.1});
+    const NewtonStepResult unchanged = limitNewtonStep(
+        current,
+        previous,
+        1.0
+    );
+    expect(!unchanged.limited, "small Newton step is unchanged");
+    expectNear(unchanged.delta, 0.2, "small Newton step reports raw delta");
+
+    current = makeVector({std::numeric_limits<double>::quiet_NaN(), -2.0});
+    const NewtonStepResult invalid = limitNewtonStep(
+        current,
+        previous,
+        1.0
+    );
+    expect(!std::isfinite(invalid.delta), "non-finite Newton step is rejected");
+}
+
 } // namespace
 
 int main(){
@@ -719,6 +756,7 @@ int main(){
     testTransientStepController();
     testStepDoublingDifferenceEstimate();
     testRestartForcesBackwardEuler();
+    testNewtonStepLimiting();
 
     if(failureCount != 0){
         std::cerr << failureCount << " of " << checkCount

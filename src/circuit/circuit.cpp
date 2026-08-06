@@ -10,6 +10,7 @@
 #include "circuit/nodeMap.h"
 #include "devices/device.hpp"
 #include "math/mna.hpp"
+#include "math/newtonStep.hpp"
 #include "models/model.hpp"
 
 namespace {
@@ -102,6 +103,7 @@ bool Circuit::build(){
     for(auto& device: devices_){
         device->bindMatrix(*mna_);
     }
+    mna_->releaseBuildMetadata();
 
     return true;
 }
@@ -466,8 +468,7 @@ Circuit::TransientStepAttempt Circuit::tryTransientStep(
 ){
     TransientStepAttempt attempt;
 
-    attempt.prediction = integrator.predict(targetTime);
-    mna_->setSolution(attempt.prediction);
+    mna_->setSolution(integrator.predict(targetTime));
 
     const TransientStampContext ctx = integrator.makeContext(targetTime);
 
@@ -582,22 +583,21 @@ bool Circuit::solveNewtonSystem(const AssembleCallback& assemble,
             return false;
         }
 
-        Eigen::VectorXd current = mna_->solution();
-        if(current.size() != previous.size()){
+        Eigen::VectorXd& current = mna_->solution();
+        const NewtonStepResult step = limitNewtonStep(
+            current,
+            previous,
+            kSolutionMaxStep
+        );
+        if(!std::isfinite(step.delta)){
             return false;
         }
-
-        const Eigen::VectorXd step = current - previous;
-        const double rawDelta = step.lpNorm<Eigen::Infinity>();
-        if(rawDelta > kSolutionMaxStep){
-            current = previous + step * (kSolutionMaxStep / rawDelta);
-            mna_->setSolution(current);
+        if(step.limited){
             ++stats.dampedSteps;
         }
 
-        const double delta = (current - previous).lpNorm<Eigen::Infinity>();
-        stats.finalDelta = delta;
-        if(delta < kNewtonTolerance){
+        stats.finalDelta = step.delta;
+        if(step.delta < kNewtonTolerance){
             return true;
         }
 

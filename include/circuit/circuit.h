@@ -72,7 +72,6 @@ private:
     };
 
     struct TransientStepAttempt{
-        Eigen::VectorXd prediction;
         int integrationOrder = 1;
         bool errorEstimateValid = false;
         double normalizedError = 0.0;

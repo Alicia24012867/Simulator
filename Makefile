@@ -1,6 +1,7 @@
 CXX = g++
 CXX_STD = c++17
-CXX_FLAGS = -std=$(CXX_STD) -Wall -Wextra -I./include
+OPT_FLAGS ?= -O3
+CXX_FLAGS = -std=$(CXX_STD) $(OPT_FLAGS) -Wall -Wextra -I./include
 SRC = ./src/main.cpp \
 	  $(wildcard ./src/circuit/*.cpp) \
 	  $(wildcard ./src/io/*.cpp) \
@@ -23,7 +24,7 @@ TEST_SCRIPT_DIR ?= tests/scripts
 PYTHON ?= python3
 OP_ABS_TOL ?= 5e-4
 OP_REL_TOL ?= 1e-4
-TRAN_ABS_TOL ?= 1e-3
+TRAN_ABS_TOL ?= 1e-4
 TRAN_REL_TOL ?= 1e-3
 TIME_ABS_TOL ?= 1e-15
 OP_COMPARE_FLAGS ?=
@@ -100,7 +101,7 @@ check-deps: check-eigen
 $(TARGET): $(SRC) $(HEADERS) | check-eigen
 	$(CXX) $(CXX_FLAGS) $(EIGEN_FLAGS) -o $(TARGET) $(SRC)
 
-$(UNIT_TEST_TARGET): $(UNIT_TEST_SOURCE) include/analysis/transientAnalysis.h | check-eigen
+$(UNIT_TEST_TARGET): $(UNIT_TEST_SOURCE) $(HEADERS) | check-eigen
 	@mkdir -p "$(@D)"
 	$(CXX) $(CXX_FLAGS) $(EIGEN_FLAGS) -o "$@" "$<"
 
