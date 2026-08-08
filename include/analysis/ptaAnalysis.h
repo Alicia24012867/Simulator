@@ -1,7 +1,7 @@
 #pragma once
 
 enum class PtaMode{
-    Disabled,   // normal
+    Disabled,   // normal NR 
     Force,      // pta method is required explicitly
     Fallback    // pta called when NR failed
 };

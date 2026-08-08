@@ -20,6 +20,8 @@ struct CommandLineOptions {
     std::string inputPath;
     std::optional<std::string> listingPath;
     std::optional<std::string> rawPath;
+    PtaMode ptaMode = PtaMode::Disabled;
+    bool ptaModeSpecified = false;
     bool helpRequested = false;
 };
 
@@ -35,7 +37,24 @@ void printUsage(std::ostream& os, const char* program){
     os << "Usage:\n"
        << "  " << program << " <input.cir> [output.out]\n"
        << "  " << program
-       << " [-b] [-o output.out] [-r output.raw] <input.cir>\n";
+       << " [-b] [--pta disabled|force|fallback]"
+       << " [-o output.out] [-r output.raw] <input.cir>\n";
+}
+
+bool parsePtaMode(const std::string& text, PtaMode& mode){
+    if(text == "disabled"){
+        mode = PtaMode::Disabled;
+        return true;
+    }
+    if(text == "force"){
+        mode = PtaMode::Force;
+        return true;
+    }
+    if(text == "fallback"){
+        mode = PtaMode::Fallback;
+        return true;
+    }
+    return false;
 }
 
 bool parseCommandLine(int argc,
@@ -51,6 +70,17 @@ bool parseCommandLine(int argc,
             return false;
         }
         if(argument == "-b" || argument == "--batch"){
+            continue;
+        }
+        if(argument == "--pta"){
+            if(++i >= argc || options.ptaModeSpecified ||
+               !parsePtaMode(argv[i], options.ptaMode)){
+                std::cerr
+                    << "Invalid or repeated PTA mode; expected "
+                    << "disabled, force, or fallback\n";
+                return false;
+            }
+            options.ptaModeSpecified = true;
             continue;
         }
         if(argument == "-o" || argument == "--output"){
@@ -389,7 +419,7 @@ int main(int argc, char* argv[]){
     }
 
     PtaAnalysisConfig ptaConfig{};
-    ptaConfig.mode = PtaMode::Disabled;
+    ptaConfig.mode = options.ptaMode;
 
     /** @todo
      * 补充相关的PTA配置信息

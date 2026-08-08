@@ -17,6 +17,9 @@ TRAN_TESTCASE_DIR ?= $(TESTCASE_ROOT)/tran
 ACTUAL_DIR ?= tests/output
 OP_ACTUAL_DIR ?= $(ACTUAL_DIR)/op
 TRAN_ACTUAL_DIR ?= $(ACTUAL_DIR)/tran
+PTA_OUTPUT_ROOT ?= $(ACTUAL_DIR)/pta
+PTA_MODE ?= disabled
+PTA_OUTPUT_DIR ?= $(PTA_OUTPUT_ROOT)/$(PTA_MODE)
 STANDARD_ROOT ?= tests/references
 OP_STANDARD_DIR ?= $(STANDARD_ROOT)/op
 TRAN_STANDARD_DIR ?= $(STANDARD_ROOT)/tran
@@ -30,6 +33,7 @@ TRAN_REL_TOL ?= 1e-3
 TIME_ABS_TOL ?= 1e-15
 OP_COMPARE_FLAGS ?=
 TRAN_COMPARE_FLAGS ?=
+PTA_COMPARE_FLAGS ?= $(OP_COMPARE_FLAGS)
 
 UNAME_S := $(shell uname -s)
 
@@ -67,7 +71,8 @@ EIGEN_FLAGS := $(EIGEN_PKG_CFLAGS)
 endif
 
 .PHONY: all clean test test-unit test-io test-cases test-op test-tran compare compare-op \
-	compare-tran generate-standards check-eigen check-deps
+	compare-tran generate-standards check-eigen check-deps pta pta-run pta-accuracy \
+	pta-force-standard pta-force-disabled pta-fallback-standard
 
 all: $(TARGET)
 
@@ -167,6 +172,76 @@ test-tran: $(TARGET)
 		--rtol "$(TRAN_REL_TOL)" \
 		--time-atol "$(TIME_ABS_TOL)" \
 		$(TRAN_COMPARE_FLAGS) || status=1; \
+	exit $$status
+
+# PTA tests intentionally use only OP decks.  Every mode is compared against
+# the existing ngspice OP references; pta-run prints the end-to-end suite time.
+# Force currently reports solver failures until Circuit::solveAdaptivePta() is
+# implemented, which makes the missing implementation visible to CI.
+pta-run: $(TARGET)
+	@case "$(PTA_MODE)" in \
+		disabled|force|fallback) ;; \
+		*) echo "Invalid PTA_MODE <$(PTA_MODE)>; expected disabled, force, or fallback"; exit 2 ;; \
+	esac; \
+	rm -rf "$(PTA_OUTPUT_DIR)"; \
+	mkdir -p "$(PTA_OUTPUT_DIR)"; \
+	start=$$($(PYTHON) -c 'import time; print(time.perf_counter())'); \
+	status=0; count=0; \
+	for netlist in "$(OP_TESTCASE_DIR)"/*.cir; do \
+		if [ ! -f "$$netlist" ]; then \
+			echo "No OP cases found in $(OP_TESTCASE_DIR)"; status=1; break; \
+		fi; \
+		name=$${netlist##*/}; name=$${name%.cir}; \
+		"./$(TARGET)" --pta "$(PTA_MODE)" -b \
+			-o "$(PTA_OUTPUT_DIR)/$$name.out" "$$netlist" \
+			>/dev/null 2>"$(PTA_OUTPUT_DIR)/$$name.err" || status=1; \
+		count=$$((count + 1)); \
+	done; \
+	finish=$$($(PYTHON) -c 'import time; print(time.perf_counter())'); \
+	$(PYTHON) -c 'import sys; print("TIME PTA {:<8} suite ({} cases) {:.3f} ms".format(sys.argv[3], sys.argv[4], (float(sys.argv[2]) - float(sys.argv[1])) * 1000.0))' \
+		"$$start" "$$finish" "$(PTA_MODE)" "$$count"; \
+	exit $$status
+
+pta-accuracy:
+	@$(PYTHON) $(TEST_SCRIPT_DIR)/compare_spice.py \
+		--analysis op \
+		--standard "$(OP_STANDARD_DIR)" \
+		--actual "$(PTA_OUTPUT_DIR)" \
+		--atol "$(OP_ABS_TOL)" \
+		--rtol "$(OP_REL_TOL)" \
+		--time-atol "$(TIME_ABS_TOL)" \
+		$(PTA_COMPARE_FLAGS)
+
+# Force versus standard: accuracy.  The comparator is still run when Force
+# fails so missing listings and stderr diagnostics are reported explicitly.
+pta-force-standard:
+	@status=0; \
+	$(MAKE) --no-print-directory pta-run PTA_MODE=force || status=1; \
+	$(MAKE) --no-print-directory pta-accuracy PTA_MODE=force || status=1; \
+	exit $$status
+
+# Force versus Disabled: each mode reports its suite time and is independently
+# checked against the same ngspice OP reference set for accuracy.
+pta-force-disabled:
+	@status=0; \
+	$(MAKE) --no-print-directory pta-run PTA_MODE=disabled || status=1; \
+	$(MAKE) --no-print-directory pta-accuracy PTA_MODE=disabled || status=1; \
+	$(MAKE) --no-print-directory pta-run PTA_MODE=force || status=1; \
+	$(MAKE) --no-print-directory pta-accuracy PTA_MODE=force || status=1; \
+	exit $$status
+
+# Fallback versus standard: accuracy.
+pta-fallback-standard:
+	@status=0; \
+	$(MAKE) --no-print-directory pta-run PTA_MODE=fallback || status=1; \
+	$(MAKE) --no-print-directory pta-accuracy PTA_MODE=fallback || status=1; \
+	exit $$status
+
+pta:
+	@status=0; \
+	$(MAKE) --no-print-directory pta-force-standard || status=1; \
+	$(MAKE) --no-print-directory pta-force-disabled || status=1; \
+	$(MAKE) --no-print-directory pta-fallback-standard || status=1; \
 	exit $$status
 
 compare: compare-op compare-tran

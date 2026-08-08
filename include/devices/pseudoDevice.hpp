@@ -27,7 +27,7 @@ public:
     virtual void stampPseudo(const TransientStampContext& ctx) = 0;
 
     void setValue(double newValue){
-        assert(value > 0.0);
+        assert(newValue > 0.0);
         value = newValue;
     }
 
