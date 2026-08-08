@@ -461,6 +461,11 @@ bool Circuit::solveTransient(const TransientAnalysisConfig& config){
     return true;
 }
 
+bool Circuit::solveAdaptivePta(const TransientAnalysisConfig& config){
+    assembleOperatingPointSystem();
+    return false;
+}
+
 Circuit::TransientStepAttempt Circuit::tryTransientStep(
     const TransientIntegrator& integrator,
     double targetTime,

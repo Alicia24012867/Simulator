@@ -18,6 +18,7 @@ class TransientIntegrator;
 struct TransientAnalysisConfig;
 struct TransientStampContext;
 struct TransientSolverOptions;
+
 class Circuit{
 public:
     Circuit();
@@ -45,6 +46,8 @@ public:
     bool solveOperatingPoint();
 
     bool solveTransient(const TransientAnalysisConfig& config);
+
+    bool solveAdaptivePta(const TransientAnalysisConfig& config);
 
 private:
     friend class SpiceOutputAccess;
