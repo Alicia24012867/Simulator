@@ -13,6 +13,7 @@
 #include "circuit/circuit.h"
 #include "io/spiceOutput.h"
 #include "netlist/parser.h"
+#include "analysis/ptaAnalysis.h"
 
 namespace {
 struct CommandLineOptions {
@@ -386,6 +387,14 @@ int main(int argc, char* argv[]){
     if(!parser.parse(circuit)){
         return 1;
     }
+
+    PtaAnalysisConfig ptaConfig{};
+    ptaConfig.mode = PtaMode::Disabled;
+
+    /** @todo
+     * 补充相关的PTA配置信息
+     */
+
     if(!circuit.build()){
         std::cerr << "Failed to build circuit <" << options.inputPath << ">\n";
         return 1;
@@ -398,11 +407,29 @@ int main(int argc, char* argv[]){
 
     try {
         if(plan.operatingPointRequested || !plan.transient){
-            if(!circuit.solveOperatingPoint()){
+            bool solved = false;
+
+            switch (ptaConfig.mode){
+                case PtaMode::Disabled:
+                    solved = circuit.solveOperatingPoint();
+                    break;
+                case PtaMode::Force:
+                    solved = circuit.solveAdaptivePta();
+                    break;
+                case PtaMode::Fallback:
+                    solved = circuit.solveOperatingPoint();
+                    if(!solved){
+                        solved = circuit.solveAdaptivePta();
+                    }
+                    break;
+            }
+
+            if(!solved){
                 std::cerr << "Operating point analysis failed <"
-                          << options.inputPath << ">\n";
+                        << options.inputPath << ">\n";
                 return 1;
             }
+
             SpiceOutputWriter::writeOperatingPoint(
                 listing,
                 circuit,

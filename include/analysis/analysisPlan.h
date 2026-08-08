@@ -25,7 +25,6 @@ struct AnalysisPlan {
     bool operatingPointRequested = false;
     bool operatingPointPrintRequested = false;
     bool transientPrintRequested = false;
-    bool usePta = false;
     std::optional<TransientAnalysisConfig> transient;
     std::vector<PrintVariable> operatingPointPrints;
     std::vector<PrintVariable> transientPrints;

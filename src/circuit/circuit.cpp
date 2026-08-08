@@ -12,6 +12,8 @@
 #include "math/mna.hpp"
 #include "math/newtonStep.hpp"
 #include "models/model.hpp"
+#include "devices/pseudoDevice.hpp"
+#include "analysis/ptaAnalysis.h"
 
 namespace {
 constexpr int kMaxNewtonIterations = 1000;
@@ -461,7 +463,7 @@ bool Circuit::solveTransient(const TransientAnalysisConfig& config){
     return true;
 }
 
-bool Circuit::solveAdaptivePta(const TransientAnalysisConfig& config){
+bool Circuit::solveAdaptivePta(){
     assembleOperatingPointSystem();
     return false;
 }
@@ -681,3 +683,25 @@ void Circuit::recordTransientSample(double time){
     transientSamples_.push_back({time, mna_->solution()});
     ++transientStats_.outputPoints;
 }
+
+void Circuit::collectPendingPtaPlacements(){
+    for(auto& device: devices_){
+        if(device->getType() == DeviceType::VoltageSource){
+            ;
+        }
+        if(device->getType() == DeviceType::CurrentSource){
+            ;
+        }
+        if(device->getType() == DeviceType::Diode){
+            ;
+        }
+        if(device->getType() == DeviceType::BJT){
+            ;
+        }
+        if(device->getType() == DeviceType::MOSFET){
+            ;
+        }
+    }
+}
+
+void Circuit::materializePseudoDevices(){}

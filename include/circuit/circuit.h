@@ -18,7 +18,8 @@ class TransientIntegrator;
 struct TransientAnalysisConfig;
 struct TransientStampContext;
 struct TransientSolverOptions;
-
+struct PendingPtaPlacement;
+struct PtaAnalysisConfig;
 class Circuit{
 public:
     Circuit();
@@ -47,7 +48,7 @@ public:
 
     bool solveTransient(const TransientAnalysisConfig& config);
 
-    bool solveAdaptivePta(const TransientAnalysisConfig& config);
+    bool solveAdaptivePta();
 
 private:
     friend class SpiceOutputAccess;
@@ -148,6 +149,10 @@ private:
 
     void recordTransientSample(double time);
 
+    void collectPendingPtaPlacements();
+
+    void materializePseudoDevices();
+
     std::unique_ptr<MNA> mna_;
 
     std::vector<std::unique_ptr<Device>> devices_;
@@ -171,4 +176,6 @@ private:
     TransientStats transientStats_;
 
     std::vector<TransientSample> transientSamples_;
+
+    std::vector<PendingPtaPlacement> pendingPtaPlacements_;
 };
