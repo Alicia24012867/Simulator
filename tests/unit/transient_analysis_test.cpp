@@ -1,4 +1,5 @@
 #include "analysis/transientAnalysis.h"
+#include "analysis/ptaAnalysis.h"
 #include "math/newtonStep.hpp"
 
 #include <algorithm>
@@ -30,6 +31,21 @@ void expect(bool condition, const std::string& description){
 
     ++failureCount;
     std::cerr << "FAIL: " << description << '\n';
+}
+
+template<class Callback>
+void expectInvalidArgument(Callback&& callback,
+                           const std::string& description){
+    bool threwInvalidArgument = false;
+
+    try {
+        callback();
+    } catch(const std::invalid_argument&) {
+        threwInvalidArgument = true;
+    } catch(...) {
+    }
+
+    expect(threwInvalidArgument, description);
 }
 
 void expectNear(
@@ -141,6 +157,39 @@ void testSolverOptionsValidation(){
     options = TransientSolverOptions{};
     options.maximumRejects = -1;
     expect(!options.validFor(maximumIntegrationStep), "negative reject limit is invalid");
+}
+
+void testPtaConfigValidation(){
+    PtaAnalysisConfig config;
+
+    try {
+        config.validate();
+        expect(true, "default PTA configuration is valid");
+    } catch(...) {
+        expect(false, "default PTA configuration is valid");
+    }
+
+    config = PtaAnalysisConfig{};
+    config.voltageSourceInductance = 0.0;
+    expectInvalidArgument(
+        [&config] { config.validate(); },
+        "zero pseudo-inductance is invalid"
+    );
+
+    config = PtaAnalysisConfig{};
+    config.minimumNodeCapacitance =
+        2.0 * config.initialNodeCapacitance;
+    expectInvalidArgument(
+        [&config] { config.validate(); },
+        "node-capacitance bounds must contain the initial value"
+    );
+
+    config = PtaAnalysisConfig{};
+    config.mediumOscillationScale = config.smallOscillationScale;
+    expectInvalidArgument(
+        [&config] { config.validate(); },
+        "oscillation scales must be strictly ordered"
+    );
 }
 
 void testRequiresBdf2History(){
@@ -744,6 +793,7 @@ void testNewtonStepLimiting(){
 
 int main(){
     testSolverOptionsValidation();
+    testPtaConfigValidation();
     testRequiresBdf2History();
     testZeroErrorUsesMaximumScale();
     testVoltageAndCurrentAbsoluteTolerances();

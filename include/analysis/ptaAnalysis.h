@@ -13,28 +13,28 @@ struct PtaAnalysisConfig{
     PtaMode mode = PtaMode::Disabled;
 
     // time control
-    double initialStep;
-    double minimumStep;
-    double maximumStep;
-    int maximumSteps;
+    double initialStep = 1.0e-9;
+    double minimumStep = 1.0e-15;
+    double maximumStep = 1.0e3;
+    int maximumSteps = 10000;
 
     // stability
-    double derivativeTolerance;
-    double dcResidualTolerance;
+    double derivativeTolerance = 1.0e-8;
+    double dcResidualTolerance = 1.0e-9;
 
     // initial value & boundaries
-    double initialNodeCapacitance;
-    double minimumNodeCapacitance;
-    double maximumNodeCapacitance;
-    double currentSourceCapacitance;
-    double voltageSourceInductance;
+    double initialNodeCapacitance = 1.0e-12;
+    double minimumNodeCapacitance = 1.0e-18;
+    double maximumNodeCapacitance = 1.0e-3;
+    double currentSourceCapacitance = 1.0e-12;
+    double voltageSourceInductance = 1.0e-9;
 
     // Adaptive rules
-    double failedStepScale;         //used when NR failed
-    double capacitanceGrowScale;    
-    double smallOscillationScale;
-    double mediumOscillationScale;
-    double heavyOscillationScale;
+    double failedStepScale = 0.5;         // used when NR failed
+    double capacitanceGrowScale = 2.0;
+    double smallOscillationScale = 0.9;
+    double mediumOscillationScale = 0.7;
+    double heavyOscillationScale = 0.5;
 
     bool includeMosBulk = false;
     bool includeDiodes = false;

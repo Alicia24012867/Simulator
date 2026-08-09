@@ -421,9 +421,12 @@ int main(int argc, char* argv[]){
     PtaAnalysisConfig ptaConfig{};
     ptaConfig.mode = options.ptaMode;
 
-    /** @todo
-     * 补充相关的PTA配置信息
-     */
+    try {
+        ptaConfig.validate();
+    } catch(const std::invalid_argument& error) {
+        std::cerr << "Invalid PTA configuration: " << error.what() << '\n';
+        return 2;
+    }
 
     if(!circuit.build(ptaConfig)){
         std::cerr << "Failed to build circuit <" << options.inputPath << ">\n";
