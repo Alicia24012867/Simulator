@@ -140,6 +140,8 @@ private:
 
     void assembleTransientSystem(const TransientStampContext& ctx);
 
+    void assemblePtaSystem(const TransientStampContext& ctx);
+
     bool hasNonlinearDevices() const;
 
     void setOperatingPointSourceScale(double scale);

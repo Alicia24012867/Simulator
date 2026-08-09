@@ -480,8 +480,116 @@ bool Circuit::solveTransient(const TransientAnalysisConfig& config){
 }
 
 bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
-    assembleOperatingPointSystem();
-    return false;
+    operatingPointStats_ = {};
+    operatingPointStats_.maxIterations = kMaxNewtonIterations;
+    operatingPointStats_.tolerance = kNewtonTolerance;
+    operatingPointStats_.minSourceStep = config.minimumStep;
+    operatingPointStats_.sourceScale = 1.0;
+
+    const std::clock_t startClock = std::clock();
+    const auto finish = [this, startClock](bool converged) {
+        operatingPointStats_.converged = converged;
+        operatingPointStats_.cpuSeconds =
+            double(std::clock() - startClock) / CLOCKS_PER_SEC;
+        return converged;
+    };
+
+    setOperatingPointSourceScale(1.0);
+
+    TransientIntegrator integrator;
+    double time = 0.0;
+    double step = config.initialStep;
+
+    integrator.Initialize(time, mna_->solution());
+
+    for(int stepCount = 0;
+        stepCount < config.maximumSteps;
+        ++stepCount)
+    {
+        double candidateStep = std::min(step, config.maximumStep);
+        if(integrator.olderSolution() != nullptr){
+            const double bdf2StepLimit = std::nextafter(
+                integrator.previousStep() *
+                    integrator.maximumBdf2StepRatio(),
+                0.0
+            );
+            candidateStep = std::min(candidateStep, bdf2StepLimit);
+        }
+
+        const double nextTime = time + candidateStep;
+        if(!std::isfinite(candidateStep) ||
+           candidateStep < config.minimumStep ||
+           !std::isfinite(nextTime) ||
+           nextTime <= time){
+            return finish(false);
+        }
+
+        const Eigen::VectorXd acceptedSolution =
+            integrator.currentSolution();
+
+        mna_->setSolution(integrator.predict(nextTime));
+        saveNonlinearIterationStates();
+
+        const TransientStampContext ctx =
+            integrator.makeContext(nextTime);
+
+        const AssembleCallback assemble = [this, &ctx] {
+            assemblePtaSystem(ctx);
+        };
+
+        NewtonStats stats;
+        const bool converged = hasNonlinearDevices()
+            ? solveNewtonSystem(assemble, stats)
+            : solveLinearSystem(assemble, stats);
+        addNewtonStats(stats);
+
+        if(!converged){
+            restoreTransientCheckpoint(acceptedSolution);
+
+            const double reducedStep = std::max(
+                config.minimumStep,
+                candidateStep * config.failedStepScale
+            );
+            if(!std::isfinite(reducedStep) ||
+               reducedStep >= candidateStep){
+                return finish(false);
+            }
+
+            step = reducedStep;
+            continue;
+        }
+
+        const Eigen::VectorXd currentSolution = mna_->solution();
+
+        Eigen::VectorXd derivative =
+            ctx.derivative.alpha0 * currentSolution +
+            ctx.derivative.alpha1 * ctx.previousSolution;
+        if(ctx.olderSolution != nullptr){
+            derivative += ctx.derivative.alpha2 * (*ctx.olderSolution);
+        }
+        if(!derivative.allFinite()){
+            return finish(false);
+        }
+        const double derivativeNorm = derivative.cwiseAbs().maxCoeff();
+
+        // Test the original DC residual F(x), excluding artificial PTA terms.
+        assembleOperatingPointSystem();
+        const double dcResidual = mna_->residualInfinityNorm();
+        if(!std::isfinite(dcResidual)){
+            return finish(false);
+        }
+
+        if(derivativeNorm < config.derivativeTolerance &&
+           dcResidual < config.dcResidualTolerance){
+            return finish(true);
+        }
+
+        integrator.accept(nextTime, currentSolution);
+        time = nextTime;
+        step = candidateStep;
+    }
+
+    return finish(false);
 }
 
 Circuit::TransientStepAttempt Circuit::tryTransientStep(
@@ -665,6 +773,18 @@ void Circuit::assembleTransientSystem(const TransientStampContext& ctx){
     mna_->clear();
     for(auto& device: devices_){
         device->stampTransient(ctx);
+    }
+}
+
+void Circuit::assemblePtaSystem(const TransientStampContext& ctx){
+    mna_->clear();
+
+    for(auto& device: devices_){
+        device->stampOperatingPoint();
+    }
+
+    for(auto& pseudoDevice: pseudoDevices_){
+        pseudoDevice->stampPseudo(ctx);
     }
 }
 

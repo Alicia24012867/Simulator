@@ -127,6 +127,15 @@ public:
         return x_[node];
     }
 
+    double residualInfinityNorm() const{
+        if(n_ == 0){
+            return 0.0;
+        }
+
+        const Eigen::VectorXd residual = A_ * x_ - b_;
+        return residual.cwiseAbs().maxCoeff();
+    }
+
 private:
     int n_ = 0;
 
