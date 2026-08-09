@@ -1,6 +1,6 @@
 # SPICE-like Circuit Simulator
 
-这是一个基于 C++17 和 Eigen 的类 SPICE 电路仿真器。目前支持 DC operating point 与基础 transient analysis 最小闭环，使用稀疏 MNA、SparseLU、Newton 迭代、步长限制和 source stepping 完成求解。瞬态分析首个积分步采用 Backward Euler，后续在步长增长不超过前一步两倍时采用可变步长 BDF2。这里的 TRAN 是可运行的 MVP，不等同于完整 SPICE 瞬态引擎。
+这是一个基于 C++17 和 Eigen 的类 SPICE 电路仿真器。目前支持 DC operating point、基础 transient analysis 最小闭环，以及实验性的 pseudo-transient analysis (PTA) 路径，使用稀疏 MNA、SparseLU、Newton 迭代、步长限制和 source stepping 完成求解。瞬态分析首个积分步采用 Backward Euler，后续在步长增长不超过前一步两倍时采用可变步长 BDF2。这里的 TRAN 是可运行的 MVP，不等同于完整 SPICE 瞬态引擎。
 
 本项目实现的是明确受限的 SPICE 子集，并非完整 ngspice 替代品。I/O 层遵循常见 SPICE netlist、`.print` listing 和 ASCII rawfile 约定，未支持的控制卡或输出表达式会直接报错，不会静默忽略。
 
@@ -63,6 +63,20 @@
 - `.tran` 未指定 `UIC` 时先求 operating point；指定 `UIC` 时当前使用全零 MNA 初值。尚未支持器件 `IC=`。
 - `TSTEP` 控制输出间隔，`TSTART` 控制开始保存的时间，`TMAX` 限制内部积分步长。当前未指定 `TMAX` 时内部最大步长使用 `TSTEP`；输出时间点也会强制成为积分点，因此与 ngspice 的默认自适应步长策略不同。
 - 每次瞬态分析的首步使用 Backward Euler 的 step-doubling 误差估计；之后在新步长不大于前一步两倍时使用可变步长 BDF2，并以预测—校正差估计误差。超过误差预算或 Newton 未收敛的步会回滚并缩小后重试；内部积分点仍不会越过输出时间点。
+
+### 实验性 PTA
+
+命令行可选择 OP 求解路径：
+
+```sh
+./spice --pta disabled input.cir  # 默认：Newton + source stepping
+./spice --pta force input.cir     # 只使用 PTA
+./spice --pta fallback input.cir  # 常规 OP 失败后尝试 PTA
+```
+
+PTA 在 MNA pattern 固化前加入人工伪元件：独立电压源 branch 上的伪电感、独立电流源两端的伪电容，以及晶体管节点到地的伪电容。其伪时间迭代复用现有的 Backward Euler / 受步长比限制的 BDF2 `TransientIntegrator`；每一步以原始 OP 方程残差和 BDF 导数范数共同判定稳态，Newton 失败时缩小伪时间步长。
+
+该功能仍处于实验阶段，尚未实现论文中的 TSTS 全局增容、逐节点振荡检测和独立电容自适应。当前默认 `derivativeTolerance=1e-8` 对纳秒级伪时间步过严：BDF 导数中相近解相减会出现约 `O(epsilon * |x| / h)` 的浮点噪声，可能在 DC 残差已收敛时仍使 `--pta force` 达到 `maximumSteps` 后失败。因此 `force` 和 `fallback` 目前不属于回归通过的求解模式；使用时应视为诊断/开发功能，而非生产求解保证。
 
 ## 输出格式
 
@@ -178,6 +192,15 @@ make test
 `make test-op` 与 `make test-tran` 会在每个网表执行后输出一条
 `TIME <analysis> <case> <milliseconds> PASS/FAIL`，并输出该分析组的总墙钟时间。单例时间覆盖 simulator 子进程启动、解析、建模、求解以及 `.out` / `.raw` 写出；rawfile 校验和 ngspice 对照时间不包含在其中，便于 PTA 前后比较求解端到端开销。
 
+PTA OP 回归可单独运行：
+
+```sh
+make pta-run PTA_MODE=force
+make pta-accuracy PTA_MODE=force
+```
+
+在 PTA 完成自适应控制和数值收敛标定前，Force 失败是预期的诊断结果，不应将其视为普通 OP 回归失败。
+
 也可以分别运行或只比较已有结果：
 
 ```sh
@@ -266,6 +289,7 @@ tests/
 - 瞬态使用首步 Backward Euler 与受步长比限制的可变步长 BDF2；具备基于预测—校正差/step-doubling 的误差控制和步长拒绝重试，但尚未实现严格 LTE 估计、事件断点对齐或高阶积分公式。
 - `UIC` 当前把完整 MNA 解向量初始化为零；尚未支持器件 `IC=`、`.ic` 与一致初值求解。
 - 瞬态 Newton 失败会缩小时间步并在上一个已接受状态重试；非线性收敛判据本身仍未拆分电压/电流的相对与绝对容差。
+- PTA 已具备伪元件 stamp、BE/BDF2 伪时间推进、失败缩步和 DC 残差检查，但尚未实现动态伪电容控制；默认导数阈值仍需按伪时间步和未知量尺度归一化后再作为可靠收敛判据。
 - 不支持 `.include`、`.lib`、`.param`、`.options`、`.temp`、`.nodeset`、`.ic`、`.subckt`、`.save`。
 - 不支持受控源 `E/F/G/H`、行为源、AC/noise 分析。
 - 二极管、BJT 和 MOSFET 是简化模型；`RS`、`RBE`、`RCE`、`RDS` 虽可解析但尚未参与 stamp，且瞬态中没有结电容等器件内部动态。

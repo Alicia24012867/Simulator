@@ -176,8 +176,9 @@ test-tran: $(TARGET)
 
 # PTA tests intentionally use only OP decks.  Every mode is compared against
 # the existing ngspice OP references; pta-run prints the end-to-end suite time.
-# Force currently reports solver failures until Circuit::solveAdaptivePta() is
-# implemented, which makes the missing implementation visible to CI.
+# PTA is implemented as an experimental solver path.  Until its adaptive
+# capacitor control and scaled derivative convergence test are complete,
+# Force failures remain useful diagnostics rather than release regressions.
 pta-run: $(TARGET)
 	@case "$(PTA_MODE)" in \
 		disabled|force|fallback) ;; \
