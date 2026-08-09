@@ -78,7 +78,7 @@ int Circuit::allocateUnknown(){
     return nextUnknown_++;
 }
 
-bool Circuit::build(){
+bool Circuit::build(const PtaAnalysisConfig& config){
     nodeMap_->build(devices_);
 
     for(auto& device: devices_){
@@ -93,6 +93,14 @@ bool Circuit::build(){
         device->allocateUnknown(*this);
     }
 
+    if(config.mode != PtaMode::Disabled){
+        collectPendingPtaPlacements(config);
+        materializePseudoDevices(config);
+    }else{
+        pendingPtaPlacements_.clear();
+        pseudoDevices_.clear();
+    }
+
     mna_->resize(nextUnknown_);
     mna_->reservePattern(
         devices_.size() * 12 + static_cast<std::size_t>(nextUnknown_)
@@ -101,11 +109,17 @@ bool Circuit::build(){
     for(auto& device: devices_){
         device->pattern(*mna_);
     }
+    for(auto& pseudoDevice: pseudoDevices_){
+        pseudoDevice->pattern(*mna_);
+    }
 
     mna_->build();
 
     for(auto& device: devices_){
         device->bindMatrix(*mna_);
+    }
+    for(auto& pseudoDevice: pseudoDevices_){
+        pseudoDevice->bindMatrix(*mna_);
     }
     mna_->releaseBuildMetadata();
 
@@ -801,7 +815,7 @@ void Circuit::materializePseudoDevices(const PtaAnalysisConfig& config){
                     addPseudo(std::make_unique<PseudoCapacitor>(
                         p,
                         n,
-                        config.initialNodeCapacitance
+                        config.currentSourceCapacitance
                     ));
                 }
                 break;

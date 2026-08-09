@@ -39,7 +39,7 @@ public:
 
     const Model* findModel(const std::string& name) const;
 
-    bool build();
+    bool build(const PtaAnalysisConfig& config);
 
     int allocateUnknown();
 
@@ -119,7 +119,7 @@ private:
 
     void addTransientStats(const NewtonStats& stats);
 
-    void restoreTransientCheckpoint(
+    void restoreTransientCheckpoint( 
         const Eigen::VectorXd& acceptedSolution
     );
 

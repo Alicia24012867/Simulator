@@ -425,7 +425,7 @@ int main(int argc, char* argv[]){
      * 补充相关的PTA配置信息
      */
 
-    if(!circuit.build()){
+    if(!circuit.build(ptaConfig)){
         std::cerr << "Failed to build circuit <" << options.inputPath << ">\n";
         return 1;
     }
