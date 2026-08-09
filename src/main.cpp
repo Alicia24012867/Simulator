@@ -444,12 +444,12 @@ int main(int argc, char* argv[]){
                     solved = circuit.solveOperatingPoint();
                     break;
                 case PtaMode::Force:
-                    solved = circuit.solveAdaptivePta();
+                    solved = circuit.solveAdaptivePta(ptaConfig);
                     break;
                 case PtaMode::Fallback:
                     solved = circuit.solveOperatingPoint();
                     if(!solved){
-                        solved = circuit.solveAdaptivePta();
+                        solved = circuit.solveAdaptivePta(ptaConfig);
                     }
                     break;
             }

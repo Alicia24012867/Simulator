@@ -4,6 +4,8 @@
 #include <cmath>
 #include <ctime>
 #include <limits>
+#include <set>
+#include <unordered_set>
 
 #include "analysis/analysisPlan.h"
 #include "analysis/transientAnalysis.h"
@@ -463,7 +465,7 @@ bool Circuit::solveTransient(const TransientAnalysisConfig& config){
     return true;
 }
 
-bool Circuit::solveAdaptivePta(){
+bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
     assembleOperatingPointSystem();
     return false;
 }
@@ -684,24 +686,137 @@ void Circuit::recordTransientSample(double time){
     ++transientStats_.outputPoints;
 }
 
-void Circuit::collectPendingPtaPlacements(){
+void Circuit::collectPendingPtaPlacements(const PtaAnalysisConfig& config){
+    pendingPtaPlacements_.clear();
+
+    const auto addNodeCaps = 
+        [this](const Device* owner, std::initializer_list<int> terminals){
+            const auto& nodes = owner->getNodeIds();
+
+            for(int terminal: terminals){
+                if(terminal < static_cast<int>(nodes.size()) &&
+                    nodes[terminal] >= 0){
+                        pendingPtaPlacements_.push_back({
+                            PtaPlacementKind::TransistorNodeCap,
+                            owner,
+                            terminal
+                        });
+                }
+            }
+    };
+
     for(auto& device: devices_){
-        if(device->getType() == DeviceType::VoltageSource){
-            ;
-        }
-        if(device->getType() == DeviceType::CurrentSource){
-            ;
-        }
-        if(device->getType() == DeviceType::Diode){
-            ;
-        }
-        if(device->getType() == DeviceType::BJT){
-            ;
-        }
-        if(device->getType() == DeviceType::MOSFET){
-            ;
+        const Device* owner = device.get();
+
+        switch(owner->getType()){
+            case DeviceType::VoltageSource:{
+                pendingPtaPlacements_.push_back({
+                    PtaPlacementKind::VoltageSourceSeriesInductor,
+                    owner,
+                    -1
+                });
+                break;
+            }
+            case DeviceType::CurrentSource:{
+                pendingPtaPlacements_.push_back({
+                    PtaPlacementKind::CurrentSourceParallelCap,
+                    owner,
+                    -1
+                });
+                break;
+            }
+            case DeviceType::BJT:{
+                addNodeCaps(owner, {0, 1, 2});
+                break;
+            }
+            case DeviceType::MOSFET:{
+                addNodeCaps(owner, {0, 1, 2});
+                if(config.includeMosBulk){
+                    addNodeCaps(owner, {3});
+                }
+                break;
+            }
+            case DeviceType::Diode:{
+                if(config.includeDiodes){
+                    addNodeCaps(owner, {0, 1});
+                }
+                break;
+            }
+            default:
+                break;
         }
     }
 }
 
-void Circuit::materializePseudoDevices(){}
+void Circuit::materializePseudoDevices(const PtaAnalysisConfig& config){
+    pseudoDevices_.clear();
+    std::unordered_set<int> cappedNodes;
+    std::set<std::pair<int, int>> cappedSourcePairs;
+    std::unordered_set<int> inductedBranches;
+
+    const auto addPseudo = [this](std::unique_ptr<PseudoDevice> device){
+        pseudoDevices_.push_back(std::move(device));
+    };
+
+    for(const PendingPtaPlacement& placement: pendingPtaPlacements_){
+        const Device* owner = placement.owner;
+        if(owner == nullptr){
+            continue;
+        }
+
+        const auto nodes = owner->getNodeIds();
+
+        switch (placement.kind){
+            case PtaPlacementKind::TransistorNodeCap:{
+                const int terminal = placement.terminal;
+                if(terminal < 0 || terminal >= static_cast<int>(nodes.size())){
+                    continue;
+                }
+
+                const int node = nodes[terminal];
+                if(node >= 0 && cappedNodes.insert(node).second){
+                    addPseudo(std::make_unique<PseudoCapacitor>(
+                        node,
+                        -1, 
+                        config.initialNodeCapacitance
+                    ));
+                }
+                break;
+            }
+
+            case PtaPlacementKind::CurrentSourceParallelCap: {
+                if(nodes.size() < 2){
+                    continue;
+                }
+
+                const int p = nodes[0];
+                const int n = nodes[1];
+                const auto endpoints = std::minmax(p, n);
+                const std::pair<int, int> key{
+                    endpoints.first,
+                    endpoints.second
+                };
+
+                if(p != n && cappedSourcePairs.insert(key).second){
+                    addPseudo(std::make_unique<PseudoCapacitor>(
+                        p,
+                        n,
+                        config.initialNodeCapacitance
+                    ));
+                }
+                break;
+            }
+
+            case PtaPlacementKind::VoltageSourceSeriesInductor:{
+                const int branch = owner->branchUnknown();
+                if(branch >= 0 && inductedBranches.insert(branch).second){
+                    addPseudo(std::make_unique<PseudoInductor>(
+                        branch,
+                        config.voltageSourceInductance
+                    ));
+                }
+                break;
+            }
+        }
+    }
+}

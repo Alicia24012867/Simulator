@@ -9,6 +9,7 @@
 #include <vector>
 
 class Device;
+class PseudoDevice;
 class MNA;
 class Model;
 class NodeMap;
@@ -48,7 +49,7 @@ public:
 
     bool solveTransient(const TransientAnalysisConfig& config);
 
-    bool solveAdaptivePta();
+    bool solveAdaptivePta(const PtaAnalysisConfig& config);
 
 private:
     friend class SpiceOutputAccess;
@@ -149,9 +150,9 @@ private:
 
     void recordTransientSample(double time);
 
-    void collectPendingPtaPlacements();
+    void collectPendingPtaPlacements(const PtaAnalysisConfig& config);
 
-    void materializePseudoDevices();
+    void materializePseudoDevices(const PtaAnalysisConfig& config);
 
     std::unique_ptr<MNA> mna_;
 
@@ -160,6 +161,8 @@ private:
     std::vector<Device*> sourceSteppingDevices_;
 
     std::vector<Device*> iterationStateDevices_;
+
+    std::vector<std::unique_ptr<PseudoDevice>> pseudoDevices_;
 
     std::unordered_map<std::string, std::unique_ptr<Model>> models_;
 
