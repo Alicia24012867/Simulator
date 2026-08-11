@@ -15,6 +15,7 @@ class MNA;
 class Model;
 class NodeMap;
 class SpiceOutputAccess;
+class CircuitPtaTestAccess;
 class TransientIntegrator;
 
 struct TransientAnalysisConfig;
@@ -54,6 +55,7 @@ public:
 
 private:
     friend class SpiceOutputAccess;
+    friend class CircuitPtaTestAccess;
 
     using AssembleCallback = std::function<void()>;
 

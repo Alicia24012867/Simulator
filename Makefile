@@ -107,9 +107,11 @@ check-deps: check-eigen
 $(TARGET): $(SRC) $(HEADERS) | check-eigen
 	$(CXX) $(CXX_FLAGS) $(EIGEN_FLAGS) -o $(TARGET) $(SRC)
 
-$(UNIT_TEST_TARGET): $(UNIT_TEST_SOURCE) $(HEADERS) | check-eigen
+$(UNIT_TEST_TARGET): $(UNIT_TEST_SOURCE) ./src/circuit/circuit.cpp \
+	./src/circuit/nodeMap.cpp $(HEADERS) | check-eigen
 	@mkdir -p "$(@D)"
-	$(CXX) $(CXX_FLAGS) $(EIGEN_FLAGS) -o "$@" "$<"
+	$(CXX) $(CXX_FLAGS) $(EIGEN_FLAGS) -o "$@" "$<" \
+		./src/circuit/circuit.cpp ./src/circuit/nodeMap.cpp
 
 test-unit: $(UNIT_TEST_TARGET)
 	@"$(UNIT_TEST_TARGET)"

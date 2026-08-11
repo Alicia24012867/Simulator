@@ -1,5 +1,7 @@
 #include "analysis/transientAnalysis.h"
 #include "analysis/ptaAnalysis.h"
+#include "circuit/circuit.h"
+#include "devices/pseudoDevice.hpp"
 #include "math/newtonStep.hpp"
 
 #include <algorithm>
@@ -8,6 +10,52 @@
 #include <iostream>
 #include <limits>
 #include <string>
+
+class CircuitPtaTestAccess {
+public:
+    static void addNodeCapacitor(
+        Circuit& circuit,
+        int node,
+        double capacitance,
+        double previousDelta,
+        bool hasPreviousDelta
+    ){
+        auto capacitor = std::make_unique<PseudoCapacitor>(
+            node,
+            -1,
+            capacitance
+        );
+        PseudoCapacitor* rawCapacitor = capacitor.get();
+
+        circuit.pseudoDevices_.push_back(std::move(capacitor));
+        circuit.ptaNodeCaps_.push_back({
+            node,
+            rawCapacitor,
+            capacitance,
+            previousDelta,
+            hasPreviousDelta
+        });
+    }
+
+    static bool growAll(
+        Circuit& circuit,
+        const PtaAnalysisConfig& config
+    ){
+        return circuit.growAllPtaNodeCapacitances(config);
+    }
+
+    static double capacitance(const Circuit& circuit, std::size_t index){
+        return circuit.ptaNodeCaps_.at(index).capacitance;
+    }
+
+    static double previousDelta(const Circuit& circuit, std::size_t index){
+        return circuit.ptaNodeCaps_.at(index).previousDelta;
+    }
+
+    static bool hasPreviousDelta(const Circuit& circuit, std::size_t index){
+        return circuit.ptaNodeCaps_.at(index).hasPreviousDelta;
+    }
+};
 
 namespace {
 
@@ -189,6 +237,74 @@ void testPtaConfigValidation(){
     expectInvalidArgument(
         [&config] { config.validate(); },
         "oscillation scales must be strictly ordered"
+    );
+}
+
+void testPtaNodeCapacitanceGrowth(){
+    PtaAnalysisConfig config;
+    config.capacitanceGrowScale = 2.0;
+    config.maximumNodeCapacitance = 1.0e-3;
+
+    Circuit circuit;
+    CircuitPtaTestAccess::addNodeCapacitor(
+        circuit,
+        0,
+        1.0e-12,
+        0.25,
+        true
+    );
+    CircuitPtaTestAccess::addNodeCapacitor(
+        circuit,
+        1,
+        7.5e-4,
+        -0.5,
+        true
+    );
+
+    expect(
+        CircuitPtaTestAccess::growAll(circuit, config),
+        "PTA growth reports a changed node capacitance"
+    );
+    expectNear(
+        CircuitPtaTestAccess::capacitance(circuit, 0),
+        2.0e-12,
+        "PTA growth scales a node capacitance"
+    );
+    expectNear(
+        CircuitPtaTestAccess::capacitance(circuit, 1),
+        config.maximumNodeCapacitance,
+        "PTA growth clamps a node capacitance at its maximum"
+    );
+    expectNear(
+        CircuitPtaTestAccess::previousDelta(circuit, 0),
+        0.0,
+        "PTA growth clears the first node oscillation delta"
+    );
+    expect(
+        !CircuitPtaTestAccess::hasPreviousDelta(circuit, 0),
+        "PTA growth clears the first node oscillation history flag"
+    );
+    expectNear(
+        CircuitPtaTestAccess::previousDelta(circuit, 1),
+        0.0,
+        "PTA growth clears the capped node oscillation delta"
+    );
+    expect(
+        !CircuitPtaTestAccess::hasPreviousDelta(circuit, 1),
+        "PTA growth clears the capped node oscillation history flag"
+    );
+
+    Circuit saturatedCircuit;
+    CircuitPtaTestAccess::addNodeCapacitor(
+        saturatedCircuit,
+        0,
+        config.maximumNodeCapacitance,
+        0.0,
+        false
+    );
+    expect(
+        !CircuitPtaTestAccess::growAll(saturatedCircuit, config),
+        "PTA growth fails when every node capacitance is saturated"
     );
 }
 
@@ -794,6 +910,7 @@ void testNewtonStepLimiting(){
 int main(){
     testSolverOptionsValidation();
     testPtaConfigValidation();
+    testPtaNodeCapacitanceGrowth();
     testRequiresBdf2History();
     testZeroErrorUsesMaximumScale();
     testVoltageAndCurrentAbsoluteTolerances();
