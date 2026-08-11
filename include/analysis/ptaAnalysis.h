@@ -36,6 +36,9 @@ struct PtaAnalysisConfig{
     double mediumOscillationScale = 0.7;
     double heavyOscillationScale = 0.5;
 
+    double mediumOscillationRatio = 0.5;
+    double heavyOscillationRatio = 1.0;
+
     bool includeMosBulk = false;
     bool includeDiodes = false;
 
@@ -116,6 +119,15 @@ struct PtaAnalysisConfig{
            smallOscillationScale >= 1.0){
             throw std::invalid_argument(
                 "PTA oscillation scales must satisfy 0 < heavy < medium < small < 1"
+            );
+        }
+
+        if(!std::isfinite(mediumOscillationRatio) ||
+           !std::isfinite(heavyOscillationRatio) ||
+           mediumOscillationRatio <= 0.0 ||
+           mediumOscillationRatio >= heavyOscillationRatio){
+            throw std::invalid_argument(
+                "PTA oscillation ratios must satisfy 0 < medium < heavy"
             );
         }
     }

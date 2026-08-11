@@ -44,6 +44,19 @@ public:
         return circuit.growAllPtaNodeCapacitances(config);
     }
 
+    static void updateAfterAcceptedStep(
+        Circuit& circuit,
+        const Eigen::VectorXd& currentSolution,
+        const Eigen::VectorXd& previousSolution,
+        const PtaAnalysisConfig& config
+    ){
+        circuit.updatePtaNodeCapacitancesAfterAcceptedStep(
+            currentSolution,
+            previousSolution,
+            config
+        );
+    }
+
     static double capacitance(const Circuit& circuit, std::size_t index){
         return circuit.ptaNodeCaps_.at(index).capacitance;
     }
@@ -238,6 +251,13 @@ void testPtaConfigValidation(){
         [&config] { config.validate(); },
         "oscillation scales must be strictly ordered"
     );
+
+    config = PtaAnalysisConfig{};
+    config.mediumOscillationRatio = config.heavyOscillationRatio;
+    expectInvalidArgument(
+        [&config] { config.validate(); },
+        "oscillation ratios must be strictly ordered"
+    );
 }
 
 void testPtaNodeCapacitanceGrowth(){
@@ -305,6 +325,106 @@ void testPtaNodeCapacitanceGrowth(){
     expect(
         !CircuitPtaTestAccess::growAll(saturatedCircuit, config),
         "PTA growth fails when every node capacitance is saturated"
+    );
+}
+
+void testPtaNodeCapacitanceOscillationAdaptation(){
+    PtaAnalysisConfig config;
+    config.minimumNodeCapacitance = 3.0e-2;
+    config.smallOscillationScale = 0.9;
+    config.mediumOscillationScale = 0.7;
+    config.heavyOscillationScale = 0.5;
+    config.mediumOscillationRatio = 0.5;
+    config.heavyOscillationRatio = 1.0;
+
+    Circuit circuit;
+    CircuitPtaTestAccess::addNodeCapacitor(
+        circuit,
+        0,
+        1.0e-1,
+        0.0,
+        false
+    );
+
+    CircuitPtaTestAccess::updateAfterAcceptedStep(
+        circuit,
+        makeVector({1.1}),
+        makeVector({1.0}),
+        config
+    );
+    expectNear(
+        CircuitPtaTestAccess::capacitance(circuit, 0),
+        1.0e-1,
+        "first PTA node delta does not change capacitance"
+    );
+    expectNear(
+        CircuitPtaTestAccess::previousDelta(circuit, 0),
+        1.0e-1,
+        "first PTA node delta is recorded"
+    );
+    expect(
+        CircuitPtaTestAccess::hasPreviousDelta(circuit, 0),
+        "first PTA node delta enables oscillation history"
+    );
+
+    CircuitPtaTestAccess::updateAfterAcceptedStep(
+        circuit,
+        makeVector({1.2}),
+        makeVector({1.1}),
+        config
+    );
+    expectNear(
+        CircuitPtaTestAccess::capacitance(circuit, 0),
+        1.0e-1,
+        "same-sign PTA node delta does not change capacitance"
+    );
+
+    CircuitPtaTestAccess::updateAfterAcceptedStep(
+        circuit,
+        makeVector({0.96}),
+        makeVector({1.0}),
+        config
+    );
+    expectNear(
+        CircuitPtaTestAccess::capacitance(circuit, 0),
+        9.0e-2,
+        "small PTA oscillation applies the small capacitance scale"
+    );
+
+    CircuitPtaTestAccess::updateAfterAcceptedStep(
+        circuit,
+        makeVector({1.03}),
+        makeVector({1.0}),
+        config
+    );
+    expectNear(
+        CircuitPtaTestAccess::capacitance(circuit, 0),
+        6.3e-2,
+        "medium PTA oscillation applies the medium capacitance scale"
+    );
+
+    CircuitPtaTestAccess::updateAfterAcceptedStep(
+        circuit,
+        makeVector({0.94}),
+        makeVector({1.0}),
+        config
+    );
+    expectNear(
+        CircuitPtaTestAccess::capacitance(circuit, 0),
+        3.15e-2,
+        "heavy PTA oscillation applies the heavy capacitance scale"
+    );
+
+    CircuitPtaTestAccess::updateAfterAcceptedStep(
+        circuit,
+        makeVector({1.12}),
+        makeVector({1.0}),
+        config
+    );
+    expectNear(
+        CircuitPtaTestAccess::capacitance(circuit, 0),
+        config.minimumNodeCapacitance,
+        "PTA oscillation adaptation clamps capacitance at its minimum"
     );
 }
 
@@ -911,6 +1031,7 @@ int main(){
     testSolverOptionsValidation();
     testPtaConfigValidation();
     testPtaNodeCapacitanceGrowth();
+    testPtaNodeCapacitanceOscillationAdaptation();
     testRequiresBdf2History();
     testZeroErrorUsesMaximumScale();
     testVoltageAndCurrentAbsoluteTolerances();

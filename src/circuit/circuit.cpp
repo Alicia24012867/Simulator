@@ -595,6 +595,12 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
             return finish(true);
         }
 
+        updatePtaNodeCapacitancesAfterAcceptedStep(
+            currentSolution,
+            acceptedSolution,
+            config
+        );
+
         integrator.accept(nextTime, currentSolution);
         time = nextTime;
         step = candidateStep;
@@ -1006,4 +1012,64 @@ bool Circuit::growAllPtaNodeCapacitances(const PtaAnalysisConfig& config){
     }
 
     return grewAnyCapacitance;
+}
+
+void Circuit::updatePtaNodeCapacitancesAfterAcceptedStep(
+    const Eigen::VectorXd& currentSolution,
+    const Eigen::VectorXd& previousSolution,
+    const PtaAnalysisConfig& config
+){
+    for(auto& state: ptaNodeCaps_){
+        if(state.node < 0 ||
+           state.node >= currentSolution.size() ||
+           state.node >= previousSolution.size()){
+            state.previousDelta = 0.0;
+            state.hasPreviousDelta = false;
+            continue;
+        }
+
+        const double currentDelta =
+            currentSolution[state.node] - previousSolution[state.node];
+
+        if(!std::isfinite(currentDelta)){
+            state.previousDelta = 0.0;
+            state.hasPreviousDelta = false;
+            continue;
+        }
+
+        const bool oscillating =
+            state.hasPreviousDelta &&
+            std::isfinite(state.previousDelta) &&
+            ((state.previousDelta < 0.0 && currentDelta > 0.0) ||
+            (state.previousDelta > 0.0 && currentDelta < 0.0));
+
+        if(oscillating &&
+           state.capacitor != nullptr &&
+           std::isfinite(state.capacitance) &&
+           state.capacitance > 0.0){
+            const double ratio =
+                std::abs(currentDelta) / std::abs(state.previousDelta);
+
+            double capacitanceScale = config.smallOscillationScale;
+            if(ratio >= config.heavyOscillationRatio){
+                capacitanceScale = config.heavyOscillationScale;
+            }else if(ratio >= config.mediumOscillationRatio){
+                capacitanceScale = config.mediumOscillationScale;
+            }
+
+            const double nextCapacitance = std::max(
+                config.minimumNodeCapacitance,
+                state.capacitance * capacitanceScale
+            );
+
+            if(std::isfinite(nextCapacitance) &&
+               nextCapacitance < state.capacitance){
+                state.capacitor->setValue(nextCapacitance);
+                state.capacitance = nextCapacitance;
+            }
+        }
+
+        state.previousDelta = currentDelta;
+        state.hasPreviousDelta = true;
+    }
 }

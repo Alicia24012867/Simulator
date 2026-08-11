@@ -169,6 +169,12 @@ private:
 
     bool growAllPtaNodeCapacitances(const PtaAnalysisConfig& config);
 
+    void updatePtaNodeCapacitancesAfterAcceptedStep(
+        const Eigen::VectorXd& currentSolution,
+        const Eigen::VectorXd& previousSolution,
+        const PtaAnalysisConfig& config
+    );
+
     std::unique_ptr<MNA> mna_;
 
     std::vector<std::unique_ptr<Device>> devices_;
