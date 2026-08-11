@@ -17,6 +17,9 @@ public:
                                const Circuit& circuit,
                                const std::string& title,
                                const AnalysisPlan& plan);
+
+    static void writePtaDiagnostics(std::ostream& os,
+                                    const Circuit& circuit);
 };
 
 class SpiceRawWriter {

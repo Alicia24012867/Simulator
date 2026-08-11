@@ -74,6 +74,20 @@ const Model* Circuit::findModel(const std::string& name) const{
     return it == models_.end() ? nullptr : it->second.get();
 }
 
+PtaDiagnostics Circuit::ptaDiagnostics() const{
+    return {
+        operatingPointStats_.ptaAttempted,
+        operatingPointStats_.converged,
+        operatingPointStats_.hasPtaConvergenceMetrics,
+        operatingPointStats_.iterations,
+        operatingPointStats_.ptaCapacitanceGrowths,
+        operatingPointStats_.ptaCapacitanceReductions,
+        operatingPointStats_.ptaMinimumStepRecoveries,
+        operatingPointStats_.ptaNormalizedDerivative,
+        operatingPointStats_.ptaNormalizedDcResidual
+    };
+}
+
 int Circuit::allocateUnknown(){
     return nextUnknown_++;
 }
@@ -482,6 +496,7 @@ bool Circuit::solveTransient(const TransientAnalysisConfig& config){
 
 bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
     operatingPointStats_ = {};
+    operatingPointStats_.ptaAttempted = true;
     operatingPointStats_.maxIterations = kMaxNewtonIterations;
     operatingPointStats_.tolerance = kNewtonTolerance;
     operatingPointStats_.minSourceStep = config.minimumStep;
@@ -598,14 +613,33 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
 
         // Test the original DC residual F(x), excluding artificial PTA terms.
         assembleOperatingPointSystem();
-        const double dcResidual = mna_->residualInfinityNorm();
-        if(!std::isfinite(dcResidual)){
+        Eigen::VectorXd matrixProduct;
+        Eigen::VectorXd residual;
+        if(!mna_->evaluateResidual(matrixProduct, residual)){
+            return finish(false);
+        }
+        const PtaResidualEstimate dcResidualEstimate =
+            estimatePtaNormalizedResidual(
+                residual,
+                matrixProduct,
+                mna_->rhs(),
+                nodeMap_->nodeCount(),
+                config
+            );
+        if(!dcResidualEstimate.valid){
             return finish(false);
         }
 
+        operatingPointStats_.hasPtaConvergenceMetrics = true;
+        operatingPointStats_.ptaNormalizedDerivative =
+            derivativeEstimate.normalizedDerivative;
+        operatingPointStats_.ptaNormalizedDcResidual =
+            dcResidualEstimate.normalizedResidual;
+
         if(derivativeEstimate.normalizedDerivative <
                config.derivativeTolerance &&
-           dcResidual < config.dcResidualTolerance){
+           dcResidualEstimate.normalizedResidual <
+               config.dcResidualTolerance){
             return finish(true);
         }
 

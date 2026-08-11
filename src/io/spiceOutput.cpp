@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "analysis/analysisPlan.h"
+#include "analysis/ptaAnalysis.h"
 #include "circuit/circuit.h"
 #include "circuit/nodeMap.h"
 #include "devices/device.hpp"
@@ -349,6 +350,34 @@ void SpiceOutputWriter::writeTransient(std::ostream& os,
     for(std::size_t i = 0; i < samples.size(); ++i){
         const auto& sample = samples[i];
         writeTableRow(os, i, &sample.time, sample.solution, variables);
+    }
+}
+
+void SpiceOutputWriter::writePtaDiagnostics(std::ostream& os,
+                                             const Circuit& circuit){
+    os.imbue(std::locale::classic());
+
+    const PtaDiagnostics diagnostics = circuit.ptaDiagnostics();
+    os << "PTA diagnostics:\n";
+    if(!diagnostics.attempted){
+        os << "  status: PTA was not invoked\n";
+        return;
+    }
+
+    os << "  converged: " << (diagnostics.converged ? "true" : "false")
+       << "\n"
+       << "  iterations: " << diagnostics.iterations << "\n"
+       << "  capacitance_growths: " << diagnostics.capacitanceGrowths << "\n"
+       << "  capacitance_reductions: " << diagnostics.capacitanceReductions << "\n"
+       << "  minimum_step_recoveries: "
+       << diagnostics.minimumStepRecoveries << "\n";
+
+    if(diagnostics.hasConvergenceMetrics){
+        os << std::scientific << std::setprecision(10)
+           << "  normalized_derivative: "
+           << diagnostics.normalizedDerivative << "\n"
+           << "  normalized_dc_residual: "
+           << diagnostics.normalizedDcResidual << "\n";
     }
 }
 

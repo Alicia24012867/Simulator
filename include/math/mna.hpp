@@ -136,6 +136,13 @@ public:
         return residual.cwiseAbs().maxCoeff();
     }
 
+    bool evaluateResidual(Eigen::VectorXd& matrixProduct,
+                          Eigen::VectorXd& residual) const{
+        matrixProduct = A_ * x_;
+        residual = matrixProduct - b_;
+        return matrixProduct.allFinite() && residual.allFinite();
+    }
+
 private:
     int n_ = 0;
 

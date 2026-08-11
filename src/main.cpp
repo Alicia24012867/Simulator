@@ -25,6 +25,7 @@ struct CommandLineOptions {
     std::optional<std::string> rawPath;
     PtaAnalysisConfig ptaConfig;
     bool ptaModeSpecified = false;
+    bool ptaDiagnostics = false;
     std::set<std::string> ptaOptionKeys;
     bool helpRequested = false;
 };
@@ -42,6 +43,7 @@ void printUsage(std::ostream& os, const char* program){
        << "  " << program << " <input.cir> [output.out]\n"
        << "  " << program
        << " [-b] [--pta disabled|force|fallback]"
+       << " [--pta-diagnostics]"
        << " [--pta-option name=value]"
        << " [-o output.out] [-r output.raw] <input.cir>\n";
     os << "\nPTA options (repeat --pta-option as needed):\n"
@@ -49,6 +51,8 @@ void printUsage(std::ostream& os, const char* program){
        << "  derivative-tolerance, derivative-relative-tolerance,\n"
        << "  derivative-voltage-absolute-tolerance,\n"
        << "  derivative-current-absolute-tolerance, dc-residual-tolerance\n"
+       << "  dc-residual-relative-tolerance, dc-voltage-absolute-tolerance,\n"
+       << "  dc-current-absolute-tolerance\n"
        << "  initial-node-capacitance, minimum-node-capacitance,\n"
        << "  maximum-node-capacitance, current-source-capacitance,\n"
        << "  voltage-source-inductance\n"
@@ -146,6 +150,9 @@ bool applyPtaOption(const std::string& assignment,
     if(key == "derivative-voltage-absolute-tolerance") return setDouble(config.derivativeVoltageAbsoluteTolerance);
     if(key == "derivative-current-absolute-tolerance") return setDouble(config.derivativeCurrentAbsoluteTolerance);
     if(key == "dc-residual-tolerance") return setDouble(config.dcResidualTolerance);
+    if(key == "dc-residual-relative-tolerance") return setDouble(config.dcResidualRelativeTolerance);
+    if(key == "dc-voltage-absolute-tolerance") return setDouble(config.dcVoltageAbsoluteTolerance);
+    if(key == "dc-current-absolute-tolerance") return setDouble(config.dcCurrentAbsoluteTolerance);
     if(key == "initial-node-capacitance") return setDouble(config.initialNodeCapacitance);
     if(key == "minimum-node-capacitance") return setDouble(config.minimumNodeCapacitance);
     if(key == "maximum-node-capacitance") return setDouble(config.maximumNodeCapacitance);
@@ -179,6 +186,14 @@ bool parseCommandLine(int argc,
             return false;
         }
         if(argument == "-b" || argument == "--batch"){
+            continue;
+        }
+        if(argument == "--pta-diagnostics"){
+            if(options.ptaDiagnostics){
+                std::cerr << "Repeated PTA diagnostics option\n";
+                return false;
+            }
+            options.ptaDiagnostics = true;
             continue;
         }
         if(argument == "--pta"){
@@ -241,10 +256,10 @@ bool parseCommandLine(int argc,
         return false;
     }
 
-    if(!options.ptaOptionKeys.empty() &&
+    if((!options.ptaOptionKeys.empty() || options.ptaDiagnostics) &&
        options.ptaConfig.mode == PtaMode::Disabled){
         std::cerr
-            << "PTA options require --pta force or --pta fallback\n";
+            << "PTA options and diagnostics require --pta force or --pta fallback\n";
         return false;
     }
 
@@ -571,6 +586,7 @@ int main(int argc, char* argv[]){
     std::ostringstream listing;
     std::ostringstream raw;
     bool wroteAnalysis = false;
+    bool wrotePtaDiagnostics = false;
 
     try {
         if(plan.operatingPointRequested || !plan.transient){
@@ -595,6 +611,11 @@ int main(int argc, char* argv[]){
                 std::cerr << "Operating point analysis failed <"
                         << options.inputPath << ">\n";
                 return 1;
+            }
+
+            if(options.ptaDiagnostics){
+                SpiceOutputWriter::writePtaDiagnostics(std::cerr, circuit);
+                wrotePtaDiagnostics = true;
             }
 
             SpiceOutputWriter::writeOperatingPoint(
@@ -638,6 +659,10 @@ int main(int argc, char* argv[]){
                     parser.title()
                 );
             }
+        }
+
+        if(options.ptaDiagnostics && !wrotePtaDiagnostics){
+            SpiceOutputWriter::writePtaDiagnostics(std::cerr, circuit);
         }
     } catch(const std::exception& ex){
         std::cerr << "Output error: " << ex.what() << '\n';

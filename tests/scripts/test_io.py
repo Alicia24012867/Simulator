@@ -157,6 +157,7 @@ def main():
                 simulator,
                 "--pta",
                 "fallback",
+                "--pta-diagnostics",
                 "--pta-option",
                 "initial-step=2n",
                 "--pta-option",
@@ -170,6 +171,14 @@ def main():
                 "--pta-option",
                 "derivative-current-absolute-tolerance=1n",
                 "--pta-option",
+                "dc-residual-tolerance=0.5",
+                "--pta-option",
+                "dc-residual-relative-tolerance=1e-4",
+                "--pta-option",
+                "dc-voltage-absolute-tolerance=1u",
+                "--pta-option",
+                "dc-current-absolute-tolerance=1n",
+                "--pta-option",
                 "successful-step-scale=1.5",
                 "--pta-option",
                 "include-diodes=true",
@@ -182,6 +191,11 @@ def main():
             require(
                 result.returncode == 0,
                 f"valid PTA options failed: {result.stderr}",
+            )
+            require(
+                "PTA diagnostics:" in result.stderr and
+                "status: PTA was not invoked" in result.stderr,
+                "PTA diagnostics did not report the fallback solver path",
             )
 
             result = run(
@@ -211,8 +225,25 @@ def main():
                 "negative PTA derivative relative tolerance was accepted",
             )
             require(
-                "PTA derivative and DC convergence tolerances" in result.stderr,
+                "PTA derivative convergence tolerances" in result.stderr,
                 "invalid derivative tolerance did not report validation",
+            )
+
+            result = run(
+                simulator,
+                "--pta",
+                "force",
+                "--pta-option",
+                "dc-residual-relative-tolerance=-1",
+                valid,
+            )
+            require(
+                result.returncode == 2,
+                "negative PTA DC residual relative tolerance was accepted",
+            )
+            require(
+                "PTA DC residual tolerances" in result.stderr,
+                "invalid DC residual tolerance did not report validation",
             )
 
             result = run(
@@ -292,7 +323,7 @@ def main():
                 "PTA option without PTA mode was accepted",
             )
             require(
-                "PTA options require" in result.stderr,
+                "PTA options and diagnostics require" in result.stderr,
                 "missing PTA mode did not report a diagnostic",
             )
             print("PASS PTA command-line configuration and validation")

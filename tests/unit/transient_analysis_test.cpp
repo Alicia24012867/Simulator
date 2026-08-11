@@ -332,6 +332,13 @@ void testPtaConfigValidation(){
         [&config] { config.validate(); },
         "negative derivative relative tolerance is invalid"
     );
+
+    config = PtaAnalysisConfig{};
+    config.dcResidualRelativeTolerance = -1.0;
+    expectInvalidArgument(
+        [&config] { config.validate(); },
+        "negative DC residual relative tolerance is invalid"
+    );
 }
 
 void testPtaNormalizedDerivative(){
@@ -370,6 +377,37 @@ void testPtaNormalizedDerivative(){
         0.25,
         "PTA derivative normalization scales with pseudo-time step"
     );
+}
+
+void testPtaNormalizedResidual(){
+    PtaAnalysisConfig config;
+    config.dcResidualRelativeTolerance = 0.1;
+    config.dcCurrentAbsoluteTolerance = 1.0;
+    config.dcVoltageAbsoluteTolerance = 1.0e-2;
+
+    const PtaResidualEstimate estimate = estimatePtaNormalizedResidual(
+        makeVector({2.0, 2.0e-2}),
+        makeVector({10.0, 1.0e-1}),
+        makeVector({8.0, 5.0e-2}),
+        1,
+        config
+    );
+    expect(estimate.valid, "scaled PTA residual estimate is valid");
+    expectNear(
+        estimate.normalizedResidual,
+        1.0,
+        "PTA residual uses current and voltage row scales"
+    );
+
+    const PtaResidualEstimate invalidEstimate =
+        estimatePtaNormalizedResidual(
+            makeVector({0.0}),
+            makeVector({0.0}),
+            makeVector({0.0}),
+            2,
+            config
+        );
+    expect(!invalidEstimate.valid, "invalid PTA residual dimensions are rejected");
 }
 
 void testPtaNodeCapacitanceGrowth(){
@@ -548,7 +586,7 @@ void testPtaMinimumStepCapacitanceRecovery(){
     config.maximumStep = 1024.0;
     config.maximumSteps = 100;
     config.derivativeTolerance = 1.0;
-    config.dcResidualTolerance = 1.0e-6;
+    config.dcResidualTolerance = 1.0;
     config.initialNodeCapacitance = 1.0e-6;
     config.minimumNodeCapacitance = 1.0e-6;
     config.maximumNodeCapacitance = 1.0;
@@ -579,6 +617,20 @@ void testPtaMinimumStepCapacitanceRecovery(){
     expect(
         CircuitPtaTestAccess::ptaCapacitanceReductions(circuit) > 0,
         "PTA recovery fixture records a node-capacitance reduction"
+    );
+
+    const PtaDiagnostics diagnostics = circuit.ptaDiagnostics();
+    expect(diagnostics.attempted, "PTA recovery fixture exposes diagnostics");
+    expect(diagnostics.converged, "PTA diagnostics report convergence");
+    expect(
+        diagnostics.hasConvergenceMetrics,
+        "PTA diagnostics include normalized convergence metrics"
+    );
+    expect(
+        diagnostics.minimumStepRecoveries > 0 &&
+        diagnostics.capacitanceGrowths > 0 &&
+        diagnostics.capacitanceReductions > 0,
+        "PTA diagnostics expose adaptive recovery counters"
     );
 }
 
@@ -1185,6 +1237,7 @@ int main(){
     testSolverOptionsValidation();
     testPtaConfigValidation();
     testPtaNormalizedDerivative();
+    testPtaNormalizedResidual();
     testPtaNodeCapacitanceGrowth();
     testPtaNodeCapacitanceOscillationAdaptation();
     testPtaMinimumStepCapacitanceRecovery();

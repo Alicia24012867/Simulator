@@ -27,7 +27,11 @@ struct PtaAnalysisConfig{
     double derivativeRelativeTolerance = 1.0e-4;
     double derivativeVoltageAbsoluteTolerance = 1.0e-6;
     double derivativeCurrentAbsoluteTolerance = 1.0e-9;
-    double dcResidualTolerance = 1.0e-9;
+    // Threshold for the dimensionless normalized DC residual metric.
+    double dcResidualTolerance = 1.0;
+    double dcResidualRelativeTolerance = 1.0e-4;
+    double dcVoltageAbsoluteTolerance = 1.0e-6;
+    double dcCurrentAbsoluteTolerance = 1.0e-9;
 
     // initial value & boundaries
     double initialNodeCapacitance = 1.0e-12;
@@ -84,10 +88,19 @@ struct PtaAnalysisConfig{
            !std::isfinite(derivativeRelativeTolerance) ||
            derivativeRelativeTolerance < 0.0 ||
            !isPositiveFinite(derivativeVoltageAbsoluteTolerance) ||
-           !isPositiveFinite(derivativeCurrentAbsoluteTolerance) ||
-           !isPositiveFinite(dcResidualTolerance)){
+           !isPositiveFinite(derivativeCurrentAbsoluteTolerance)){
             throw std::invalid_argument(
-                "PTA derivative and DC convergence tolerances are invalid"
+                "PTA derivative convergence tolerances are invalid"
+            );
+        }
+
+        if(!isPositiveFinite(dcResidualTolerance) ||
+           !std::isfinite(dcResidualRelativeTolerance) ||
+           dcResidualRelativeTolerance < 0.0 ||
+           !isPositiveFinite(dcVoltageAbsoluteTolerance) ||
+           !isPositiveFinite(dcCurrentAbsoluteTolerance)){
+            throw std::invalid_argument(
+                "PTA DC residual tolerances are invalid"
             );
         }
 
@@ -155,6 +168,23 @@ struct PtaAnalysisConfig{
 struct PtaDerivativeEstimate {
     bool valid = false;
     double normalizedDerivative = 0.0;
+};
+
+struct PtaResidualEstimate {
+    bool valid = false;
+    double normalizedResidual = 0.0;
+};
+
+struct PtaDiagnostics {
+    bool attempted = false;
+    bool converged = false;
+    bool hasConvergenceMetrics = false;
+    int iterations = 0;
+    int capacitanceGrowths = 0;
+    int capacitanceReductions = 0;
+    int minimumStepRecoveries = 0;
+    double normalizedDerivative = 0.0;
+    double normalizedDcResidual = 0.0;
 };
 
 inline PtaDerivativeEstimate estimatePtaNormalizedDerivative(
@@ -226,5 +256,68 @@ inline PtaDerivativeEstimate estimatePtaNormalizedDerivative(
 
     result.valid = true;
     result.normalizedDerivative = normalizedDerivative;
+    return result;
+}
+
+inline PtaResidualEstimate estimatePtaNormalizedResidual(
+    const Eigen::VectorXd& residual,
+    const Eigen::VectorXd& matrixProduct,
+    const Eigen::VectorXd& rhs,
+    int voltageUnknownCount,
+    const PtaAnalysisConfig& config
+){
+    PtaResidualEstimate result;
+
+    const Eigen::Index size = residual.size();
+    if(size == 0 ||
+       matrixProduct.size() != size ||
+       rhs.size() != size ||
+       voltageUnknownCount < 0 ||
+       voltageUnknownCount > size ||
+       !std::isfinite(config.dcResidualRelativeTolerance) ||
+       config.dcResidualRelativeTolerance < 0.0 ||
+       !std::isfinite(config.dcVoltageAbsoluteTolerance) ||
+       config.dcVoltageAbsoluteTolerance <= 0.0 ||
+       !std::isfinite(config.dcCurrentAbsoluteTolerance) ||
+       config.dcCurrentAbsoluteTolerance <= 0.0)
+    {
+        return result;
+    }
+
+    double normalizedResidual = 0.0;
+
+    for(Eigen::Index i = 0; i < size; ++i){
+        const double residualValue = residual[i];
+        const double matrixValue = matrixProduct[i];
+        const double rhsValue = rhs[i];
+        if(!std::isfinite(residualValue) ||
+           !std::isfinite(matrixValue) ||
+           !std::isfinite(rhsValue))
+        {
+            return result;
+        }
+
+        const double absoluteTolerance =
+            i < voltageUnknownCount
+            ? config.dcCurrentAbsoluteTolerance
+            : config.dcVoltageAbsoluteTolerance;
+        const double scale = std::max(std::abs(matrixValue), std::abs(rhsValue));
+        const double weight = absoluteTolerance +
+            config.dcResidualRelativeTolerance * scale;
+
+        if(!std::isfinite(weight) || weight <= 0.0){
+            return result;
+        }
+
+        const double componentResidual = std::abs(residualValue) / weight;
+        if(!std::isfinite(componentResidual)){
+            return result;
+        }
+
+        normalizedResidual = std::max(normalizedResidual, componentResidual);
+    }
+
+    result.valid = true;
+    result.normalizedResidual = normalizedResidual;
     return result;
 }

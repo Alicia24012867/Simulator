@@ -23,6 +23,7 @@ struct TransientStampContext;
 struct TransientSolverOptions;
 struct PendingPtaPlacement;
 struct PtaAnalysisConfig;
+struct PtaDiagnostics;
 class Circuit{
 public:
     Circuit();
@@ -53,6 +54,8 @@ public:
 
     bool solveAdaptivePta(const PtaAnalysisConfig& config);
 
+    PtaDiagnostics ptaDiagnostics() const;
+
 private:
     friend class SpiceOutputAccess;
     friend class CircuitPtaTestAccess;
@@ -69,11 +72,15 @@ private:
         int ptaCapacitanceGrowths = 0;
         int ptaCapacitanceReductions = 0;
         int ptaMinimumStepRecoveries = 0;
+        bool ptaAttempted = false;
+        bool hasPtaConvergenceMetrics = false;
         double finalDelta = 0.0;
         double tolerance = 0.0;
         double cpuSeconds = 0.0;
         double sourceScale = 0.0;
         double minSourceStep = 0.0;
+        double ptaNormalizedDerivative = 0.0;
+        double ptaNormalizedDcResidual = 0.0;
     };
 
     struct NewtonStats {
