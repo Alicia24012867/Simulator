@@ -95,7 +95,7 @@
 
 PTA 在 MNA pattern 固化前加入人工伪元件：独立电压源 branch 上的伪电感、独立电流源两端的伪电容，以及晶体管节点到地的伪电容。其伪时间迭代复用现有的 Backward Euler / 受步长比限制的 BDF2 `TransientIntegrator`；每一步以原始 OP 方程残差和 BDF 导数范数共同判定稳态。Newton 失败时先缩小伪时间步长；在最小步长仍失败时，增大所有节点伪电容并重启积分历史。每个成功步后，伪时间步会按 `successful-step-scale` 增长，同时仍受最大步长和 BDF2 步长比限制；节点电压变化反向时会按相邻步变化幅度比降低该节点伪电容，两个 ratio 参数分别划分小/中及中/重振荡。
 
-该功能仍处于实验阶段。当前默认 `derivativeTolerance=1e-8` 对纳秒级伪时间步可能仍过严：BDF 导数中相近解相减会出现约 `O(epsilon * |x| / h)` 的浮点噪声，可能在 DC 残差已收敛时仍使 `--pta force` 达到 `maximumSteps` 后失败。因此 `force` 和 `fallback` 目前不属于回归通过的求解模式；使用时应视为诊断/开发功能，而非生产求解保证。
+该功能仍处于实验阶段。自适应规则具有单元测试，并有一条端到端夹具覆盖“最小步长失败 → 全局增容 → 重启 → 恢复收敛”路径及后续节点降容。当前 Force OP 回归覆盖的 18 个网表、76 个输出值均可通过参考对比。默认 `derivativeTolerance=1e-8` 仍是固定绝对阈值；对不同伪时间步和未知量尺度的鲁棒性尚需更广泛的基准验证。因此 `force` 与 `fallback` 可用于回归和实验，但暂不视为生产求解保证。
 
 ## 输出格式
 
@@ -211,14 +211,13 @@ make test
 `make test-op` 与 `make test-tran` 会在每个网表执行后输出一条
 `TIME <analysis> <case> <milliseconds> PASS/FAIL`，并输出该分析组的总墙钟时间。单例时间覆盖 simulator 子进程启动、解析、建模、求解以及 `.out` / `.raw` 写出；rawfile 校验和 ngspice 对照时间不包含在其中，便于 PTA 前后比较求解端到端开销。
 
-PTA OP 回归可单独运行：
+PTA Force OP 回归与参考精度比较可一并运行：
 
 ```sh
-make pta-run PTA_MODE=force
-make pta-accuracy PTA_MODE=force
+make pta-force-standard
 ```
 
-在 PTA 完成自适应控制和数值收敛标定前，Force 失败是预期的诊断结果，不应将其视为普通 OP 回归失败。
+当前该套件覆盖 18 个 OP 网表和 76 个输出值。它是 PTA 的基础回归门槛，不替代更大规模的困难非线性电路基准。
 
 也可以分别运行或只比较已有结果：
 

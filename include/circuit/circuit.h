@@ -66,6 +66,9 @@ private:
         int dampedSteps = 0;
         int sourceSteps = 0;
         int failedSourceSteps = 0;
+        int ptaCapacitanceGrowths = 0;
+        int ptaCapacitanceReductions = 0;
+        int ptaMinimumStepRecoveries = 0;
         double finalDelta = 0.0;
         double tolerance = 0.0;
         double cpuSeconds = 0.0;

@@ -1,7 +1,9 @@
 #include "analysis/transientAnalysis.h"
 #include "analysis/ptaAnalysis.h"
 #include "circuit/circuit.h"
+#include "devices/device.hpp"
 #include "devices/pseudoDevice.hpp"
+#include "math/mna.hpp"
 #include "math/newtonStep.hpp"
 
 #include <algorithm>
@@ -10,6 +12,52 @@
 #include <iostream>
 #include <limits>
 #include <string>
+#include <utility>
+#include <vector>
+
+// This deliberately linear stamp is marked nonlinear so the PTA solve takes
+// the Newton path.  A small pseudo-capacitance makes the first Newton target
+// exceed the iteration budget; one global capacitance increase restores it.
+class PtaRecoveryDevice: public Device {
+public:
+    PtaRecoveryDevice(
+        std::string name,
+        std::vector<std::string> nodes,
+        double conductance,
+        double current
+    ):
+        Device(std::move(name), std::move(nodes), DeviceType::BJT),
+        conductance_(conductance),
+        current_(current) {}
+
+    bool isNonlinear() const override{
+        return true;
+    }
+
+    void pattern(MNA& mna) override{
+        if(nodeIds[0] >= 0){
+            mna.addPattern(nodeIds[0], nodeIds[0]);
+        }
+    }
+
+    void bindMatrix(MNA& mna) override{
+        if(nodeIds[0] >= 0){
+            diagonal_ = mna.ptr(nodeIds[0], nodeIds[0]);
+            rhs_ = &mna.rhs(nodeIds[0]);
+        }
+    }
+
+    void stampOperatingPoint() override{
+        *diagonal_ += conductance_;
+        *rhs_ += current_;
+    }
+
+private:
+    double conductance_;
+    double current_;
+    double* diagonal_ = nullptr;
+    double* rhs_ = nullptr;
+};
 
 class CircuitPtaTestAccess {
 public:
@@ -67,6 +115,18 @@ public:
 
     static bool hasPreviousDelta(const Circuit& circuit, std::size_t index){
         return circuit.ptaNodeCaps_.at(index).hasPreviousDelta;
+    }
+
+    static int ptaCapacitanceGrowths(const Circuit& circuit){
+        return circuit.operatingPointStats_.ptaCapacitanceGrowths;
+    }
+
+    static int ptaCapacitanceReductions(const Circuit& circuit){
+        return circuit.operatingPointStats_.ptaCapacitanceReductions;
+    }
+
+    static int ptaMinimumStepRecoveries(const Circuit& circuit){
+        return circuit.operatingPointStats_.ptaMinimumStepRecoveries;
     }
 };
 
@@ -432,6 +492,48 @@ void testPtaNodeCapacitanceOscillationAdaptation(){
         CircuitPtaTestAccess::capacitance(circuit, 0),
         config.minimumNodeCapacitance,
         "PTA oscillation adaptation clamps capacitance at its minimum"
+    );
+}
+
+void testPtaMinimumStepCapacitanceRecovery(){
+    PtaAnalysisConfig config;
+    config.mode = PtaMode::Force;
+    config.initialStep = 1.0;
+    config.minimumStep = 1.0;
+    config.maximumStep = 1024.0;
+    config.maximumSteps = 100;
+    config.derivativeTolerance = 1.0e-6;
+    config.dcResidualTolerance = 1.0e-6;
+    config.initialNodeCapacitance = 1.0e-6;
+    config.minimumNodeCapacitance = 1.0e-6;
+    config.maximumNodeCapacitance = 1.0;
+    config.capacitanceGrowScale = 1.0e6;
+    config.successfulStepScale = 2.0;
+
+    Circuit circuit;
+    circuit.addDevice<PtaRecoveryDevice>(
+        "XPTA",
+        std::vector<std::string>{"node", "0", "0"},
+        1.0,
+        1000.0
+    );
+
+    expect(circuit.build(config), "PTA recovery fixture builds");
+    expect(
+        circuit.solveAdaptivePta(config),
+        "PTA recovers after a minimum-step capacitance increase"
+    );
+    expect(
+        CircuitPtaTestAccess::ptaMinimumStepRecoveries(circuit) > 0,
+        "PTA recovery fixture reaches the minimum-step recovery path"
+    );
+    expect(
+        CircuitPtaTestAccess::ptaCapacitanceGrowths(circuit) > 0,
+        "PTA recovery fixture records a capacitance growth"
+    );
+    expect(
+        CircuitPtaTestAccess::ptaCapacitanceReductions(circuit) > 0,
+        "PTA recovery fixture records a node-capacitance reduction"
     );
 }
 
@@ -1039,6 +1141,7 @@ int main(){
     testPtaConfigValidation();
     testPtaNodeCapacitanceGrowth();
     testPtaNodeCapacitanceOscillationAdaptation();
+    testPtaMinimumStepCapacitanceRecovery();
     testRequiresBdf2History();
     testZeroErrorUsesMaximumScale();
     testVoltageAndCurrentAbsoluteTolerances();

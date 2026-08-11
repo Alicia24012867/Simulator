@@ -561,6 +561,8 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
                 return finish(false);
             }
 
+            ++operatingPointStats_.ptaMinimumStepRecoveries;
+            ++operatingPointStats_.ptaCapacitanceGrowths;
             integrator.Initialize(time, acceptedSolution);
             step = reducedStep;
             continue;
@@ -1069,6 +1071,7 @@ void Circuit::updatePtaNodeCapacitancesAfterAcceptedStep(
                nextCapacitance < state.capacitance){
                 state.capacitor->setValue(nextCapacitance);
                 state.capacitance = nextCapacitance;
+                ++operatingPointStats_.ptaCapacitanceReductions;
             }
         }
 
