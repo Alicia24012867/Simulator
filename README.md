@@ -72,7 +72,23 @@
 ./spice --pta disabled input.cir  # 默认：Newton + source stepping
 ./spice --pta force input.cir     # 只使用 PTA
 ./spice --pta fallback input.cir  # 常规 OP 失败后尝试 PTA
+
+# 使用 SPICE 数值后缀覆盖 PTA 配置；可重复指定
+./spice --pta force \
+  --pta-option initial-step=1n \
+  --pta-option maximum-steps=20000 \
+  --pta-option include-diodes=true \
+  input.cir
 ```
+
+`--pta-option name=value` 只可与 `--pta force` 或 `--pta fallback` 一起使用。数值选项接受与网表相同的 SPICE 后缀；布尔选项 `include-mos-bulk` 与 `include-diodes` 接受 `true` / `false` 或 `1` / `0`。可用名称为：
+
+- 时间与收敛：`initial-step`、`minimum-step`、`maximum-step`、`maximum-steps`、`derivative-tolerance`、`dc-residual-tolerance`
+- 伪元件：`initial-node-capacitance`、`minimum-node-capacitance`、`maximum-node-capacitance`、`current-source-capacitance`、`voltage-source-inductance`
+- 自适应规则：`failed-step-scale`、`capacitance-grow-scale`、`small-oscillation-scale`、`medium-oscillation-scale`、`heavy-oscillation-scale`
+- 放置开关：`include-mos-bulk`、`include-diodes`
+
+同一 PTA 选项不可重复指定；所有覆盖值会在建模前统一执行配置校验，非法范围或相互矛盾的边界会以命令行错误退出。
 
 PTA 在 MNA pattern 固化前加入人工伪元件：独立电压源 branch 上的伪电感、独立电流源两端的伪电容，以及晶体管节点到地的伪电容。其伪时间迭代复用现有的 Backward Euler / 受步长比限制的 BDF2 `TransientIntegrator`；每一步以原始 OP 方程残差和 BDF 导数范数共同判定稳态，Newton 失败时缩小伪时间步长。
 

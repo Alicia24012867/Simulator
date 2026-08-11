@@ -561,11 +561,15 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
 
         const Eigen::VectorXd currentSolution = mna_->solution();
 
+        // BDF coefficients sum to zero.  Evaluate the derivative from state
+        // differences so a settled solution does not lose precision through
+        // cancellation among terms of order |x| / h.
         Eigen::VectorXd derivative =
-            ctx.derivative.alpha0 * currentSolution +
-            ctx.derivative.alpha1 * ctx.previousSolution;
+            ctx.derivative.alpha0 *
+            (currentSolution - ctx.previousSolution);
         if(ctx.olderSolution != nullptr){
-            derivative += ctx.derivative.alpha2 * (*ctx.olderSolution);
+            derivative += ctx.derivative.alpha2 *
+                (*ctx.olderSolution - ctx.previousSolution);
         }
         if(!derivative.allFinite()){
             return finish(false);

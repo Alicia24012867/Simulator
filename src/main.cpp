@@ -2,7 +2,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -14,14 +16,16 @@
 #include "io/spiceOutput.h"
 #include "netlist/parser.h"
 #include "analysis/ptaAnalysis.h"
+#include "utils/string_utils.hpp"
 
 namespace {
 struct CommandLineOptions {
     std::string inputPath;
     std::optional<std::string> listingPath;
     std::optional<std::string> rawPath;
-    PtaMode ptaMode = PtaMode::Disabled;
+    PtaAnalysisConfig ptaConfig;
     bool ptaModeSpecified = false;
+    std::set<std::string> ptaOptionKeys;
     bool helpRequested = false;
 };
 
@@ -38,7 +42,18 @@ void printUsage(std::ostream& os, const char* program){
        << "  " << program << " <input.cir> [output.out]\n"
        << "  " << program
        << " [-b] [--pta disabled|force|fallback]"
+       << " [--pta-option name=value]"
        << " [-o output.out] [-r output.raw] <input.cir>\n";
+    os << "\nPTA options (repeat --pta-option as needed):\n"
+       << "  initial-step, minimum-step, maximum-step, maximum-steps\n"
+       << "  derivative-tolerance, dc-residual-tolerance\n"
+       << "  initial-node-capacitance, minimum-node-capacitance,\n"
+       << "  maximum-node-capacitance, current-source-capacitance,\n"
+       << "  voltage-source-inductance\n"
+       << "  failed-step-scale, capacitance-grow-scale,\n"
+       << "  small-oscillation-scale, medium-oscillation-scale,\n"
+       << "  heavy-oscillation-scale\n"
+       << "  include-mos-bulk, include-diodes (true or false)\n";
 }
 
 bool parsePtaMode(const std::string& text, PtaMode& mode){
@@ -54,6 +69,90 @@ bool parsePtaMode(const std::string& text, PtaMode& mode){
         mode = PtaMode::Fallback;
         return true;
     }
+    return false;
+}
+
+bool parsePtaBoolean(const std::string& text, bool& value){
+    const std::string normalized = to_lower_copy(text);
+    if(normalized == "true" || normalized == "1"){
+        value = true;
+        return true;
+    }
+    if(normalized == "false" || normalized == "0"){
+        value = false;
+        return true;
+    }
+    return false;
+}
+
+bool applyPtaOption(const std::string& assignment,
+                    PtaAnalysisConfig& config,
+                    std::string& key,
+                    std::string& error){
+    const std::size_t equals = assignment.find('=');
+    if(equals == std::string::npos || equals == 0 ||
+       equals + 1 == assignment.size()){
+        error = "expected name=value";
+        return false;
+    }
+
+    key = to_lower_copy(assignment.substr(0, equals));
+    const std::string value = assignment.substr(equals + 1);
+
+    const auto setDouble = [&](double& target) {
+        try {
+            target = parse_spice_number(value);
+            return true;
+        } catch(const std::runtime_error& exception) {
+            error = exception.what();
+            return false;
+        }
+    };
+
+    const auto setBoolean = [&](bool& target) {
+        if(parsePtaBoolean(value, target)){
+            return true;
+        }
+        error = "expected true, false, 1, or 0";
+        return false;
+    };
+
+    if(key == "maximum-steps"){
+        try {
+            std::size_t parsedLength = 0;
+            const long long parsed = std::stoll(value, &parsedLength, 10);
+            if(parsedLength != value.size() || parsed <= 0 ||
+               parsed > std::numeric_limits<int>::max()){
+                error = "expected a positive integer";
+                return false;
+            }
+            config.maximumSteps = static_cast<int>(parsed);
+            return true;
+        } catch(const std::exception&) {
+            error = "expected a positive integer";
+            return false;
+        }
+    }
+
+    if(key == "initial-step") return setDouble(config.initialStep);
+    if(key == "minimum-step") return setDouble(config.minimumStep);
+    if(key == "maximum-step") return setDouble(config.maximumStep);
+    if(key == "derivative-tolerance") return setDouble(config.derivativeTolerance);
+    if(key == "dc-residual-tolerance") return setDouble(config.dcResidualTolerance);
+    if(key == "initial-node-capacitance") return setDouble(config.initialNodeCapacitance);
+    if(key == "minimum-node-capacitance") return setDouble(config.minimumNodeCapacitance);
+    if(key == "maximum-node-capacitance") return setDouble(config.maximumNodeCapacitance);
+    if(key == "current-source-capacitance") return setDouble(config.currentSourceCapacitance);
+    if(key == "voltage-source-inductance") return setDouble(config.voltageSourceInductance);
+    if(key == "failed-step-scale") return setDouble(config.failedStepScale);
+    if(key == "capacitance-grow-scale") return setDouble(config.capacitanceGrowScale);
+    if(key == "small-oscillation-scale") return setDouble(config.smallOscillationScale);
+    if(key == "medium-oscillation-scale") return setDouble(config.mediumOscillationScale);
+    if(key == "heavy-oscillation-scale") return setDouble(config.heavyOscillationScale);
+    if(key == "include-mos-bulk") return setBoolean(config.includeMosBulk);
+    if(key == "include-diodes") return setBoolean(config.includeDiodes);
+
+    error = "unknown PTA option";
     return false;
 }
 
@@ -74,13 +173,32 @@ bool parseCommandLine(int argc,
         }
         if(argument == "--pta"){
             if(++i >= argc || options.ptaModeSpecified ||
-               !parsePtaMode(argv[i], options.ptaMode)){
+               !parsePtaMode(argv[i], options.ptaConfig.mode)){
                 std::cerr
                     << "Invalid or repeated PTA mode; expected "
                     << "disabled, force, or fallback\n";
                 return false;
             }
             options.ptaModeSpecified = true;
+            continue;
+        }
+        if(argument == "--pta-option"){
+            if(++i >= argc){
+                std::cerr << "Missing PTA option; expected name=value\n";
+                return false;
+            }
+
+            std::string key;
+            std::string error;
+            if(!applyPtaOption(argv[i], options.ptaConfig, key, error)){
+                std::cerr << "Invalid PTA option <" << argv[i]
+                          << ">: " << error << '\n';
+                return false;
+            }
+            if(!options.ptaOptionKeys.insert(key).second){
+                std::cerr << "Repeated PTA option: " << key << '\n';
+                return false;
+            }
             continue;
         }
         if(argument == "-o" || argument == "--output"){
@@ -110,6 +228,13 @@ bool parseCommandLine(int argc,
 
     if(positional.empty() || positional.size() > 2){
         std::cerr << "Exactly one input netlist is required\n";
+        return false;
+    }
+
+    if(!options.ptaOptionKeys.empty() &&
+       options.ptaConfig.mode == PtaMode::Disabled){
+        std::cerr
+            << "PTA options require --pta force or --pta fallback\n";
         return false;
     }
 
@@ -418,8 +543,7 @@ int main(int argc, char* argv[]){
         return 1;
     }
 
-    PtaAnalysisConfig ptaConfig{};
-    ptaConfig.mode = options.ptaMode;
+    const PtaAnalysisConfig& ptaConfig = options.ptaConfig;
 
     try {
         ptaConfig.validate();

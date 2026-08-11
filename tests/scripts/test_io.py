@@ -153,6 +153,86 @@ def main():
             failures.append(str(exc))
 
         try:
+            result = run(
+                simulator,
+                "--pta",
+                "fallback",
+                "--pta-option",
+                "initial-step=2n",
+                "--pta-option",
+                "maximum-steps=20000",
+                "--pta-option",
+                "include-diodes=true",
+                valid,
+            )
+            require(
+                result.returncode == 0,
+                f"valid PTA options failed: {result.stderr}",
+            )
+
+            result = run(
+                simulator,
+                "--pta",
+                "force",
+                "--pta-option",
+                "initial-step=0",
+                valid,
+            )
+            require(result.returncode == 2, "invalid PTA range was accepted")
+            require(
+                "Invalid PTA configuration" in result.stderr,
+                "invalid PTA range did not report configuration validation",
+            )
+
+            result = run(
+                simulator,
+                "--pta",
+                "fallback",
+                "--pta-option",
+                "unknown-option=1",
+                valid,
+            )
+            require(result.returncode == 2, "unknown PTA option was accepted")
+            require(
+                "unknown PTA option" in result.stderr,
+                "unknown PTA option did not report a diagnostic",
+            )
+
+            result = run(
+                simulator,
+                "--pta",
+                "fallback",
+                "--pta-option",
+                "maximum-steps=100",
+                "--pta-option",
+                "maximum-steps=200",
+                valid,
+            )
+            require(result.returncode == 2, "repeated PTA option was accepted")
+            require(
+                "Repeated PTA option" in result.stderr,
+                "repeated PTA option did not report a diagnostic",
+            )
+
+            result = run(
+                simulator,
+                "--pta-option",
+                "maximum-steps=100",
+                valid,
+            )
+            require(
+                result.returncode == 2,
+                "PTA option without PTA mode was accepted",
+            )
+            require(
+                "PTA options require" in result.stderr,
+                "missing PTA mode did not report a diagnostic",
+            )
+            print("PASS PTA command-line configuration and validation")
+        except Exception as exc:
+            failures.append(str(exc))
+
+        try:
             same_path = root / "same-path.cir"
             original = "Same path protection\nR1 1 0 1k\n.op\n.end\n"
             same_path.write_text(original)
