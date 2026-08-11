@@ -162,6 +162,14 @@ def main():
                 "--pta-option",
                 "maximum-steps=20000",
                 "--pta-option",
+                "derivative-tolerance=0.5",
+                "--pta-option",
+                "derivative-relative-tolerance=1e-4",
+                "--pta-option",
+                "derivative-voltage-absolute-tolerance=1u",
+                "--pta-option",
+                "derivative-current-absolute-tolerance=1n",
+                "--pta-option",
                 "successful-step-scale=1.5",
                 "--pta-option",
                 "include-diodes=true",
@@ -188,6 +196,23 @@ def main():
             require(
                 "Invalid PTA configuration" in result.stderr,
                 "invalid PTA range did not report configuration validation",
+            )
+
+            result = run(
+                simulator,
+                "--pta",
+                "force",
+                "--pta-option",
+                "derivative-relative-tolerance=-1",
+                valid,
+            )
+            require(
+                result.returncode == 2,
+                "negative PTA derivative relative tolerance was accepted",
+            )
+            require(
+                "PTA derivative and DC convergence tolerances" in result.stderr,
+                "invalid derivative tolerance did not report validation",
             )
 
             result = run(

@@ -1,7 +1,10 @@
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
+
+#include <Eigen/Core>
 
 enum class PtaMode{
     Disabled,   // normal NR 
@@ -19,7 +22,11 @@ struct PtaAnalysisConfig{
     int maximumSteps = 10000;
 
     // stability
-    double derivativeTolerance = 1.0e-8;
+    // Threshold for the dimensionless h*dx/dt convergence metric.
+    double derivativeTolerance = 1.0;
+    double derivativeRelativeTolerance = 1.0e-4;
+    double derivativeVoltageAbsoluteTolerance = 1.0e-6;
+    double derivativeCurrentAbsoluteTolerance = 1.0e-9;
     double dcResidualTolerance = 1.0e-9;
 
     // initial value & boundaries
@@ -74,9 +81,13 @@ struct PtaAnalysisConfig{
         }
 
         if(!isPositiveFinite(derivativeTolerance) ||
+           !std::isfinite(derivativeRelativeTolerance) ||
+           derivativeRelativeTolerance < 0.0 ||
+           !isPositiveFinite(derivativeVoltageAbsoluteTolerance) ||
+           !isPositiveFinite(derivativeCurrentAbsoluteTolerance) ||
            !isPositiveFinite(dcResidualTolerance)){
             throw std::invalid_argument(
-                "PTA convergence tolerances must be positive and finite"
+                "PTA derivative and DC convergence tolerances are invalid"
             );
         }
 
@@ -140,3 +151,80 @@ struct PtaAnalysisConfig{
         }
     }
 };
+
+struct PtaDerivativeEstimate {
+    bool valid = false;
+    double normalizedDerivative = 0.0;
+};
+
+inline PtaDerivativeEstimate estimatePtaNormalizedDerivative(
+    const Eigen::VectorXd& derivative,
+    const Eigen::VectorXd& currentSolution,
+    const Eigen::VectorXd& previousSolution,
+    int voltageUnknownCount,
+    double timeStep,
+    const PtaAnalysisConfig& config
+){
+    PtaDerivativeEstimate result;
+
+    const Eigen::Index size = derivative.size();
+    if(size == 0 ||
+       currentSolution.size() != size ||
+       previousSolution.size() != size ||
+       voltageUnknownCount < 0 ||
+       voltageUnknownCount > size ||
+       !std::isfinite(timeStep) || timeStep <= 0.0 ||
+       !std::isfinite(config.derivativeRelativeTolerance) ||
+       config.derivativeRelativeTolerance < 0.0 ||
+       !std::isfinite(config.derivativeVoltageAbsoluteTolerance) ||
+       config.derivativeVoltageAbsoluteTolerance <= 0.0 ||
+       !std::isfinite(config.derivativeCurrentAbsoluteTolerance) ||
+       config.derivativeCurrentAbsoluteTolerance <= 0.0)
+    {
+        return result;
+    }
+
+    double normalizedDerivative = 0.0;
+
+    for(Eigen::Index i = 0; i < size; ++i){
+        const double derivativeValue = derivative[i];
+        const double current = currentSolution[i];
+        const double previous = previousSolution[i];
+        if(!std::isfinite(derivativeValue) ||
+           !std::isfinite(current) ||
+           !std::isfinite(previous))
+        {
+            return result;
+        }
+
+        const double absoluteTolerance =
+            i < voltageUnknownCount
+            ? config.derivativeVoltageAbsoluteTolerance
+            : config.derivativeCurrentAbsoluteTolerance;
+        const double scale = std::max(std::abs(current), std::abs(previous));
+        const double weight = absoluteTolerance +
+            config.derivativeRelativeTolerance * scale;
+        const double scaledDerivative =
+            timeStep * std::abs(derivativeValue);
+
+        if(!std::isfinite(weight) || weight <= 0.0 ||
+           !std::isfinite(scaledDerivative))
+        {
+            return result;
+        }
+
+        const double componentDerivative = scaledDerivative / weight;
+        if(!std::isfinite(componentDerivative)){
+            return result;
+        }
+
+        normalizedDerivative = std::max(
+            normalizedDerivative,
+            componentDerivative
+        );
+    }
+
+    result.valid = true;
+    result.normalizedDerivative = normalizedDerivative;
+    return result;
+}

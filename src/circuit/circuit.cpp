@@ -583,7 +583,18 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
         if(!derivative.allFinite()){
             return finish(false);
         }
-        const double derivativeNorm = derivative.cwiseAbs().maxCoeff();
+        const PtaDerivativeEstimate derivativeEstimate =
+            estimatePtaNormalizedDerivative(
+                derivative,
+                currentSolution,
+                ctx.previousSolution,
+                nodeMap_->nodeCount(),
+                ctx.timeStep,
+                config
+            );
+        if(!derivativeEstimate.valid){
+            return finish(false);
+        }
 
         // Test the original DC residual F(x), excluding artificial PTA terms.
         assembleOperatingPointSystem();
@@ -592,7 +603,8 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
             return finish(false);
         }
 
-        if(derivativeNorm < config.derivativeTolerance &&
+        if(derivativeEstimate.normalizedDerivative <
+               config.derivativeTolerance &&
            dcResidual < config.dcResidualTolerance){
             return finish(true);
         }

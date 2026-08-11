@@ -325,6 +325,51 @@ void testPtaConfigValidation(){
         [&config] { config.validate(); },
         "successful-step scale must be greater than one"
     );
+
+    config = PtaAnalysisConfig{};
+    config.derivativeRelativeTolerance = -1.0;
+    expectInvalidArgument(
+        [&config] { config.validate(); },
+        "negative derivative relative tolerance is invalid"
+    );
+}
+
+void testPtaNormalizedDerivative(){
+    PtaAnalysisConfig config;
+    config.derivativeRelativeTolerance = 0.1;
+    config.derivativeVoltageAbsoluteTolerance = 1.0;
+    config.derivativeCurrentAbsoluteTolerance = 1.0e-2;
+
+    const PtaDerivativeEstimate estimate = estimatePtaNormalizedDerivative(
+        makeVector({1.0, 1.0e-2}),
+        makeVector({10.0, 1.0e-1}),
+        makeVector({8.0, 5.0e-2}),
+        1,
+        2.0,
+        config
+    );
+    expect(estimate.valid, "scaled PTA derivative estimate is valid");
+    expectNear(
+        estimate.normalizedDerivative,
+        1.0,
+        "PTA derivative uses time step and voltage/current scales"
+    );
+
+    const PtaDerivativeEstimate smallerStepEstimate =
+        estimatePtaNormalizedDerivative(
+            makeVector({1.0, 1.0e-2}),
+            makeVector({10.0, 1.0e-1}),
+            makeVector({8.0, 5.0e-2}),
+            1,
+            0.5,
+            config
+        );
+    expect(smallerStepEstimate.valid, "short-step PTA derivative is valid");
+    expectNear(
+        smallerStepEstimate.normalizedDerivative,
+        0.25,
+        "PTA derivative normalization scales with pseudo-time step"
+    );
 }
 
 void testPtaNodeCapacitanceGrowth(){
@@ -502,7 +547,7 @@ void testPtaMinimumStepCapacitanceRecovery(){
     config.minimumStep = 1.0;
     config.maximumStep = 1024.0;
     config.maximumSteps = 100;
-    config.derivativeTolerance = 1.0e-6;
+    config.derivativeTolerance = 1.0;
     config.dcResidualTolerance = 1.0e-6;
     config.initialNodeCapacitance = 1.0e-6;
     config.minimumNodeCapacitance = 1.0e-6;
@@ -1139,6 +1184,7 @@ void testNewtonStepLimiting(){
 int main(){
     testSolverOptionsValidation();
     testPtaConfigValidation();
+    testPtaNormalizedDerivative();
     testPtaNodeCapacitanceGrowth();
     testPtaNodeCapacitanceOscillationAdaptation();
     testPtaMinimumStepCapacitanceRecovery();

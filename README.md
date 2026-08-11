@@ -86,16 +86,16 @@
 
 `--pta-option name=value` 只可与 `--pta force` 或 `--pta fallback` 一起使用。数值选项接受与网表相同的 SPICE 后缀；布尔选项 `include-mos-bulk` 与 `include-diodes` 接受 `true` / `false` 或 `1` / `0`。可用名称为：
 
-- 时间与收敛：`initial-step`、`minimum-step`、`maximum-step`、`maximum-steps`、`derivative-tolerance`、`dc-residual-tolerance`
+- 时间与收敛：`initial-step`、`minimum-step`、`maximum-step`、`maximum-steps`、`derivative-tolerance`、`derivative-relative-tolerance`、`derivative-voltage-absolute-tolerance`、`derivative-current-absolute-tolerance`、`dc-residual-tolerance`
 - 伪元件：`initial-node-capacitance`、`minimum-node-capacitance`、`maximum-node-capacitance`、`current-source-capacitance`、`voltage-source-inductance`
 - 自适应规则：`failed-step-scale`、`successful-step-scale`、`capacitance-grow-scale`、`small-oscillation-scale`、`medium-oscillation-scale`、`heavy-oscillation-scale`、`medium-oscillation-ratio`、`heavy-oscillation-ratio`
 - 放置开关：`include-mos-bulk`、`include-diodes`
 
 同一 PTA 选项不可重复指定；所有覆盖值会在建模前统一执行配置校验，非法范围或相互矛盾的边界会以命令行错误退出。
 
-PTA 在 MNA pattern 固化前加入人工伪元件：独立电压源 branch 上的伪电感、独立电流源两端的伪电容，以及晶体管节点到地的伪电容。其伪时间迭代复用现有的 Backward Euler / 受步长比限制的 BDF2 `TransientIntegrator`；每一步以原始 OP 方程残差和 BDF 导数范数共同判定稳态。Newton 失败时先缩小伪时间步长；在最小步长仍失败时，增大所有节点伪电容并重启积分历史。每个成功步后，伪时间步会按 `successful-step-scale` 增长，同时仍受最大步长和 BDF2 步长比限制；节点电压变化反向时会按相邻步变化幅度比降低该节点伪电容，两个 ratio 参数分别划分小/中及中/重振荡。
+PTA 在 MNA pattern 固化前加入人工伪元件：独立电压源 branch 上的伪电感、独立电流源两端的伪电容，以及晶体管节点到地的伪电容。其伪时间迭代复用现有的 Backward Euler / 受步长比限制的 BDF2 `TransientIntegrator`；每一步以原始 OP 方程残差和归一化 BDF 导数共同判定稳态。导数指标对每个未知量计算 `h*|dx/dt| / (abstol + reltol*scale)`，分别使用电压和支路电流绝对容差；`derivative-tolerance` 是该无量纲指标的阈值。Newton 失败时先缩小伪时间步长；在最小步长仍失败时，增大所有节点伪电容并重启积分历史。每个成功步后，伪时间步会按 `successful-step-scale` 增长，同时仍受最大步长和 BDF2 步长比限制；节点电压变化反向时会按相邻步变化幅度比降低该节点伪电容，两个 ratio 参数分别划分小/中及中/重振荡。
 
-该功能仍处于实验阶段。自适应规则具有单元测试，并有一条端到端夹具覆盖“最小步长失败 → 全局增容 → 重启 → 恢复收敛”路径及后续节点降容。当前 Force OP 回归覆盖的 18 个网表、76 个输出值均可通过参考对比。默认 `derivativeTolerance=1e-8` 仍是固定绝对阈值；对不同伪时间步和未知量尺度的鲁棒性尚需更广泛的基准验证。因此 `force` 与 `fallback` 可用于回归和实验，但暂不视为生产求解保证。
+该功能仍处于实验阶段。自适应规则具有单元测试，并有一条端到端夹具覆盖“最小步长失败 → 全局增容 → 重启 → 恢复收敛”路径及后续节点降容。当前 Force OP 回归覆盖的 18 个网表、76 个输出值均可通过参考对比。归一化导数收敛已避免固定绝对阈值随伪时间步和未知量量级失真的问题；其默认容差与困难非线性电路的鲁棒性仍需更广泛的基准验证。因此 `force` 与 `fallback` 可用于回归和实验，但暂不视为生产求解保证。
 
 ## 输出格式
 

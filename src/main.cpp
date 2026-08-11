@@ -46,7 +46,9 @@ void printUsage(std::ostream& os, const char* program){
        << " [-o output.out] [-r output.raw] <input.cir>\n";
     os << "\nPTA options (repeat --pta-option as needed):\n"
        << "  initial-step, minimum-step, maximum-step, maximum-steps\n"
-       << "  derivative-tolerance, dc-residual-tolerance\n"
+       << "  derivative-tolerance, derivative-relative-tolerance,\n"
+       << "  derivative-voltage-absolute-tolerance,\n"
+       << "  derivative-current-absolute-tolerance, dc-residual-tolerance\n"
        << "  initial-node-capacitance, minimum-node-capacitance,\n"
        << "  maximum-node-capacitance, current-source-capacitance,\n"
        << "  voltage-source-inductance\n"
@@ -140,6 +142,9 @@ bool applyPtaOption(const std::string& assignment,
     if(key == "minimum-step") return setDouble(config.minimumStep);
     if(key == "maximum-step") return setDouble(config.maximumStep);
     if(key == "derivative-tolerance") return setDouble(config.derivativeTolerance);
+    if(key == "derivative-relative-tolerance") return setDouble(config.derivativeRelativeTolerance);
+    if(key == "derivative-voltage-absolute-tolerance") return setDouble(config.derivativeVoltageAbsoluteTolerance);
+    if(key == "derivative-current-absolute-tolerance") return setDouble(config.derivativeCurrentAbsoluteTolerance);
     if(key == "dc-residual-tolerance") return setDouble(config.dcResidualTolerance);
     if(key == "initial-node-capacitance") return setDouble(config.initialNodeCapacitance);
     if(key == "minimum-node-capacitance") return setDouble(config.minimumNodeCapacitance);
