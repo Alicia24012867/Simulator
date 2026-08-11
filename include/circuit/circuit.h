@@ -10,6 +10,7 @@
 
 class Device;
 class PseudoDevice;
+class PseudoCapacitor;
 class MNA;
 class Model;
 class NodeMap;
@@ -111,6 +112,14 @@ private:
         Eigen::VectorXd solution;
     };
 
+    struct PtaNodeCapState{
+        int node = -1;
+        PseudoCapacitor* capacitor = nullptr;
+        double capacitance = 0.0;
+        double previousDelta = 0.0;
+        bool hasPreviousDelta = false;
+    };
+
     TransientStepAttempt tryTransientStep(
         const TransientIntegrator& integrator,
         double targetTime,
@@ -156,6 +165,8 @@ private:
 
     void materializePseudoDevices(const PtaAnalysisConfig& config);
 
+    bool growAllPtaNodeCapacitances(const PtaAnalysisConfig& config);
+
     std::unique_ptr<MNA> mna_;
 
     std::vector<std::unique_ptr<Device>> devices_;
@@ -183,4 +194,6 @@ private:
     std::vector<TransientSample> transientSamples_;
 
     std::vector<PendingPtaPlacement> pendingPtaPlacements_;
+
+    std::vector<PtaNodeCapState> ptaNodeCaps_;
 };

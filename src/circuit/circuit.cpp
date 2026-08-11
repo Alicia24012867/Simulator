@@ -99,6 +99,7 @@ bool Circuit::build(const PtaAnalysisConfig& config){
     }else{
         pendingPtaPlacements_.clear();
         pseudoDevices_.clear();
+        ptaNodeCaps_.clear();
     }
 
     mna_->resize(nextUnknown_);
@@ -550,11 +551,17 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
                 config.minimumStep,
                 candidateStep * config.failedStepScale
             );
-            if(!std::isfinite(reducedStep) ||
-               reducedStep >= candidateStep){
+
+            if(reducedStep < candidateStep){
+                step = reducedStep;
+                continue;
+            }
+
+            if(!growAllPtaNodeCapacitances(config)){
                 return finish(false);
             }
 
+            integrator.Initialize(time, acceptedSolution);
             step = reducedStep;
             continue;
         }
@@ -888,6 +895,7 @@ void Circuit::collectPendingPtaPlacements(const PtaAnalysisConfig& config){
 
 void Circuit::materializePseudoDevices(const PtaAnalysisConfig& config){
     pseudoDevices_.clear();
+    ptaNodeCaps_.clear();
     std::unordered_set<int> cappedNodes;
     std::set<std::pair<int, int>> cappedSourcePairs;
     std::unordered_set<int> inductedBranches;
@@ -913,11 +921,21 @@ void Circuit::materializePseudoDevices(const PtaAnalysisConfig& config){
 
                 const int node = nodes[terminal];
                 if(node >= 0 && cappedNodes.insert(node).second){
-                    addPseudo(std::make_unique<PseudoCapacitor>(
+                    auto capacitor = std::make_unique<PseudoCapacitor>(
                         node,
-                        -1, 
+                        -1,
                         config.initialNodeCapacitance
-                    ));
+                    );
+                    PseudoCapacitor* rawCapacitor = capacitor.get();
+
+                    pseudoDevices_.push_back(std::move(capacitor));
+                    ptaNodeCaps_.push_back({
+                        node,
+                        rawCapacitor,
+                        config.initialNodeCapacitance,
+                        0.0,
+                        false
+                    });
                 }
                 break;
             }
@@ -957,4 +975,35 @@ void Circuit::materializePseudoDevices(const PtaAnalysisConfig& config){
             }
         }
     }
+}
+
+bool Circuit::growAllPtaNodeCapacitances(const PtaAnalysisConfig& config){
+    bool grewAnyCapacitance = false;
+
+    for(PtaNodeCapState& state: ptaNodeCaps_){
+        if(state.capacitor == nullptr ||
+            !std::isfinite(state.capacitance) ||
+            state.capacitance <= 0){
+                continue;
+        }
+
+        const double nextCapacitance = std::min(
+            state.capacitance * config.capacitanceGrowScale,
+            config.maximumNodeCapacitance
+        );
+
+        if(!std::isfinite(nextCapacitance) ||
+            nextCapacitance <= state.capacitance){
+                continue;
+        }
+
+        state.capacitor->setValue(nextCapacitance);
+        state.capacitance = nextCapacitance;
+        state.previousDelta = 0.0;
+        state.hasPreviousDelta = false;
+
+        grewAnyCapacitance = true;
+    }
+
+    return grewAnyCapacitance;
 }
