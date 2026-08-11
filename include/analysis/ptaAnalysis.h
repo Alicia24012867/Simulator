@@ -31,6 +31,7 @@ struct PtaAnalysisConfig{
 
     // Adaptive rules
     double failedStepScale = 0.5;         // used when NR failed
+    double successfulStepScale = 2.0;
     double capacitanceGrowScale = 2.0;
     double smallOscillationScale = 0.9;
     double mediumOscillationScale = 0.7;
@@ -100,6 +101,13 @@ struct PtaAnalysisConfig{
            failedStepScale <= 0.0 || failedStepScale >= 1.0){
             throw std::invalid_argument(
                 "PTA failed-step scale must be finite and in (0, 1)"
+            );
+        }
+
+        if(!std::isfinite(successfulStepScale) ||
+           successfulStepScale <= 1.0){
+            throw std::invalid_argument(
+                "PTA successful-step scale must be finite and greater than 1"
             );
         }
 

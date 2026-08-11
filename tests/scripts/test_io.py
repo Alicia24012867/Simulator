@@ -162,6 +162,8 @@ def main():
                 "--pta-option",
                 "maximum-steps=20000",
                 "--pta-option",
+                "successful-step-scale=1.5",
+                "--pta-option",
                 "include-diodes=true",
                 "--pta-option",
                 "medium-oscillation-ratio=0.4",
@@ -186,6 +188,23 @@ def main():
             require(
                 "Invalid PTA configuration" in result.stderr,
                 "invalid PTA range did not report configuration validation",
+            )
+
+            result = run(
+                simulator,
+                "--pta",
+                "force",
+                "--pta-option",
+                "successful-step-scale=1",
+                valid,
+            )
+            require(
+                result.returncode == 2,
+                "invalid PTA successful-step scale was accepted",
+            )
+            require(
+                "PTA successful-step scale" in result.stderr,
+                "invalid successful-step scale did not report validation",
             )
 
             result = run(

@@ -258,6 +258,13 @@ void testPtaConfigValidation(){
         [&config] { config.validate(); },
         "oscillation ratios must be strictly ordered"
     );
+
+    config = PtaAnalysisConfig{};
+    config.successfulStepScale = 1.0;
+    expectInvalidArgument(
+        [&config] { config.validate(); },
+        "successful-step scale must be greater than one"
+    );
 }
 
 void testPtaNodeCapacitanceGrowth(){

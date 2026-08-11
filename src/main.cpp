@@ -50,7 +50,8 @@ void printUsage(std::ostream& os, const char* program){
        << "  initial-node-capacitance, minimum-node-capacitance,\n"
        << "  maximum-node-capacitance, current-source-capacitance,\n"
        << "  voltage-source-inductance\n"
-       << "  failed-step-scale, capacitance-grow-scale,\n"
+       << "  failed-step-scale, successful-step-scale,\n"
+       << "  capacitance-grow-scale,\n"
        << "  small-oscillation-scale, medium-oscillation-scale,\n"
        << "  heavy-oscillation-scale, medium-oscillation-ratio,\n"
        << "  heavy-oscillation-ratio\n"
@@ -146,6 +147,7 @@ bool applyPtaOption(const std::string& assignment,
     if(key == "current-source-capacitance") return setDouble(config.currentSourceCapacitance);
     if(key == "voltage-source-inductance") return setDouble(config.voltageSourceInductance);
     if(key == "failed-step-scale") return setDouble(config.failedStepScale);
+    if(key == "successful-step-scale") return setDouble(config.successfulStepScale);
     if(key == "capacitance-grow-scale") return setDouble(config.capacitanceGrowScale);
     if(key == "small-oscillation-scale") return setDouble(config.smallOscillationScale);
     if(key == "medium-oscillation-scale") return setDouble(config.mediumOscillationScale);

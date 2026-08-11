@@ -77,6 +77,7 @@
 ./spice --pta force \
   --pta-option initial-step=1n \
   --pta-option maximum-steps=20000 \
+  --pta-option successful-step-scale=1.5 \
   --pta-option medium-oscillation-ratio=0.5 \
   --pta-option heavy-oscillation-ratio=1.0 \
   --pta-option include-diodes=true \
@@ -87,12 +88,12 @@
 
 - 时间与收敛：`initial-step`、`minimum-step`、`maximum-step`、`maximum-steps`、`derivative-tolerance`、`dc-residual-tolerance`
 - 伪元件：`initial-node-capacitance`、`minimum-node-capacitance`、`maximum-node-capacitance`、`current-source-capacitance`、`voltage-source-inductance`
-- 自适应规则：`failed-step-scale`、`capacitance-grow-scale`、`small-oscillation-scale`、`medium-oscillation-scale`、`heavy-oscillation-scale`、`medium-oscillation-ratio`、`heavy-oscillation-ratio`
+- 自适应规则：`failed-step-scale`、`successful-step-scale`、`capacitance-grow-scale`、`small-oscillation-scale`、`medium-oscillation-scale`、`heavy-oscillation-scale`、`medium-oscillation-ratio`、`heavy-oscillation-ratio`
 - 放置开关：`include-mos-bulk`、`include-diodes`
 
 同一 PTA 选项不可重复指定；所有覆盖值会在建模前统一执行配置校验，非法范围或相互矛盾的边界会以命令行错误退出。
 
-PTA 在 MNA pattern 固化前加入人工伪元件：独立电压源 branch 上的伪电感、独立电流源两端的伪电容，以及晶体管节点到地的伪电容。其伪时间迭代复用现有的 Backward Euler / 受步长比限制的 BDF2 `TransientIntegrator`；每一步以原始 OP 方程残差和 BDF 导数范数共同判定稳态。Newton 失败时先缩小伪时间步长；在最小步长仍失败时，增大所有节点伪电容并重启积分历史。每个成功步后，节点电压变化反向时会按相邻步变化幅度比降低该节点伪电容；两个 ratio 参数分别划分小/中及中/重振荡。
+PTA 在 MNA pattern 固化前加入人工伪元件：独立电压源 branch 上的伪电感、独立电流源两端的伪电容，以及晶体管节点到地的伪电容。其伪时间迭代复用现有的 Backward Euler / 受步长比限制的 BDF2 `TransientIntegrator`；每一步以原始 OP 方程残差和 BDF 导数范数共同判定稳态。Newton 失败时先缩小伪时间步长；在最小步长仍失败时，增大所有节点伪电容并重启积分历史。每个成功步后，伪时间步会按 `successful-step-scale` 增长，同时仍受最大步长和 BDF2 步长比限制；节点电压变化反向时会按相邻步变化幅度比降低该节点伪电容，两个 ratio 参数分别划分小/中及中/重振荡。
 
 该功能仍处于实验阶段。当前默认 `derivativeTolerance=1e-8` 对纳秒级伪时间步可能仍过严：BDF 导数中相近解相减会出现约 `O(epsilon * |x| / h)` 的浮点噪声，可能在 DC 残差已收敛时仍使 `--pta force` 达到 `maximumSteps` 后失败。因此 `force` 和 `fallback` 目前不属于回归通过的求解模式；使用时应视为诊断/开发功能，而非生产求解保证。
 

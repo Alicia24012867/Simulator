@@ -603,7 +603,10 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
 
         integrator.accept(nextTime, currentSolution);
         time = nextTime;
-        step = candidateStep;
+        step = std::min(
+            config.maximumStep,
+            candidateStep * config.successfulStepScale
+        );
     }
 
     return finish(false);
