@@ -163,6 +163,10 @@ def main():
                 "maximum-steps=20000",
                 "--pta-option",
                 "include-diodes=true",
+                "--pta-option",
+                "medium-oscillation-ratio=0.4",
+                "--pta-option",
+                "heavy-oscillation-ratio=1.2",
                 valid,
             )
             require(
@@ -182,6 +186,25 @@ def main():
             require(
                 "Invalid PTA configuration" in result.stderr,
                 "invalid PTA range did not report configuration validation",
+            )
+
+            result = run(
+                simulator,
+                "--pta",
+                "force",
+                "--pta-option",
+                "medium-oscillation-ratio=1",
+                "--pta-option",
+                "heavy-oscillation-ratio=1",
+                valid,
+            )
+            require(
+                result.returncode == 2,
+                "invalid PTA oscillation-ratio ordering was accepted",
+            )
+            require(
+                "PTA oscillation ratios" in result.stderr,
+                "invalid oscillation-ratio ordering did not report validation",
             )
 
             result = run(

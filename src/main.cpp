@@ -52,7 +52,8 @@ void printUsage(std::ostream& os, const char* program){
        << "  voltage-source-inductance\n"
        << "  failed-step-scale, capacitance-grow-scale,\n"
        << "  small-oscillation-scale, medium-oscillation-scale,\n"
-       << "  heavy-oscillation-scale\n"
+       << "  heavy-oscillation-scale, medium-oscillation-ratio,\n"
+       << "  heavy-oscillation-ratio\n"
        << "  include-mos-bulk, include-diodes (true or false)\n";
 }
 
@@ -149,6 +150,8 @@ bool applyPtaOption(const std::string& assignment,
     if(key == "small-oscillation-scale") return setDouble(config.smallOscillationScale);
     if(key == "medium-oscillation-scale") return setDouble(config.mediumOscillationScale);
     if(key == "heavy-oscillation-scale") return setDouble(config.heavyOscillationScale);
+    if(key == "medium-oscillation-ratio") return setDouble(config.mediumOscillationRatio);
+    if(key == "heavy-oscillation-ratio") return setDouble(config.heavyOscillationRatio);
     if(key == "include-mos-bulk") return setBoolean(config.includeMosBulk);
     if(key == "include-diodes") return setBoolean(config.includeDiodes);
 

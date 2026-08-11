@@ -77,6 +77,8 @@
 ./spice --pta force \
   --pta-option initial-step=1n \
   --pta-option maximum-steps=20000 \
+  --pta-option medium-oscillation-ratio=0.5 \
+  --pta-option heavy-oscillation-ratio=1.0 \
   --pta-option include-diodes=true \
   input.cir
 ```
@@ -85,14 +87,14 @@
 
 - 时间与收敛：`initial-step`、`minimum-step`、`maximum-step`、`maximum-steps`、`derivative-tolerance`、`dc-residual-tolerance`
 - 伪元件：`initial-node-capacitance`、`minimum-node-capacitance`、`maximum-node-capacitance`、`current-source-capacitance`、`voltage-source-inductance`
-- 自适应规则：`failed-step-scale`、`capacitance-grow-scale`、`small-oscillation-scale`、`medium-oscillation-scale`、`heavy-oscillation-scale`
+- 自适应规则：`failed-step-scale`、`capacitance-grow-scale`、`small-oscillation-scale`、`medium-oscillation-scale`、`heavy-oscillation-scale`、`medium-oscillation-ratio`、`heavy-oscillation-ratio`
 - 放置开关：`include-mos-bulk`、`include-diodes`
 
 同一 PTA 选项不可重复指定；所有覆盖值会在建模前统一执行配置校验，非法范围或相互矛盾的边界会以命令行错误退出。
 
-PTA 在 MNA pattern 固化前加入人工伪元件：独立电压源 branch 上的伪电感、独立电流源两端的伪电容，以及晶体管节点到地的伪电容。其伪时间迭代复用现有的 Backward Euler / 受步长比限制的 BDF2 `TransientIntegrator`；每一步以原始 OP 方程残差和 BDF 导数范数共同判定稳态，Newton 失败时缩小伪时间步长。
+PTA 在 MNA pattern 固化前加入人工伪元件：独立电压源 branch 上的伪电感、独立电流源两端的伪电容，以及晶体管节点到地的伪电容。其伪时间迭代复用现有的 Backward Euler / 受步长比限制的 BDF2 `TransientIntegrator`；每一步以原始 OP 方程残差和 BDF 导数范数共同判定稳态。Newton 失败时先缩小伪时间步长；在最小步长仍失败时，增大所有节点伪电容并重启积分历史。每个成功步后，节点电压变化反向时会按相邻步变化幅度比降低该节点伪电容；两个 ratio 参数分别划分小/中及中/重振荡。
 
-该功能仍处于实验阶段，尚未实现论文中的 TSTS 全局增容、逐节点振荡检测和独立电容自适应。当前默认 `derivativeTolerance=1e-8` 对纳秒级伪时间步过严：BDF 导数中相近解相减会出现约 `O(epsilon * |x| / h)` 的浮点噪声，可能在 DC 残差已收敛时仍使 `--pta force` 达到 `maximumSteps` 后失败。因此 `force` 和 `fallback` 目前不属于回归通过的求解模式；使用时应视为诊断/开发功能，而非生产求解保证。
+该功能仍处于实验阶段。当前默认 `derivativeTolerance=1e-8` 对纳秒级伪时间步可能仍过严：BDF 导数中相近解相减会出现约 `O(epsilon * |x| / h)` 的浮点噪声，可能在 DC 残差已收敛时仍使 `--pta force` 达到 `maximumSteps` 后失败。因此 `force` 和 `fallback` 目前不属于回归通过的求解模式；使用时应视为诊断/开发功能，而非生产求解保证。
 
 ## 输出格式
 
@@ -305,7 +307,7 @@ tests/
 - 瞬态使用首步 Backward Euler 与受步长比限制的可变步长 BDF2；具备基于预测—校正差/step-doubling 的误差控制和步长拒绝重试，但尚未实现严格 LTE 估计、事件断点对齐或高阶积分公式。
 - `UIC` 当前把完整 MNA 解向量初始化为零；尚未支持器件 `IC=`、`.ic` 与一致初值求解。
 - 瞬态 Newton 失败会缩小时间步并在上一个已接受状态重试；非线性收敛判据本身仍未拆分电压/电流的相对与绝对容差。
-- PTA 已具备伪元件 stamp、BE/BDF2 伪时间推进、失败缩步和 DC 残差检查，但尚未实现动态伪电容控制；默认导数阈值仍需按伪时间步和未知量尺度归一化后再作为可靠收敛判据。
+- PTA 已具备伪元件 stamp、BE/BDF2 伪时间推进、失败缩步、最小步长后的全局增容，以及成功步后的逐节点振荡降容；默认导数阈值仍需按伪时间步和未知量尺度归一化后再作为可靠收敛判据。
 - 不支持 `.include`、`.lib`、`.param`、`.options`、`.temp`、`.nodeset`、`.ic`、`.subckt`、`.save`。
 - 不支持受控源 `E/F/G/H`、行为源、AC/noise 分析。
 - 二极管、BJT 和 MOSFET 是简化模型；`RS`、`RBE`、`RCE`、`RDS` 虽可解析但尚未参与 stamp，且瞬态中没有结电容等器件内部动态。
