@@ -28,6 +28,7 @@ private:
     bool parseLine(Circuit& circuit, const std::vector<std::string>& tokens);
     bool parseModel(Circuit& circuit, const std::vector<std::string>& tokens);
     bool parseAnalysisDirective(const std::vector<std::string>& tokens);
+    void parsePstranDirective(const std::vector<std::string>& tokens);
     void parsePrintDirective(const std::string& line);
 
     std::string filename_;

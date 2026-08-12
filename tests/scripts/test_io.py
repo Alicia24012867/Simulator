@@ -153,6 +153,33 @@ def main():
             failures.append(str(exc))
 
         try:
+            pstran = root / "pstran.sp"
+            pstran.write_text(
+                "Pseudo-transient control card\n"
+                "V1 in 0 1\n"
+                "R1 in 0 1k\n"
+                ".pstran convval=1.0e-05 initstep=1.0e-05 minstep=1.0e-09 "
+                "maxstep=1.0e+6 tau=1.0e-05 vbe0=0.0 kvgs0=0.0 tauramp=0.0\n"
+                ".print op v(in)\n"
+                ".end\n"
+            )
+            result = run(simulator, pstran)
+            require(result.returncode == 0, f".pstran netlist failed: {result.stderr}")
+            require("Operating Point" in result.stdout, ".pstran did not run OP output")
+
+            duplicate = root / "duplicate-pstran.sp"
+            duplicate.write_text(
+                "Duplicate pseudo-transient parameter\nR1 in 0 1k\n"
+                ".pstran convval=1 convval=2\n.end\n"
+            )
+            result = run(simulator, duplicate)
+            require(result.returncode != 0, "duplicate .pstran parameter was accepted")
+            require("Repeated .pstran parameter" in result.stderr, "missing .pstran duplicate diagnostic")
+            print("PASS .pstran control-card parsing")
+        except Exception as exc:
+            failures.append(str(exc))
+
+        try:
             result = run(
                 simulator,
                 "--pta",

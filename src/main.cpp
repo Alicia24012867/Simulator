@@ -568,7 +568,15 @@ int main(int argc, char* argv[]){
         return 1;
     }
 
-    const PtaAnalysisConfig& ptaConfig = options.ptaConfig;
+    const AnalysisPlan& plan = parser.analysisPlan();
+    if(plan.pseudoTransient && options.ptaModeSpecified){
+        std::cerr << ".pstran cannot be combined with command-line --pta mode\n";
+        return 2;
+    }
+
+    const PtaAnalysisConfig ptaConfig = plan.pseudoTransient
+        ? plan.pseudoTransient->makePtaConfig()
+        : options.ptaConfig;
 
     try {
         ptaConfig.validate();
@@ -582,7 +590,6 @@ int main(int argc, char* argv[]){
         return 1;
     }
 
-    const AnalysisPlan& plan = parser.analysisPlan();
     std::ostringstream listing;
     std::ostringstream raw;
     bool wroteAnalysis = false;

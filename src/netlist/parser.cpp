@@ -364,6 +364,10 @@ bool Parser::parse(Circuit& circuit){
                 parseAnalysisDirective(tokens);
                 continue;
             }
+            if(equal_ignore_case(tokens[0], ".pstran")){
+                parsePstranDirective(tokens);
+                continue;
+            }
             if(equal_ignore_case(tokens[0], ".print")){
                 parsePrintDirective(logicalLine.text);
                 continue;
@@ -502,6 +506,66 @@ bool Parser::parseAnalysisDirective(const std::vector<std::string>& tokens){
 
     analysisPlan_.transient = config;
     return true;
+}
+
+void Parser::parsePstranDirective(const std::vector<std::string>& tokens){
+    if(analysisPlan_.pseudoTransient){
+        throw std::runtime_error("Multiple .pstran directives are not supported");
+    }
+
+    PstranAnalysisConfig config;
+    std::unordered_set<std::string> seen;
+    for(std::size_t i = 1; i < tokens.size(); ++i){
+        std::string key;
+        std::string value;
+        if(!read_spice_assignment(tokens, i, key, value)){
+            throw std::runtime_error(
+                ".pstran parameters must use name=value syntax"
+            );
+        }
+        if(!seen.insert(key).second){
+            throw std::runtime_error("Repeated .pstran parameter: " + key);
+        }
+
+        const double parsed = parse_spice_number(value);
+        if(key == "convval"){
+            config.convergenceValue = parsed;
+        } else if(key == "initstep"){
+            config.initialStep = parsed;
+        } else if(key == "minstep"){
+            config.minimumStep = parsed;
+        } else if(key == "maxstep"){
+            config.maximumStep = parsed;
+        } else if(key == "tau"){
+            config.tau = parsed;
+        } else if(key == "vbe0"){
+            config.vbe0 = parsed;
+        } else if(key == "kvgs0"){
+            config.kvgs0 = parsed;
+        } else if(key == "tauramp"){
+            config.tauRamp = parsed;
+        } else {
+            throw std::runtime_error("Unsupported .pstran parameter: " + key);
+        }
+    }
+
+    if(!std::isfinite(config.tau) || config.tau < 0.0 ||
+       !std::isfinite(config.vbe0) || !std::isfinite(config.kvgs0) ||
+       !std::isfinite(config.tauRamp) || config.tauRamp < 0.0){
+        throw std::runtime_error(
+            ".pstran tau and tauramp must be non-negative; vbe0 and kvgs0 must be finite"
+        );
+    }
+
+    try {
+        config.makePtaConfig().validate();
+    } catch(const std::invalid_argument& error) {
+        throw std::runtime_error(
+            std::string("Invalid .pstran configuration: ") + error.what()
+        );
+    }
+
+    analysisPlan_.pseudoTransient = config;
 }
 
 void Parser::parsePrintDirective(const std::string& line){

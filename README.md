@@ -41,7 +41,7 @@
 - 独立源接受 `5`、`DC 5`、`DC=5`、`DC= 5` 和 `DC = 5`；当前不接受任意 `key=value` 代替 DC 值。
 - 数值 token 会完整校验，`1..2`、`1k=2` 等畸形写法不会只读取前缀后继续运行。
 - 网表必须至少包含一个元件和一个非 ground 节点，避免把零维 MNA 系统送入求解器。
-- 当前支持的控制卡为 `.title`、`.model`、`.op`、`.tran`、`.print` 和 `.end`。其他 dot command 会明确报错。
+- 当前支持的控制卡为 `.title`、`.model`、`.op`、`.tran`、`.pstran`、`.print` 和 `.end`。其他 dot command 会明确报错。
 
 ### 分析与 `.print`
 
@@ -50,6 +50,7 @@
 ```spice
 .op
 .tran TSTEP TSTOP [TSTART [TMAX]] [UIC]
+.pstran convval=... initstep=... minstep=... maxstep=... [tau=... vbe0=... kvgs0=... tauramp=...]
 .print op v(node) v(node1,node2) i(device)
 .print tran v(node) v(node1,node2) i(device)
 ```
@@ -61,6 +62,7 @@
 - `i(device)` 当前只适用于具有 branch unknown 的器件，即独立电压源和电感；请求其他器件电流会得到明确错误。
 - 没有分析卡时默认执行 `.op`。同时存在 `.op` 与 `.tran` 时依次输出两个分析块。
 - `.tran` 未指定 `UIC` 时先求 operating point；指定 `UIC` 时当前使用全零 MNA 初值。尚未支持器件 `IC=`。
+- `.pstran` 启用 PTA operating-point 求解，接受不区分大小写的 `convval`、`initstep`、`minstep`、`maxstep`、`tau`、`vbe0`、`kvgs0`、`tauramp` 参数，且可使用 `key=value`、`key = value` 或 `key= value` 写法。`convval` 映射为 PTA 的导数和 DC 残差阈值，三个 step 参数映射为 PTA 步长边界。当前 PTA 伪器件模型尚不使用 `tau`、`vbe0`、`kvgs0` 和 `tauramp`，但会保存、校验并接受它们，以兼容此类网表。`.pstran` 不能与命令行 `--pta` 同时指定。
 - `TSTEP` 控制输出间隔，`TSTART` 控制开始保存的时间，`TMAX` 限制内部积分步长。当前未指定 `TMAX` 时内部最大步长使用 `TSTEP`；输出时间点也会强制成为积分点，因此与 ngspice 的默认自适应步长策略不同。
 - 每次瞬态分析的首步使用 Backward Euler 的 step-doubling 误差估计；之后在新步长不大于前一步两倍时使用可变步长 BDF2，并以预测—校正差估计误差。超过误差预算或 Newton 未收敛的步会回滚并缩小后重试；内部积分点仍不会越过输出时间点。
 
