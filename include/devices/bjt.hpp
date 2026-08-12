@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 
+#include "circuit/circuit.h"
 #include "devices/device.hpp"
 #include "math/limiting.hpp"
 #include "math/mna.hpp"
@@ -22,22 +23,38 @@ public:
 
     void pattern(MNA& mna) override{
         addFullPattern(mna);
+        if(internalBaseNode_ >= 0){
+            addResistorPattern(mna, nodeIds[1], internalBaseNode_);
+        }
+    }
+
+    void allocateUnknown(Circuit& circuit) override{
+        if(model_ && model_->bjtDc().rb > 0.0){
+            internalBaseNode_ = circuit.allocateUnknown();
+        }
     }
 
     void bindMatrix(MNA& mna) override{
+        const std::array<int, 3> coreNodes = {
+            nodeIds[0], effectiveBaseNode(), nodeIds[2]
+        };
         for(int r = 0; r < 3; ++r){
-            const int row = nodeIds[r];
+            const int row = coreNodes[r];
             if(row >= 0){
                 rhs_[r] = &mna.rhs(row);
                 sol_[r] = mna.solutionPtr(row);
             }
 
             for(int c = 0; c < 3; ++c){
-                const int col = nodeIds[c];
+                const int col = coreNodes[c];
                 if(row >= 0 && col >= 0){
                     A_[r][c] = mna.ptr(row, col);
                 }
             }
+        }
+
+        if(internalBaseNode_ >= 0){
+            bindBaseResistance(mna, nodeIds[1], internalBaseNode_);
         }
     }
 
@@ -74,11 +91,22 @@ public:
         const double ebc = std::exp(argBc);
         const double ibe = polarity * (is / dc.bf) * (ebe - 1.0);
         const double ibc = polarity * (is / dc.br) * (ebc - 1.0);
-        const double icc = polarity * is * ((ebe - 1.0) - (ebc - 1.0));
+        const double collectorDelta = (ebe - 1.0) - (ebc - 1.0);
+        const double vce = polarity * (vc - ve);
+        const double earlyFactor = dc.va > 0.0 ? 1.0 + vce / dc.va : 1.0;
+        const double icc = polarity * is * collectorDelta * earlyFactor;
         const double gbe = is * ebe / (dc.bf * nvtBe) + dc.gmin;
         const double gbc = is * ebc / (dc.br * nvtBc) + dc.gmin;
         const double gmF = is * ebe / nvtBe;
         const double gmR = is * ebc / nvtBc;
+        const double dIccDb = (gmF - gmR) * earlyFactor;
+        double dIccDc = gmR * earlyFactor;
+        double dIccDe = -gmF * earlyFactor;
+        if(dc.va > 0.0){
+            const double earlyConductance = is * collectorDelta / dc.va;
+            dIccDc += earlyConductance;
+            dIccDe -= earlyConductance;
+        }
 
         std::array<double, 3> f = {0.0, 0.0, 0.0};
         std::array<std::array<double, 3>, 3> j = {};
@@ -88,14 +116,15 @@ public:
 
         f[0] += icc;
         f[2] -= icc;
-        j[0][1] += gmF - gmR;
-        j[0][2] -= gmF;
-        j[0][0] += gmR;
-        j[2][1] -= gmF - gmR;
-        j[2][2] += gmF;
-        j[2][0] -= gmR;
+        j[0][1] += dIccDb;
+        j[0][2] += dIccDe;
+        j[0][0] += dIccDc;
+        j[2][1] -= dIccDb;
+        j[2][2] -= dIccDe;
+        j[2][0] -= dIccDc;
 
         stampLinearization(f, j);
+        stampBaseResistance();
     }
 
     void saveIterationState() override{
@@ -119,11 +148,14 @@ private:
     }
 
     void addFullPattern(MNA& mna){
+        const std::array<int, 3> coreNodes = {
+            nodeIds[0], effectiveBaseNode(), nodeIds[2]
+        };
         for(int r = 0; r < 3; ++r){
-            const int row = nodeIds[r];
+            const int row = coreNodes[r];
             if(row < 0) continue;
             for(int c = 0; c < 3; ++c){
-                const int col = nodeIds[c];
+                const int col = coreNodes[c];
                 if(col >= 0){
                     mna.addPattern(row, col);
                 }
@@ -138,6 +170,42 @@ private:
         j[p][n] -= g;
         j[n][p] -= g;
         j[n][n] += g;
+    }
+
+    int effectiveBaseNode() const{
+        return internalBaseNode_ >= 0 ? internalBaseNode_ : nodeIds[1];
+    }
+
+    static void addResistorPattern(MNA& mna, int p, int n){
+        if(p >= 0) mna.addPattern(p, p);
+        if(n >= 0) mna.addPattern(n, n);
+        if(p >= 0 && n >= 0){
+            mna.addPattern(p, n);
+            mna.addPattern(n, p);
+        }
+    }
+
+    void bindBaseResistance(MNA& mna, int p, int n){
+        if(p >= 0){
+            baseResistanceA_[0][0] = mna.ptr(p, p);
+        }
+        if(n >= 0){
+            baseResistanceA_[1][1] = mna.ptr(n, n);
+        }
+        if(p >= 0 && n >= 0){
+            baseResistanceA_[0][1] = mna.ptr(p, n);
+            baseResistanceA_[1][0] = mna.ptr(n, p);
+        }
+    }
+
+    void stampBaseResistance(){
+        if(internalBaseNode_ < 0) return;
+
+        const double conductance = 1.0 / model_->bjtDc().rb;
+        if(baseResistanceA_[0][0]) *baseResistanceA_[0][0] += conductance;
+        if(baseResistanceA_[0][1]) *baseResistanceA_[0][1] -= conductance;
+        if(baseResistanceA_[1][0]) *baseResistanceA_[1][0] -= conductance;
+        if(baseResistanceA_[1][1]) *baseResistanceA_[1][1] += conductance;
     }
 
     void stampLinearization(const Vec3& f, const Mat3& j){
@@ -157,6 +225,9 @@ private:
     std::array<std::array<double*, 3>, 3> A_ = {};
     std::array<double*, 3> rhs_ = {};
     std::array<const double*, 3> sol_ = {};
+
+    int internalBaseNode_ = -1;
+    std::array<std::array<double*, 2>, 2> baseResistanceA_ = {};
 
     double previousVbe_ = 0.0;
     double previousVbc_ = 0.0;

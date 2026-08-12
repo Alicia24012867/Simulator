@@ -62,6 +62,8 @@ public:
         double nr = 1.0;
         double vt = 0.025852;
         double gmin = 1.0e-12;
+        double rb = 0.0;
+        double va = 0.0;
     };
 
     struct MosDcParams {
@@ -113,6 +115,10 @@ private:
         return value > 0.0 && std::isfinite(value) ? value : fallback;
     }
 
+    static double nonNegative(double value, double fallback) {
+        return value >= 0.0 && std::isfinite(value) ? value : fallback;
+    }
+
     void rebuildDcCache() {
         dc_.diodeRs = positive(param("rs", 1.0e12), 1.0e12);
         dc_.bjtRbe = positive(param("rbe", 1.0e12), 1.0e12);
@@ -132,6 +138,8 @@ private:
         bjtDc_.nr = positive(param("nr", bjtDc_.nr), 1.0);
         bjtDc_.vt = positive(param("vt", bjtDc_.vt), 0.025852);
         bjtDc_.gmin = positive(param("gmin", bjtDc_.gmin), 1.0e-12);
+        bjtDc_.rb = nonNegative(param("rb", bjtDc_.rb), 0.0);
+        bjtDc_.va = nonNegative(param("va", bjtDc_.va), 0.0);
 
         const double defaultVto = type_ == ModelType::PMOS ? -0.7 : 0.7;
         mosDc_.vto = param("vto", param("vt0", defaultVto));

@@ -45,8 +45,8 @@ bool supportsModelParameter(ModelType type, const std::string& key){
     if(type == ModelType::NPN || type == ModelType::PNP){
         return key == "is" || key == "bf" || key == "beta" ||
                key == "br" || key == "nf" || key == "nr" ||
-               key == "vt" || key == "gmin" || key == "rbe" ||
-               key == "rce";
+               key == "vt" || key == "gmin" || key == "rb" ||
+               key == "va" || key == "rbe" || key == "rce";
     }
     if(type == ModelType::NMOS || type == ModelType::PMOS){
         return key == "level" || key == "vto" || key == "vt0" ||
@@ -71,7 +71,8 @@ void validateModelParameter(ModelType type,
     if(key == "vto" || key == "vt0"){
         return;
     }
-    if(key == "rs" || key == "lambda" || key == "lam"){
+    if(key == "rs" || key == "lambda" || key == "lam" ||
+       key == "rb" || key == "va"){
         if(value < 0.0){
             throw std::runtime_error(
                 "Model parameter " + key + " must be non-negative"

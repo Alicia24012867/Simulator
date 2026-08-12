@@ -180,6 +180,26 @@ def main():
             failures.append(str(exc))
 
         try:
+            bjt_model = root / "bjt-rb-va.cir"
+            bjt_model.write_text(
+                "BJT RB and VA model parameters\n"
+                ".model QMOD NPN IS=1e-15 BF=100 RB=100 VA=50\n"
+                "VCC c 0 5\n"
+                "VBB b 0 0.8\n"
+                "R1 c out 1k\n"
+                "Q1 out b 0 QMOD\n"
+                ".op\n"
+                ".print op v(out)\n"
+                ".end\n"
+            )
+            result = run(simulator, bjt_model)
+            require(result.returncode == 0, f"BJT RB/VA netlist failed: {result.stderr}")
+            require("v(out)" in result.stdout, "BJT RB/VA output missing")
+            print("PASS BJT RB and VA model parameters")
+        except Exception as exc:
+            failures.append(str(exc))
+
+        try:
             result = run(
                 simulator,
                 "--pta",
