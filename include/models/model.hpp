@@ -63,7 +63,16 @@ public:
         double vt = 0.025852;
         double gmin = 1.0e-12;
         double rb = 0.0;
+        double rc = 0.0;
+        double re = 0.0;
         double va = 0.0;
+        double var = 0.0;
+        double ikf = 0.0;
+        double ikr = 0.0;
+        double ise = 0.0;
+        double isc = 0.0;
+        double ne = 1.5;
+        double nc = 2.0;
     };
 
     struct MosDcParams {
@@ -139,7 +148,19 @@ private:
         bjtDc_.vt = positive(param("vt", bjtDc_.vt), 0.025852);
         bjtDc_.gmin = positive(param("gmin", bjtDc_.gmin), 1.0e-12);
         bjtDc_.rb = nonNegative(param("rb", bjtDc_.rb), 0.0);
-        bjtDc_.va = nonNegative(param("va", bjtDc_.va), 0.0);
+        bjtDc_.rc = nonNegative(param("rc", bjtDc_.rc), 0.0);
+        bjtDc_.re = nonNegative(param("re", bjtDc_.re), 0.0);
+        bjtDc_.va = nonNegative(
+            param("vaf", param("va", bjtDc_.va)),
+            0.0
+        );
+        bjtDc_.var = nonNegative(param("var", bjtDc_.var), 0.0);
+        bjtDc_.ikf = nonNegative(param("ikf", bjtDc_.ikf), 0.0);
+        bjtDc_.ikr = nonNegative(param("ikr", bjtDc_.ikr), 0.0);
+        bjtDc_.ise = nonNegative(param("ise", bjtDc_.ise), 0.0);
+        bjtDc_.isc = nonNegative(param("isc", bjtDc_.isc), 0.0);
+        bjtDc_.ne = positive(param("ne", bjtDc_.ne), 1.5);
+        bjtDc_.nc = positive(param("nc", bjtDc_.nc), 2.0);
 
         const double defaultVto = type_ == ModelType::PMOS ? -0.7 : 0.7;
         mosDc_.vto = param("vto", param("vt0", defaultVto));

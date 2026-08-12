@@ -10,121 +10,156 @@
 #include "math/mna.hpp"
 #include "models/model.hpp"
 
+// DC-only Gummel-Poon subset.  Charge storage parameters are deliberately not
+// handled here; transient BJT charge modelling needs a separate companion
+// model rather than an operating-point stamp extension.
 class BJT: public Device{
 public:
-    BJT(std::string name, std::vector<std::string> nodes, const Model* model, double area = 1.0):
-            Device(name, nodes, DeviceType::BJT), model_(model), area_(area) {}
+    BJT(std::string name, std::vector<std::string> nodes, const Model* model,
+        double area = 1.0):
+        Device(name, nodes, DeviceType::BJT), model_(model), area_(area) {}
 
     const Model* model() const { return model_; }
 
-    bool isNonlinear() const override{
-        return true;
+    bool isNonlinear() const override { return true; }
+
+    void allocateUnknown(Circuit& circuit) override{
+        if(!model_) return;
+        const auto& dc = model_->bjtDc();
+        if(dc.rc > 0.0) internalNodes_[0] = circuit.allocateUnknown();
+        if(dc.rb > 0.0) internalNodes_[1] = circuit.allocateUnknown();
+        if(dc.re > 0.0) internalNodes_[2] = circuit.allocateUnknown();
     }
 
     void pattern(MNA& mna) override{
-        addFullPattern(mna);
-        if(internalBaseNode_ >= 0){
-            addResistorPattern(mna, nodeIds[1], internalBaseNode_);
-        }
-    }
-
-    void allocateUnknown(Circuit& circuit) override{
-        if(model_ && model_->bjtDc().rb > 0.0){
-            internalBaseNode_ = circuit.allocateUnknown();
-        }
+        const auto core = coreNodes();
+        addFullPattern(mna, core);
+        const auto& dc = model_->bjtDc();
+        addSeriesPattern(mna, nodeIds[0], core[0], dc.rc);
+        addSeriesPattern(mna, nodeIds[1], core[1], dc.rb);
+        addSeriesPattern(mna, nodeIds[2], core[2], dc.re);
     }
 
     void bindMatrix(MNA& mna) override{
-        const std::array<int, 3> coreNodes = {
-            nodeIds[0], effectiveBaseNode(), nodeIds[2]
-        };
+        const auto core = coreNodes();
         for(int r = 0; r < 3; ++r){
-            const int row = coreNodes[r];
-            if(row >= 0){
-                rhs_[r] = &mna.rhs(row);
-                sol_[r] = mna.solutionPtr(row);
+            if(core[r] >= 0){
+                rhs_[r] = &mna.rhs(core[r]);
+                sol_[r] = mna.solutionPtr(core[r]);
             }
-
             for(int c = 0; c < 3; ++c){
-                const int col = coreNodes[c];
-                if(row >= 0 && col >= 0){
-                    A_[r][c] = mna.ptr(row, col);
+                if(core[r] >= 0 && core[c] >= 0){
+                    A_[r][c] = mna.ptr(core[r], core[c]);
                 }
             }
         }
 
-        if(internalBaseNode_ >= 0){
-            bindBaseResistance(mna, nodeIds[1], internalBaseNode_);
-        }
+        const auto& dc = model_->bjtDc();
+        bindSeries(mna, 0, nodeIds[0], core[0], dc.rc);
+        bindSeries(mna, 1, nodeIds[1], core[1], dc.rb);
+        bindSeries(mna, 2, nodeIds[2], core[2], dc.re);
     }
 
     void stampOperatingPoint() override{
         if(!model_) return;
 
         const auto& dc = model_->bjtDc();
-        const double area = area_ > 0.0 ? area_ : 1.0;
         const double polarity = model_->type() == ModelType::PNP ? -1.0 : 1.0;
+        const double area = area_ > 0.0 ? area_ : 1.0;
         const double vc = voltage(sol_[0]);
         const double vb = voltage(sol_[1]);
         const double ve = voltage(sol_[2]);
-
         double vbe = polarity * (vb - ve);
         double vbc = polarity * (vb - vc);
-        
         const double nvtBe = dc.nf * dc.vt;
         const double nvtBc = dc.nr * dc.vt;
-
         const double is = dc.is * area;
 
         if(hasPreviousVoltages_){
             vbe = limitPnJunctionColon(vbe, previousVbe_, nvtBe, is);
             vbc = limitPnJunctionColon(vbc, previousVbc_, nvtBc, is);
         }
-
         previousVbe_ = vbe;
         previousVbc_ = vbc;
         hasPreviousVoltages_ = true;
 
-        const double argBe = std::clamp(vbe / nvtBe, -40.0, 40.0);
-        const double argBc = std::clamp(vbc / nvtBc, -40.0, 40.0);
-        const double ebe = std::exp(argBe);
-        const double ebc = std::exp(argBc);
-        const double ibe = polarity * (is / dc.bf) * (ebe - 1.0);
-        const double ibc = polarity * (is / dc.br) * (ebc - 1.0);
-        const double collectorDelta = (ebe - 1.0) - (ebc - 1.0);
+        const double ebe = std::exp(std::clamp(vbe / nvtBe, -40.0, 40.0));
+        const double ebc = std::exp(std::clamp(vbc / nvtBc, -40.0, 40.0));
+        const double forward = is * (ebe - 1.0);
+        const double reverse = is * (ebc - 1.0);
+        const double dForward = is * ebe / nvtBe;
+        const double dReverse = is * ebc / nvtBc;
+
         const double vce = polarity * (vc - ve);
-        const double earlyFactor = dc.va > 0.0 ? 1.0 + vce / dc.va : 1.0;
-        const double icc = polarity * is * collectorDelta * earlyFactor;
-        const double gbe = is * ebe / (dc.bf * nvtBe) + dc.gmin;
-        const double gbc = is * ebc / (dc.br * nvtBc) + dc.gmin;
-        const double gmF = is * ebe / nvtBe;
-        const double gmR = is * ebc / nvtBc;
-        const double dIccDb = (gmF - gmR) * earlyFactor;
-        double dIccDc = gmR * earlyFactor;
-        double dIccDe = -gmF * earlyFactor;
-        if(dc.va > 0.0){
-            const double earlyConductance = is * collectorDelta / dc.va;
-            dIccDc += earlyConductance;
-            dIccDe -= earlyConductance;
+        const double forwardEarly = dc.va > 0.0 ? 1.0 + vce / dc.va : 1.0;
+        const double reverseEarly = dc.var > 0.0 ? 1.0 + vce / dc.var : 1.0;
+        const double rawTransport = forward * forwardEarly - reverse * reverseEarly;
+        const double dRawBe = dForward * forwardEarly;
+        const double dRawBc = -dReverse * reverseEarly;
+        const double dRawVce =
+            (dc.va > 0.0 ? forward / dc.va : 0.0) -
+            (dc.var > 0.0 ? reverse / dc.var : 0.0);
+
+        double highInjection = 1.0;
+        double dHighBe = 0.0;
+        double dHighBc = 0.0;
+        if(dc.ikf > 0.0 && forward > 0.0){
+            highInjection += forward / dc.ikf;
+            dHighBe += dForward / dc.ikf;
+        }
+        if(dc.ikr > 0.0 && reverse > 0.0){
+            highInjection += reverse / dc.ikr;
+            dHighBc += dReverse / dc.ikr;
         }
 
-        std::array<double, 3> f = {0.0, 0.0, 0.0};
-        std::array<std::array<double, 3>, 3> j = {};
+        const double transport = rawTransport / highInjection;
+        const double dTransportBe =
+            (dRawBe * highInjection - rawTransport * dHighBe) /
+            (highInjection * highInjection);
+        const double dTransportBc =
+            (dRawBc * highInjection - rawTransport * dHighBc) /
+            (highInjection * highInjection);
+        const double dTransportVce = dRawVce / highInjection;
 
-        stampBranch(f, j, 1, 2, ibe + dc.gmin * (vb - ve), gbe);
-        stampBranch(f, j, 1, 0, ibc + dc.gmin * (vb - vc), gbc);
+        const double nvtLeakBe = dc.ne * dc.vt;
+        const double nvtLeakBc = dc.nc * dc.vt;
+        const double ebeLeak = std::exp(
+            std::clamp(vbe / nvtLeakBe, -40.0, 40.0)
+        );
+        const double ebcLeak = std::exp(
+            std::clamp(vbc / nvtLeakBc, -40.0, 40.0)
+        );
+        const double beCurrent = polarity * (
+            forward / dc.bf + dc.ise * area * (ebeLeak - 1.0)
+        );
+        const double bcCurrent = polarity * (
+            reverse / dc.br + dc.isc * area * (ebcLeak - 1.0)
+        );
+        const double beConductance =
+            dForward / dc.bf + dc.ise * area * ebeLeak / nvtLeakBe + dc.gmin;
+        const double bcConductance =
+            dReverse / dc.br + dc.isc * area * ebcLeak / nvtLeakBc + dc.gmin;
 
-        f[0] += icc;
-        f[2] -= icc;
-        j[0][1] += dIccDb;
-        j[0][2] += dIccDe;
-        j[0][0] += dIccDc;
-        j[2][1] -= dIccDb;
-        j[2][2] -= dIccDe;
-        j[2][0] -= dIccDc;
+        Vec3 f = {};
+        Mat3 j = {};
+        stampBranch(f, j, 1, 2, beCurrent + dc.gmin * (vb - ve), beConductance);
+        stampBranch(f, j, 1, 0, bcCurrent + dc.gmin * (vb - vc), bcConductance);
+
+        const double collectorCurrent = polarity * transport;
+        const double dIcDb = dTransportBe + dTransportBc;
+        const double dIcDc = -dTransportBc + dTransportVce;
+        const double dIcDe = -dIcDb - dIcDc;
+        f[0] += collectorCurrent;
+        f[2] -= collectorCurrent;
+        j[0][0] += dIcDc;
+        j[0][1] += dIcDb;
+        j[0][2] += dIcDe;
+        j[2][0] -= dIcDc;
+        j[2][1] -= dIcDb;
+        j[2][2] -= dIcDe;
 
         stampLinearization(f, j);
-        stampBaseResistance();
+        stampSeriesResistors();
     }
 
     void saveIterationState() override{
@@ -143,69 +178,71 @@ private:
     using Vec3 = std::array<double, 3>;
     using Mat3 = std::array<std::array<double, 3>, 3>;
 
-    static double voltage(const double* ptr){
-        return ptr ? *ptr : 0.0;
+    static double voltage(const double* ptr){ return ptr ? *ptr : 0.0; }
+
+    std::array<int, 3> coreNodes() const{
+        return {
+            internalNodes_[0] >= 0 ? internalNodes_[0] : nodeIds[0],
+            internalNodes_[1] >= 0 ? internalNodes_[1] : nodeIds[1],
+            internalNodes_[2] >= 0 ? internalNodes_[2] : nodeIds[2]
+        };
     }
 
-    void addFullPattern(MNA& mna){
-        const std::array<int, 3> coreNodes = {
-            nodeIds[0], effectiveBaseNode(), nodeIds[2]
-        };
-        for(int r = 0; r < 3; ++r){
-            const int row = coreNodes[r];
+    static void addFullPattern(MNA& mna, const std::array<int, 3>& nodes){
+        for(int row: nodes){
             if(row < 0) continue;
-            for(int c = 0; c < 3; ++c){
-                const int col = coreNodes[c];
-                if(col >= 0){
-                    mna.addPattern(row, col);
-                }
+            for(int col: nodes){
+                if(col >= 0) mna.addPattern(row, col);
             }
         }
     }
 
-    static void stampBranch(Vec3& f, Mat3& j, int p, int n, double i, double g){
+    static void addSeriesPattern(MNA& mna, int external, int internal,
+                                 double resistance){
+        if(resistance <= 0.0) return;
+        if(external >= 0) mna.addPattern(external, external);
+        if(internal >= 0) mna.addPattern(internal, internal);
+        if(external >= 0 && internal >= 0){
+            mna.addPattern(external, internal);
+            mna.addPattern(internal, external);
+        }
+    }
+
+    void bindSeries(MNA& mna, int terminal, int external, int internal,
+                    double resistance){
+        if(resistance <= 0.0) return;
+        if(external >= 0) seriesA_[terminal][0][0] = mna.ptr(external, external);
+        if(internal >= 0) seriesA_[terminal][1][1] = mna.ptr(internal, internal);
+        if(external >= 0 && internal >= 0){
+            seriesA_[terminal][0][1] = mna.ptr(external, internal);
+            seriesA_[terminal][1][0] = mna.ptr(internal, external);
+        }
+    }
+
+    void stampSeries(int terminal, double resistance){
+        if(resistance <= 0.0) return;
+        const double g = 1.0 / resistance;
+        if(seriesA_[terminal][0][0]) *seriesA_[terminal][0][0] += g;
+        if(seriesA_[terminal][0][1]) *seriesA_[terminal][0][1] -= g;
+        if(seriesA_[terminal][1][0]) *seriesA_[terminal][1][0] -= g;
+        if(seriesA_[terminal][1][1]) *seriesA_[terminal][1][1] += g;
+    }
+
+    void stampSeriesResistors(){
+        const auto& dc = model_->bjtDc();
+        stampSeries(0, dc.rc);
+        stampSeries(1, dc.rb);
+        stampSeries(2, dc.re);
+    }
+
+    static void stampBranch(Vec3& f, Mat3& j, int p, int n, double i,
+                            double g){
         f[p] += i;
         f[n] -= i;
         j[p][p] += g;
         j[p][n] -= g;
         j[n][p] -= g;
         j[n][n] += g;
-    }
-
-    int effectiveBaseNode() const{
-        return internalBaseNode_ >= 0 ? internalBaseNode_ : nodeIds[1];
-    }
-
-    static void addResistorPattern(MNA& mna, int p, int n){
-        if(p >= 0) mna.addPattern(p, p);
-        if(n >= 0) mna.addPattern(n, n);
-        if(p >= 0 && n >= 0){
-            mna.addPattern(p, n);
-            mna.addPattern(n, p);
-        }
-    }
-
-    void bindBaseResistance(MNA& mna, int p, int n){
-        if(p >= 0){
-            baseResistanceA_[0][0] = mna.ptr(p, p);
-        }
-        if(n >= 0){
-            baseResistanceA_[1][1] = mna.ptr(n, n);
-        }
-        if(p >= 0 && n >= 0){
-            baseResistanceA_[0][1] = mna.ptr(p, n);
-            baseResistanceA_[1][0] = mna.ptr(n, p);
-        }
-    }
-
-    void stampBaseResistance(){
-        if(internalBaseNode_ < 0) return;
-
-        const double conductance = 1.0 / model_->bjtDc().rb;
-        if(baseResistanceA_[0][0]) *baseResistanceA_[0][0] += conductance;
-        if(baseResistanceA_[0][1]) *baseResistanceA_[0][1] -= conductance;
-        if(baseResistanceA_[1][0]) *baseResistanceA_[1][0] -= conductance;
-        if(baseResistanceA_[1][1]) *baseResistanceA_[1][1] += conductance;
     }
 
     void stampLinearization(const Vec3& f, const Mat3& j){
@@ -222,12 +259,11 @@ private:
 
     const Model* model_;
     double area_;
+    std::array<int, 3> internalNodes_ = {-1, -1, -1};
     std::array<std::array<double*, 3>, 3> A_ = {};
     std::array<double*, 3> rhs_ = {};
     std::array<const double*, 3> sol_ = {};
-
-    int internalBaseNode_ = -1;
-    std::array<std::array<double*, 2>, 2> baseResistanceA_ = {};
+    std::array<std::array<std::array<double*, 2>, 2>, 3> seriesA_ = {};
 
     double previousVbe_ = 0.0;
     double previousVbc_ = 0.0;

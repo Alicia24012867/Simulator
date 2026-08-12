@@ -200,6 +200,34 @@ def main():
             failures.append(str(exc))
 
         try:
+            gummel_poon = root / "bjt-gummel-poon-dc.cir"
+            gummel_poon.write_text(
+                "BJT DC Gummel-Poon subset\n"
+                ".model QMOD NPN IS=1e-15 BF=120 BR=2 RB=80 RC=25 RE=5 "
+                "VAF=60 VAR=40 IKF=2m IKR=1m ISE=1e-16 ISC=2e-16 NE=1.4 NC=1.8\n"
+                "VCC c 0 5\n"
+                "VBB b 0 0.78\n"
+                "R1 c out 1k\n"
+                "Q1 out b e QMOD\n"
+                "REXT e 0 20\n"
+                ".op\n"
+                ".print op v(out) v(e)\n"
+                ".end\n"
+            )
+            result = run(simulator, gummel_poon)
+            require(
+                result.returncode == 0,
+                f"BJT Gummel-Poon subset netlist failed: {result.stderr}",
+            )
+            require(
+                "v(out)" in result.stdout and "v(e)" in result.stdout,
+                "BJT Gummel-Poon subset output missing",
+            )
+            print("PASS BJT DC Gummel-Poon subset parameters")
+        except Exception as exc:
+            failures.append(str(exc))
+
+        try:
             result = run(
                 simulator,
                 "--pta",

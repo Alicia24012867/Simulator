@@ -46,7 +46,11 @@ bool supportsModelParameter(ModelType type, const std::string& key){
         return key == "is" || key == "bf" || key == "beta" ||
                key == "br" || key == "nf" || key == "nr" ||
                key == "vt" || key == "gmin" || key == "rb" ||
-               key == "va" || key == "rbe" || key == "rce";
+               key == "rc" || key == "re" || key == "va" ||
+               key == "vaf" || key == "var" || key == "ikf" ||
+               key == "ikr" || key == "ise" || key == "isc" ||
+               key == "ne" || key == "nc" || key == "rbe" ||
+               key == "rce";
     }
     if(type == ModelType::NMOS || type == ModelType::PMOS){
         return key == "level" || key == "vto" || key == "vt0" ||
@@ -72,7 +76,9 @@ void validateModelParameter(ModelType type,
         return;
     }
     if(key == "rs" || key == "lambda" || key == "lam" ||
-       key == "rb" || key == "va"){
+       key == "rb" || key == "rc" || key == "re" || key == "va" ||
+       key == "vaf" || key == "var" || key == "ikf" || key == "ikr" ||
+       key == "ise" || key == "isc"){
         if(value < 0.0){
             throw std::runtime_error(
                 "Model parameter " + key + " must be non-negative"
