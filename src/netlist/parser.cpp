@@ -375,6 +375,11 @@ bool Parser::parse(Circuit& circuit){
                 parsePstranDirective(tokens);
                 continue;
             }
+            if(equal_ignore_case(tokens[0], ".option") ||
+               equal_ignore_case(tokens[0], ".options")){
+                parseOptionsDirective(tokens);
+                continue;
+            }
             if(equal_ignore_case(tokens[0], ".print")){
                 parsePrintDirective(logicalLine.text);
                 continue;
@@ -393,6 +398,8 @@ bool Parser::parse(Circuit& circuit){
                 "Unsupported control directive: " + tokens[0]
             );
         }
+
+        applyStepLimitOptions();
 
         if(!analysisPlan_.transient &&
            analysisPlan_.transientPrintRequested){
@@ -513,6 +520,63 @@ bool Parser::parseAnalysisDirective(const std::vector<std::string>& tokens){
 
     analysisPlan_.transient = config;
     return true;
+}
+
+void Parser::parseOptionsDirective(const std::vector<std::string>& tokens){
+    if(tokens.size() == 1){
+        throw std::runtime_error(".options requires at least one name=value option");
+    }
+
+    for(std::size_t i = 1; i < tokens.size(); ++i){
+        std::string key;
+        std::string value;
+        if(!read_spice_assignment(tokens, i, key, value)){
+            throw std::runtime_error(
+                ".options parameters must use name=value syntax"
+            );
+        }
+        if(key != "delmax"){
+            throw std::runtime_error("Unsupported .options parameter: " + key);
+        }
+
+        const double parsed = parse_spice_number(value);
+        if(!std::isfinite(parsed) || parsed <= 0.0){
+            throw std::runtime_error(".options DELMAX must be positive");
+        }
+        // SPICE option cards are mutable global configuration: as in ngspice
+        // control-mode `option`, a later assignment supersedes an earlier one.
+        analysisPlan_.delmax = parsed;
+    }
+}
+
+void Parser::applyStepLimitOptions(){
+    if(!analysisPlan_.delmax){
+        return;
+    }
+
+    if(analysisPlan_.transient){
+        auto& config = *analysisPlan_.transient;
+        if(config.maximumStep){
+            // TMAX and DELMAX are independently specified upper bounds.  The
+            // smaller one must win so no internal integration interval can
+            // exceed either limit.
+            config.maximumStep = std::min(
+                *config.maximumStep,
+                *analysisPlan_.delmax
+            );
+        } else {
+            config.maximumStep = *analysisPlan_.delmax;
+        }
+    }
+
+    if(analysisPlan_.pseudoTransient){
+        // Pseudo-transient analysis advances in pseudo-time, but DELMAX has
+        // the same role: it is a global upper bound on every internal step.
+        analysisPlan_.pseudoTransient->maximumStep = std::min(
+            analysisPlan_.pseudoTransient->maximumStep,
+            *analysisPlan_.delmax
+        );
+    }
 }
 
 void Parser::parsePstranDirective(const std::vector<std::string>& tokens){

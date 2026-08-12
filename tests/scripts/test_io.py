@@ -228,6 +228,66 @@ def main():
             failures.append(str(exc))
 
         try:
+            delmax = root / "delmax.cir"
+            delmax.write_text(
+                "DELMAX hard integration cap\n"
+                "V1 in 0 1\n"
+                "R1 in out 1k\n"
+                "C1 out 0 1n\n"
+                ".options DELMAX=100n\n"
+                ".tran 1u 2u 0 500n UIC\n"
+                ".print tran time v(out)\n"
+                ".end\n"
+            )
+            result = run(simulator, delmax)
+            require(result.returncode == 0, f"DELMAX netlist failed: {result.stderr}")
+            require("Transient Analysis" in result.stdout, "DELMAX transient output missing")
+
+            tmax = root / "tmax-equivalent.cir"
+            tmax.write_text(
+                "DELMAX hard integration cap\n"
+                "V1 in 0 1\n"
+                "R1 in out 1k\n"
+                "C1 out 0 1n\n"
+                ".tran 1u 2u 0 100n UIC\n"
+                ".print tran time v(out)\n"
+                ".end\n"
+            )
+            tmax_result = run(simulator, tmax)
+            require(tmax_result.returncode == 0, f"TMAX netlist failed: {tmax_result.stderr}")
+            require(
+                result.stdout == tmax_result.stdout,
+                "DELMAX did not impose the same hard cap as .tran TMAX",
+            )
+
+            invalid_delmax = root / "invalid-delmax.cir"
+            invalid_delmax.write_text(
+                "Invalid DELMAX\nR1 in 0 1k\n.options delmax=0\n.op\n.end\n"
+            )
+            result = run(simulator, invalid_delmax)
+            require(result.returncode != 0, "zero DELMAX was accepted")
+            require("DELMAX must be positive" in result.stderr, "missing DELMAX diagnostic")
+
+            pstran_delmax = root / "pstran-delmax.cir"
+            pstran_delmax.write_text(
+                "DELMAX pseudo-transient cap\n"
+                "V1 in 0 1\n"
+                "R1 in 0 1k\n"
+                ".options delmax=10n\n"
+                ".pstran convval=1 initstep=1n minstep=1p maxstep=1u\n"
+                ".op\n"
+                ".end\n"
+            )
+            pstran_result = run(simulator, pstran_delmax)
+            require(
+                pstran_result.returncode == 0,
+                f"DELMAX .pstran netlist failed: {pstran_result.stderr}",
+            )
+            print("PASS .options DELMAX parsing and transient cap")
+        except Exception as exc:
+            failures.append(str(exc))
+
+        try:
             result = run(
                 simulator,
                 "--pta",

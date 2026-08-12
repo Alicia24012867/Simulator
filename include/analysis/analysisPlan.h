@@ -54,6 +54,9 @@ struct AnalysisPlan {
     bool operatingPointPrintRequested = false;
     bool transientPrintRequested = false;
     std::optional<TransientAnalysisConfig> transient;
+    // HSPICE-compatible .option(s) DELMAX.  Once a .tran card is present it
+    // is folded into TransientAnalysisConfig::maximumStep as a hard cap.
+    std::optional<double> delmax;
     std::optional<PstranAnalysisConfig> pseudoTransient;
     std::vector<PrintVariable> operatingPointPrints;
     std::vector<PrintVariable> transientPrints;
