@@ -54,19 +54,38 @@ inline std::string strip_spice_comment(const std::string& line){
 }
 
 inline std::vector<std::string> tokenize_spice_line(const std::string& line){
-    std::string normalized;
-    normalized.reserve(line.size());
-
-    for(char c: line){
-        normalized.push_back((c == '(' || c == ')' || c == ',') ? ' ' : c);
-    }
-
-    std::istringstream iss(normalized);
     std::vector<std::string> tokens;
     std::string token;
-    while(iss >> token){
-        tokens.push_back(token);
+    token.reserve(line.size());
+
+    bool insideBraces = false;
+    const auto flushToken = [&] {
+        if(!token.empty()){
+            tokens.push_back(std::move(token));
+            token.clear();
+        }
+    };
+
+    for(char c: line){
+        if(c == '{'){
+            insideBraces = true;
+            token.push_back(c);
+            continue;
+        }
+        if(c == '}'){
+            token.push_back(c);
+            insideBraces = false;
+            continue;
+        }
+        if(!insideBraces &&
+           (std::isspace(static_cast<unsigned char>(c)) ||
+            c == '(' || c == ')' || c == ',')){
+            flushToken();
+            continue;
+        }
+        token.push_back(c);
     }
+    flushToken();
     return tokens;
 }
 

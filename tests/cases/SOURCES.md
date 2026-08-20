@@ -6,7 +6,7 @@ files. Each `.cir` file keeps one source-family comment; all remaining physical
 lines are model, source, device, analysis, output, or termination statements.
 
 This distinction is necessary because most upstream examples use features that
-this simulator does not yet parse: `.subckt`, `.include`, `.param`, controlled
+this simulator does not yet parse: `.include`, global `.param`, controlled
 sources, mutual inductors, `PULSE`/`SIN`/`PWL`, higher-order semiconductor
 models, and simulator control scripts. The adapted decks flatten repeated
 blocks, use only `R/C/L/V/I/D/Q/M`, retain simple `.model` cards, and turn a

@@ -182,6 +182,57 @@ def main():
             failures.append(str(exc))
 
         try:
+            parameterized = root / "parameterized-subcircuit.sp"
+            parameterized.write_text(
+                "Parameterized nested subcircuit\n"
+                "V1 in 0 5\n"
+                "XTOP out in STAGE PARAMS: scale=4\n"
+                "RLOAD out 0 1k\n"
+                ".subckt STAGE out in PARAMS: base=1k scale=1\n"
+                "XLEAF out in LEAF resistance={ (base * scale) }\n"
+                ".ends STAGE\n"
+                ".subckt LEAF out in PARAMS: resistance=2k\n"
+                "R1 out in {resistance}\n"
+                ".ends LEAF\n"
+                ".op\n"
+                ".print op v(out)\n"
+                ".end\n"
+            )
+            result = run(simulator, parameterized)
+            require(
+                result.returncode == 0,
+                f"parameterized subcircuit failed: {result.stderr}",
+            )
+            require(
+                "1.0000000000e+00" in result.stdout,
+                "subcircuit parameter override was not materialized",
+            )
+
+            invalid_parameter = root / "unknown-subcircuit-parameter.sp"
+            invalid_parameter.write_text(
+                "Unknown subcircuit parameter\n"
+                "V1 in 0 1\n"
+                "X1 out in STAGE unknown=1\n"
+                ".subckt STAGE out in PARAMS: resistance=1k\n"
+                "R1 out in {resistance}\n"
+                ".ends STAGE\n"
+                ".op\n"
+                ".end\n"
+            )
+            result = run(simulator, invalid_parameter)
+            require(
+                result.returncode != 0,
+                "unknown subcircuit parameter was accepted",
+            )
+            require(
+                "Unknown subcircuit parameter unknown" in result.stderr,
+                "missing unknown subcircuit parameter diagnostic",
+            )
+            print("PASS parameterized nested .subckt expansion")
+        except Exception as exc:
+            failures.append(str(exc))
+
+        try:
             pstran = root / "pstran.sp"
             pstran.write_text(
                 "Pseudo-transient control card\n"
