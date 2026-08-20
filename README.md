@@ -268,7 +268,43 @@ make
 - `tran`：`enabled`、`output_interval`、`stop_time`、`output_start_time`、`maximum_step`、`use_initial_conditions`。
 - `tran.solver.newton`：与 `op.newton` 相同。`tran.solver` 还支持 `relative_tolerance`、`voltage_absolute_tolerance`、`current_absolute_tolerance`、`minimum_step`、`safety_factor`、`minimum_scale`、`maximum_scale`、`convergence_failure_scale` 和 `maximum_rejects`。
 
-覆盖优先级为“内建默认值 < 网表控制卡 < `config.json` < 显式 CLI PTA 参数”。`.pstran` 始终强制 PTA 模式；配置文件不能将其改为 `disabled` 或 `fallback`。网表的 `TMAX` / `DELMAX` 是硬上限，因此 `tran.maximum_step` 只能进一步缩小该上限。`tran` 节点会启用瞬态分析；`enabled: false` 可显式禁用网表中的瞬态分析。
+### 命令行分析参数覆盖
+
+在读取并应用 `config.json` 后，可以使用下列可重复的选项覆盖任意分析参数：
+
+```sh
+--op-option <name=value>
+--pta-option <name=value>
+--tran-option <name=value>
+```
+
+`name` 与 JSON 字段路径完全对应，但省略最外层的 `op`、`pta` 或 `tran`。命令行中字段名可使用下划线或连字符，且不区分大小写；例如 JSON 的 `op.newton.maximum_iterations` 可写为 `newton.maximum-iterations=200` 或 `newton.maximum_iterations=200`。
+
+```sh
+# 覆盖 OP 的 Newton 与 source stepping 参数
+./spice --config config.json \
+  --op-option newton.maximum-iterations=200 \
+  --op-option source-stepping.enabled=false \
+  tests/cases/op/level1_01_resistive_bridge_mesh.cir
+
+# --pta 选择 PTA 模式；其余 pta 字段使用 --pta-option
+./spice --pta fallback \
+  --pta-option newton.tolerance=10n \
+  --pta-option compound-time-constant=10n \
+  --pta-option include-diodes=true \
+  tests/cases/op/level1_01_resistive_bridge_mesh.cir
+
+# 覆盖或创建 TRAN 分析，并调整瞬态求解器参数
+./spice --tran-option output-interval=1n \
+  --tran-option stop-time=100n \
+  --tran-option solver.maximum-rejects=20 \
+  --tran-option solver.newton.maximum-iterations=500 \
+  tests/cases/op/level1_01_resistive_bridge_mesh.cir
+```
+
+`--op-option` 支持 `newton.*` 与 `source-stepping.*` 的所有字段。`--pta-option` 支持 `pta` 的全部字段，PTA 模式则继续使用现有的 `--pta disabled|force|fallback`；`initial-bjt-vbe=null` 可清空该可选值。`--tran-option` 支持 `tran` 顶层字段与 `solver.*` 的全部字段，`enabled=false` 可禁用瞬态分析，其他 TRAN 字段会在不存在 `.tran` 时创建一个瞬态分析配置；新建配置仍必须最终提供有效的 `output-interval` 与 `stop-time`。所有数值均支持 SPICE 单位后缀（如 `1n`、`10u`），布尔值接受 `true`/`false` 或 `1`/`0`。
+
+覆盖优先级为“内建默认值 < 网表控制卡 < `config.json` < 显式 CLI 分析参数”。命令行覆盖在配置文件之后依次执行，因此可修正配置文件中最终无效的组合参数。`.pstran` 始终强制 PTA 模式；配置文件不能将其改为 `disabled` 或 `fallback`，且不能与命令行 `--pta` 同用。网表的 `TMAX` / `DELMAX` 是硬上限，因此 `tran.maximum_step` 与 `--tran-option maximum-step=...` 可覆盖配置文件的同名值，但不能超过网表给定的上限。`tran` 节点会启用瞬态分析；`enabled: false` 可显式禁用网表中的瞬态分析。
 
 查看命令行帮助：
 

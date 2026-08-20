@@ -1,4 +1,5 @@
 #include "config/applyOverrides.h"
+#include "config/commandLineOverrides.h"
 #include "config/config.h"
 #include "config/overrides.h"
 
@@ -523,6 +524,190 @@ void testConfigOverrideApplication(){
     );
 }
 
+void testCommandLineOverrideApplication(){
+    OperatingPointSolverOptions operatingPoint;
+    PtaAnalysisConfig pta;
+    std::optional<TransientAnalysisConfig> transient;
+    std::string key;
+    std::string error;
+
+    expect(
+        simulator::config::applyOperatingPointOption(
+            "newton.maximum_iterations=23",
+            operatingPoint,
+            key,
+            error
+        ) && key == "newton.maximum-iterations" &&
+            operatingPoint.newton.maximumIterations == 23,
+        "OP command-line option accepts JSON-style field names"
+    );
+    expect(
+        simulator::config::applyOperatingPointOption(
+            "source_stepping.enabled=false",
+            operatingPoint,
+            key,
+            error
+        ) && !operatingPoint.sourceStepping.enabled,
+        "OP command-line source-stepping override is applied"
+    );
+    expect(
+        simulator::config::applyPtaOption(
+            "newton.maximum-solution-step=0.25",
+            pta,
+            key,
+            error
+        ) && pta.newtonOptions.maximumSolutionStep == 0.25,
+        "PTA command-line Newton override is applied"
+    );
+    expect(
+        simulator::config::applyPtaOption(
+            "compound_time_constant=5n",
+            pta,
+            key,
+            error
+        ) && std::abs(pta.compoundTimeConstant - 5e-9) < 1e-20,
+        "PTA command-line extended parameter is applied"
+    );
+    pta.initialBjtVbe = 0.7;
+    expect(
+        simulator::config::applyPtaOption(
+            "initial_bjt_vbe=null",
+            pta,
+            key,
+            error
+        ) && !pta.initialBjtVbe,
+        "PTA command-line null clears the BJT initial voltage"
+    );
+    expect(
+        simulator::config::applyTransientOption(
+            "output_interval=2n",
+            transient,
+            key,
+            error
+        ) && transient &&
+            std::abs(transient->outputInterval - 2e-9) < 1e-20,
+        "TRAN command-line option creates a transient configuration"
+    );
+    expect(
+        simulator::config::applyTransientOption(
+            "stop-time=20n",
+            transient,
+            key,
+            error
+        ) && transient && std::abs(transient->stopTime - 20e-9) < 1e-19,
+        "TRAN command-line stop-time override is applied"
+    );
+    expect(
+        simulator::config::applyTransientOption(
+            "solver.newton.maximum_iterations=31",
+            transient,
+            key,
+            error
+        ) && transient &&
+            transient->solverOptions.newtonOptions.maximumIterations == 31,
+        "TRAN command-line Newton override is applied"
+    );
+    expect(
+        simulator::config::applyTransientOption(
+            "solver.maximum-rejects=0",
+            transient,
+            key,
+            error
+        ) && transient && transient->solverOptions.maximumRejects == 0,
+        "TRAN command-line non-negative integer override is applied"
+    );
+    expect(
+        !simulator::config::applyOperatingPointOption(
+            "newton.unknown=1",
+            operatingPoint,
+            key,
+            error
+        ) && error == "unknown operating-point option",
+        "unknown OP command-line option is rejected"
+    );
+
+    const auto configurationOverrides =
+        simulator::config::parseConfigOverrides(
+            loadedConfigFor(nlohmann::json::parse(R"(
+                {
+                    "schema_version": 1,
+                    "op": {"newton": {"maximum_iterations": 3}},
+                    "pta": {"initial_step": "1n"},
+                    "tran": {
+                        "output_interval": "1n",
+                        "stop_time": "10n",
+                        "maximum_step": "1n"
+                    }
+                }
+            )"))
+        );
+
+    OperatingPointSolverOptions precedenceOp;
+    PtaAnalysisConfig precedencePta;
+    std::optional<TransientAnalysisConfig> precedenceTran;
+    simulator::config::applyConfigOverrides(
+        configurationOverrides,
+        precedenceOp,
+        precedencePta,
+        precedenceTran,
+        false
+    );
+    const bool opApplied = simulator::config::applyOperatingPointOption(
+        "newton.maximum-iterations=29",
+        precedenceOp,
+        key,
+        error
+    );
+    const bool ptaApplied = simulator::config::applyPtaOption(
+        "initial-step=3n",
+        precedencePta,
+        key,
+        error
+    );
+    const bool tranApplied = simulator::config::applyTransientOption(
+        "output-interval=4n",
+        precedenceTran,
+        key,
+        error
+    );
+    const bool maximumStepApplied =
+        simulator::config::applyTransientOption(
+            "maximum-step=3n",
+            precedenceTran,
+            key,
+            error,
+            std::nullopt,
+            5e-9
+        );
+    expect(
+        opApplied && ptaApplied && tranApplied && maximumStepApplied &&
+            precedenceOp.newton.maximumIterations == 29 &&
+            std::abs(precedencePta.initialStep - 3e-9) < 1e-20 &&
+            precedenceTran &&
+            std::abs(precedenceTran->outputInterval - 4e-9) < 1e-20 &&
+            std::abs(*precedenceTran->maximumStep - 3e-9) < 1e-20,
+        "command-line overrides take precedence over configuration overrides"
+    );
+
+    std::optional<TransientAnalysisConfig> restoredTransient;
+    TransientAnalysisConfig netlistTransient;
+    netlistTransient.outputInterval = 1e-9;
+    netlistTransient.stopTime = 10e-9;
+    const bool restored = simulator::config::applyTransientOption(
+        "enabled=true",
+        restoredTransient,
+        key,
+        error,
+        netlistTransient
+    );
+    expect(
+        restored && restoredTransient &&
+            std::abs(restoredTransient->outputInterval - 1e-9) < 1e-20 &&
+            std::abs(restoredTransient->stopTime - 10e-9) < 1e-19,
+        "TRAN command-line enable restores the netlist analysis configuration"
+    );
+}
+
 void testInvalidConfigOverrides(){
     const auto expectInvalid = [](
         const char* document,
@@ -583,6 +768,7 @@ int main(){
         testInvalidConfigurationFiles();
         testConfigOverrideParsing();
         testConfigOverrideApplication();
+        testCommandLineOverrideApplication();
         testInvalidConfigOverrides();
     } catch(const std::exception& error) {
         std::cerr << "Unexpected test error: " << error.what() << '\n';

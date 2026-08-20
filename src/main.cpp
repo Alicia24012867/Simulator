@@ -16,12 +16,12 @@
 #include "analysis/ptaAnalysis.h"
 #include "analysis/solverOptions.h"
 #include "config/applyOverrides.h"
+#include "config/commandLineOverrides.h"
 #include "config/config.h"
 #include "config/overrides.h"
 #include "circuit/circuit.h"
 #include "io/spiceOutput.h"
 #include "netlist/parser.h"
-#include "utils/string_utils.hpp"
 
 namespace {
 struct CommandLineOptions {
@@ -32,11 +32,15 @@ struct CommandLineOptions {
     std::size_t configSearchDepth = 8;
     bool configSearchDepthSpecified = false;
     bool printConfigPath = false;
-    PtaAnalysisConfig ptaConfig;
+    PtaMode ptaMode = PtaMode::Disabled;
     bool ptaModeSpecified = false;
     bool ptaDiagnostics = false;
+    std::set<std::string> operatingPointOptionKeys;
+    std::vector<std::string> operatingPointOptionAssignments;
     std::set<std::string> ptaOptionKeys;
     std::vector<std::string> ptaOptionAssignments;
+    std::set<std::string> transientOptionKeys;
+    std::vector<std::string> transientOptionAssignments;
     bool parseOnly = false;
     bool helpRequested = false;
 };
@@ -56,7 +60,9 @@ void printUsage(std::ostream& os, const char* program){
        << "  " << program
        << " [-b] [--pta disabled|force|fallback]"
        << " [--pta-diagnostics]"
+       << " [--op-option name=value]"
        << " [--pta-option name=value]"
+       << " [--tran-option name=value]"
        << " [--config path] [--config-search-depth N]"
        << " [--print-config-path]"
        << " [-o output.out] [-r output.raw] <input.cir>\n";
@@ -64,7 +70,11 @@ void printUsage(std::ostream& os, const char* program){
        << "  --config path              Read this configuration file only\n"
        << "  --config-search-depth N    Search at most N parent directories\n"
        << "  --print-config-path         Report the selected configuration file\n";
-    os << "\nPTA options (repeat --pta-option as needed):\n"
+    os << "\nAnalysis overrides (repeat as needed; CLI wins over config.json):\n"
+       << "  --op-option name=value    OP fields: newton.* or source-stepping.*\n"
+       << "  --tran-option name=value  TRAN fields: top-level or solver.*\n"
+       << "  --pta-option name=value   PTA fields below; --pta selects its mode\n";
+    os << "\nPTA option fields:\n"
        << "  initial-step, minimum-step, maximum-step, maximum-steps\n"
        << "  derivative-tolerance, derivative-relative-tolerance,\n"
        << "  derivative-voltage-absolute-tolerance,\n"
@@ -78,7 +88,9 @@ void printUsage(std::ostream& os, const char* program){
        << "  capacitance-grow-scale,\n"
        << "  small-oscillation-scale, medium-oscillation-scale,\n"
        << "  heavy-oscillation-scale, medium-oscillation-ratio,\n"
-       << "  heavy-oscillation-ratio\n"
+       << "  heavy-oscillation-ratio, compound-time-constant,\n"
+       << "  compound-initial-resistance, compound-initial-conductance,\n"
+       << "  source-ramp-time, initial-bjt-vbe (or null)\n"
        << "  include-mos-bulk, include-diodes (true or false)\n";
 }
 
@@ -121,99 +133,6 @@ bool parsePtaMode(const std::string& text, PtaMode& mode){
         mode = PtaMode::Fallback;
         return true;
     }
-    return false;
-}
-
-bool parsePtaBoolean(const std::string& text, bool& value){
-    const std::string normalized = to_lower_copy(text);
-    if(normalized == "true" || normalized == "1"){
-        value = true;
-        return true;
-    }
-    if(normalized == "false" || normalized == "0"){
-        value = false;
-        return true;
-    }
-    return false;
-}
-
-bool applyPtaOption(const std::string& assignment,
-                    PtaAnalysisConfig& config,
-                    std::string& key,
-                    std::string& error){
-    const std::size_t equals = assignment.find('=');
-    if(equals == std::string::npos || equals == 0 ||
-       equals + 1 == assignment.size()){
-        error = "expected name=value";
-        return false;
-    }
-
-    key = to_lower_copy(assignment.substr(0, equals));
-    const std::string value = assignment.substr(equals + 1);
-
-    const auto setDouble = [&](double& target) {
-        try {
-            target = parse_spice_number(value);
-            return true;
-        } catch(const std::runtime_error& exception) {
-            error = exception.what();
-            return false;
-        }
-    };
-
-    const auto setBoolean = [&](bool& target) {
-        if(parsePtaBoolean(value, target)){
-            return true;
-        }
-        error = "expected true, false, 1, or 0";
-        return false;
-    };
-
-    if(key == "maximum-steps"){
-        try {
-            std::size_t parsedLength = 0;
-            const long long parsed = std::stoll(value, &parsedLength, 10);
-            if(parsedLength != value.size() || parsed <= 0 ||
-               parsed > std::numeric_limits<int>::max()){
-                error = "expected a positive integer";
-                return false;
-            }
-            config.maximumSteps = static_cast<int>(parsed);
-            return true;
-        } catch(const std::exception&) {
-            error = "expected a positive integer";
-            return false;
-        }
-    }
-
-    if(key == "initial-step") return setDouble(config.initialStep);
-    if(key == "minimum-step") return setDouble(config.minimumStep);
-    if(key == "maximum-step") return setDouble(config.maximumStep);
-    if(key == "derivative-tolerance") return setDouble(config.derivativeTolerance);
-    if(key == "derivative-relative-tolerance") return setDouble(config.derivativeRelativeTolerance);
-    if(key == "derivative-voltage-absolute-tolerance") return setDouble(config.derivativeVoltageAbsoluteTolerance);
-    if(key == "derivative-current-absolute-tolerance") return setDouble(config.derivativeCurrentAbsoluteTolerance);
-    if(key == "dc-residual-tolerance") return setDouble(config.dcResidualTolerance);
-    if(key == "dc-residual-relative-tolerance") return setDouble(config.dcResidualRelativeTolerance);
-    if(key == "dc-voltage-absolute-tolerance") return setDouble(config.dcVoltageAbsoluteTolerance);
-    if(key == "dc-current-absolute-tolerance") return setDouble(config.dcCurrentAbsoluteTolerance);
-    if(key == "initial-node-capacitance") return setDouble(config.initialNodeCapacitance);
-    if(key == "minimum-node-capacitance") return setDouble(config.minimumNodeCapacitance);
-    if(key == "maximum-node-capacitance") return setDouble(config.maximumNodeCapacitance);
-    if(key == "current-source-capacitance") return setDouble(config.currentSourceCapacitance);
-    if(key == "voltage-source-inductance") return setDouble(config.voltageSourceInductance);
-    if(key == "failed-step-scale") return setDouble(config.failedStepScale);
-    if(key == "successful-step-scale") return setDouble(config.successfulStepScale);
-    if(key == "capacitance-grow-scale") return setDouble(config.capacitanceGrowScale);
-    if(key == "small-oscillation-scale") return setDouble(config.smallOscillationScale);
-    if(key == "medium-oscillation-scale") return setDouble(config.mediumOscillationScale);
-    if(key == "heavy-oscillation-scale") return setDouble(config.heavyOscillationScale);
-    if(key == "medium-oscillation-ratio") return setDouble(config.mediumOscillationRatio);
-    if(key == "heavy-oscillation-ratio") return setDouble(config.heavyOscillationRatio);
-    if(key == "include-mos-bulk") return setBoolean(config.includeMosBulk);
-    if(key == "include-diodes") return setBoolean(config.includeDiodes);
-
-    error = "unknown PTA option";
     return false;
 }
 
@@ -278,13 +197,35 @@ bool parseCommandLine(int argc,
         }
         if(argument == "--pta"){
             if(++i >= argc || options.ptaModeSpecified ||
-               !parsePtaMode(argv[i], options.ptaConfig.mode)){
+               !parsePtaMode(argv[i], options.ptaMode)){
                 std::cerr
                     << "Invalid or repeated PTA mode; expected "
                     << "disabled, force, or fallback\n";
                 return false;
             }
             options.ptaModeSpecified = true;
+            continue;
+        }
+        if(argument == "--op-option"){
+            if(++i >= argc){
+                std::cerr << "Missing OP option; expected name=value\n";
+                return false;
+            }
+
+            OperatingPointSolverOptions validationOptions;
+            std::string key;
+            std::string error;
+            if(!simulator::config::applyOperatingPointOption(
+                   argv[i], validationOptions, key, error)){
+                std::cerr << "Invalid OP option <" << argv[i]
+                          << ">: " << error << '\n';
+                return false;
+            }
+            if(!options.operatingPointOptionKeys.insert(key).second){
+                std::cerr << "Repeated OP option: " << key << '\n';
+                return false;
+            }
+            options.operatingPointOptionAssignments.emplace_back(argv[i]);
             continue;
         }
         if(argument == "--pta-option"){
@@ -295,7 +236,9 @@ bool parseCommandLine(int argc,
 
             std::string key;
             std::string error;
-            if(!applyPtaOption(argv[i], options.ptaConfig, key, error)){
+            PtaAnalysisConfig validationOptions;
+            if(!simulator::config::applyPtaOption(
+                   argv[i], validationOptions, key, error)){
                 std::cerr << "Invalid PTA option <" << argv[i]
                           << ">: " << error << '\n';
                 return false;
@@ -305,6 +248,28 @@ bool parseCommandLine(int argc,
                 return false;
             }
             options.ptaOptionAssignments.emplace_back(argv[i]);
+            continue;
+        }
+        if(argument == "--tran-option"){
+            if(++i >= argc){
+                std::cerr << "Missing TRAN option; expected name=value\n";
+                return false;
+            }
+
+            std::optional<TransientAnalysisConfig> validationOptions;
+            std::string key;
+            std::string error;
+            if(!simulator::config::applyTransientOption(
+                   argv[i], validationOptions, key, error)){
+                std::cerr << "Invalid TRAN option <" << argv[i]
+                          << ">: " << error << '\n';
+                return false;
+            }
+            if(!options.transientOptionKeys.insert(key).second){
+                std::cerr << "Repeated TRAN option: " << key << '\n';
+                return false;
+            }
+            options.transientOptionAssignments.emplace_back(argv[i]);
             continue;
         }
         if(argument == "-o" || argument == "--output"){
@@ -347,9 +312,12 @@ bool parseCommandLine(int argc,
     }
     if(options.parseOnly &&
        (options.listingPath || options.rawPath || options.ptaModeSpecified ||
-        options.ptaDiagnostics || !options.ptaOptionKeys.empty())){
+        options.ptaDiagnostics ||
+        !options.operatingPointOptionKeys.empty() ||
+        !options.ptaOptionKeys.empty() ||
+        !options.transientOptionKeys.empty())){
         std::cerr
-            << "--parse-only cannot be combined with output or PTA options\n";
+            << "--parse-only cannot be combined with output or analysis options\n";
         return false;
     }
     return true;
@@ -681,6 +649,11 @@ int main(int argc, char* argv[]){
         return 2;
     }
 
+    const std::optional<TransientAnalysisConfig> netlistTransient =
+        plan.transient;
+    const std::optional<double> netlistMaximumTransientStep =
+        netlistTransient ? netlistTransient->maximumStep : std::nullopt;
+
     PtaAnalysisConfig ptaConfig = plan.pseudoTransient
         ? plan.pseudoTransient->makePtaConfig()
         : PtaAnalysisConfig{};
@@ -695,15 +668,52 @@ int main(int argc, char* argv[]){
             plan.pseudoTransient.has_value()
         );
 
+        for(const std::string& assignment:
+            options.operatingPointOptionAssignments)
+        {
+            std::string key;
+            std::string error;
+            if(!simulator::config::applyOperatingPointOption(
+                   assignment,
+                   operatingPointConfig,
+                   key,
+                   error)){
+                throw std::invalid_argument(
+                    "invalid command-line OP option <" + assignment +
+                    ">: " + error
+                );
+            }
+        }
+
         if(options.ptaModeSpecified){
-            ptaConfig.mode = options.ptaConfig.mode;
+            ptaConfig.mode = options.ptaMode;
         }
         for(const std::string& assignment: options.ptaOptionAssignments){
             std::string key;
             std::string error;
-            if(!applyPtaOption(assignment, ptaConfig, key, error)){
+            if(!simulator::config::applyPtaOption(
+                   assignment,
+                   ptaConfig,
+                   key,
+                   error)){
                 throw std::invalid_argument(
                     "invalid command-line PTA option <" + assignment +
+                    ">: " + error
+                );
+            }
+        }
+        for(const std::string& assignment: options.transientOptionAssignments){
+            std::string key;
+            std::string error;
+            if(!simulator::config::applyTransientOption(
+                   assignment,
+                   plan.transient,
+                   key,
+                   error,
+                   netlistTransient,
+                   netlistMaximumTransientStep)){
+                throw std::invalid_argument(
+                    "invalid command-line TRAN option <" + assignment +
                     ">: " + error
                 );
             }

@@ -208,6 +208,56 @@ def main():
                 "invalid analysis configuration diagnostic is absent",
             )
 
+            priority_config = root / "priority.json"
+            priority_config.write_text(
+                "{\n"
+                '  "schema_version": 1,\n'
+                '  "op": {"source_stepping": {\n'
+                '    "initial_step": 0.9,\n'
+                '    "maximum_step": 0.8\n'
+                "  }}\n"
+                "}\n"
+            )
+            result = run(
+                simulator,
+                "--config",
+                priority_config,
+                "--parse-only",
+                deck,
+            )
+            require(
+                result.returncode == 2,
+                "invalid source-stepping configuration was accepted",
+            )
+            result = run(
+                simulator,
+                "--config",
+                priority_config,
+                "--op-option",
+                "source_stepping.maximum_step=1",
+                deck,
+            )
+            require(
+                result.returncode == 0,
+                "command-line OP override did not take priority over config: "
+                f"{result.stderr}",
+            )
+
+            result = run(
+                simulator,
+                "--op-option",
+                "newton.unknown=1",
+                deck,
+            )
+            require(
+                result.returncode == 2,
+                "unknown command-line OP field was accepted",
+            )
+            require(
+                "unknown operating-point option" in result.stderr,
+                "unknown command-line OP field diagnostic is absent",
+            )
+
             result = run(
                 simulator,
                 "--config-search-depth",
