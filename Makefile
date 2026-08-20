@@ -7,6 +7,8 @@ HEADERS = $(shell find ./include -type f 2>/dev/null)
 CIRCUIT_TEST_SOURCES = ./src/circuit/circuit.cpp \
 	./src/circuit/node_map.cpp
 CONFIG_SOURCES = $(wildcard ./src/config/*.cpp)
+CORE_TEST_SOURCES = ./src/app/command_line.cpp \
+	./src/config/option_overrides.cpp
 TARGET = spice
 BUILD_DIR ?= build
 OBJECTS = $(patsubst ./src/%.cpp,$(BUILD_DIR)/%.o,$(SRC))
@@ -14,6 +16,8 @@ DEPENDENCIES = $(OBJECTS:.o=.d)
 UNIT_TEST_SOURCE ?= tests/unit/transient_analysis_test.cpp
 UNIT_TEST_BUILD_DIR ?= tests/.build
 UNIT_TEST_TARGET ?= $(UNIT_TEST_BUILD_DIR)/transient_analysis_test
+CORE_TEST_SOURCE ?= tests/unit/core_test.cpp
+CORE_TEST_TARGET ?= $(UNIT_TEST_BUILD_DIR)/core_test
 TESTCASE_ROOT ?= tests/cases
 TEST_ROOT ?= tests
 OP_TESTCASE_DIR ?= $(TESTCASE_ROOT)/op
@@ -76,7 +80,7 @@ else ifneq ($(strip $(EIGEN_PKG_CFLAGS)),)
 EIGEN_FLAGS := $(EIGEN_PKG_CFLAGS)
 endif
 
-.PHONY: all clean test test-unit test-config test-io test-cases test-op test-tran test-netlists test-private test-pta-hard-op compare compare-op \
+.PHONY: all clean test test-unit test-core test-config test-io test-cases test-op test-tran test-netlists test-private test-pta-hard-op compare compare-op \
 	compare-tran generate-standards check-eigen check-deps pta pta-run pta-accuracy \
 	pta-force-standard pta-force-disabled pta-fallback-standard
 
@@ -128,6 +132,15 @@ $(UNIT_TEST_TARGET): $(UNIT_TEST_SOURCE) $(CIRCUIT_TEST_SOURCES) \
 test-unit: $(UNIT_TEST_TARGET)
 	@"$(UNIT_TEST_TARGET)"
 
+$(CORE_TEST_TARGET): $(CORE_TEST_SOURCE) $(CORE_TEST_SOURCES) \
+	$(HEADERS) | check-eigen
+	@mkdir -p "$(@D)"
+	$(CXX) $(CXX_FLAGS) $(EIGEN_FLAGS) -o "$@" "$<" \
+		$(CORE_TEST_SOURCES)
+
+test-core: $(CORE_TEST_TARGET)
+	@"$(CORE_TEST_TARGET)"
+
 CONFIG_TEST_SOURCE ?= tests/unit/config_test.cpp
 CONFIG_TEST_TARGET ?= $(UNIT_TEST_BUILD_DIR)/config_test
 CONFIG_CLI_TEST_SCRIPT ?= $(TEST_SCRIPT_DIR)/test_config.py
@@ -142,9 +155,10 @@ test-config: $(CONFIG_TEST_TARGET) $(TARGET)
 	@"$(CONFIG_TEST_TARGET)"
 	@$(PYTHON) "$(CONFIG_CLI_TEST_SCRIPT)" ./$(TARGET)
 
-test: $(TARGET) $(UNIT_TEST_TARGET) $(CONFIG_TEST_TARGET)
+test: $(TARGET) $(UNIT_TEST_TARGET) $(CORE_TEST_TARGET) $(CONFIG_TEST_TARGET)
 	@status=0; \
 	"$(UNIT_TEST_TARGET)" || status=1; \
+	"$(CORE_TEST_TARGET)" || status=1; \
 	$(MAKE) --no-print-directory test-config || status=1; \
 	$(MAKE) --no-print-directory test-io || status=1; \
 	$(MAKE) --no-print-directory test-op || status=1; \

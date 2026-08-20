@@ -341,7 +341,7 @@ tests/
 make test
 ```
 
-`make test-config` 可单独运行配置模块单元测试和配置 CLI 端到端测试。
+`make test-unit` 可单独运行瞬态/PTA 数值单元测试，`make test-core` 可单独运行命令行和 SPICE 字符串工具单元测试，`make test-config` 可单独运行配置模块单元测试和配置 CLI 端到端测试。
 
 `make test-op` 与 `make test-tran` 会在每个网表执行后输出一条
 `TIME <analysis> <case> <milliseconds> PASS/FAIL`，并输出该分析组的总墙钟时间。单例时间覆盖 simulator 子进程启动、解析、建模、求解以及 `.out` / `.raw` 写出；rawfile 校验和 ngspice 对照时间不包含在其中，便于 PTA 前后比较求解端到端开销。
@@ -370,6 +370,8 @@ make test-pta-hard-op
 
 ```sh
 make test-io
+make test-core
+make test-unit
 make test-cases
 make test-op
 make test-tran
@@ -382,7 +384,7 @@ make compare-tran
 
 `make test` 会完成以下检查：
 
-1. 构建 simulator。
+1. 构建 simulator，并运行瞬态/PTA、命令行、SPICE 字符串工具和配置单元测试。
 2. 使用 `tests/scripts/test_io.py` 检查 SPICE 注释、续行、大小写、严格数值/model/实例参数、`.end`、混合 OP/TRAN 输出、事务式文件替换、硬链接保护和 CLI。
 3. 对每个 netlist 同时生成 listing、ASCII rawfile 和 stderr 文件。
 4. 使用 `tests/scripts/validate_raw.py` 校验 rawfile header、变量数量、点数、有限数值和瞬态时间单调性，并把 raw 数据与同次 listing 逐点、逐变量交叉核对。
