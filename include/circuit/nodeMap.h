@@ -13,7 +13,7 @@ public:
 
     void build(const std::vector<std::unique_ptr<Device>>& devices);
 
-    int idxOf(std::string name) const;
+    int idxOf(const std::string& name) const;
 
     const std::vector<std::string>& nodeNameByIdx() const;
 

@@ -17,7 +17,12 @@ enum class ModelType {
 
 class Model {
 public:
-    Model(std::string n, ModelType t): name_(std::move(n)), type_(t) {
+    using Parameters = std::unordered_map<std::string, double>;
+
+    Model(std::string n, ModelType t, Parameters params = {}):
+        name_(std::move(n)),
+        type_(t),
+        params_(std::move(params)) {
         rebuildDcCache();
     }
 
@@ -181,7 +186,7 @@ private:
 
     std::string name_;
     ModelType type_;
-    std::unordered_map<std::string, double> params_;
+    Parameters params_;
     DcCache dc_;
     DiodeDcParams diodeDc_;
     BjtDcParams bjtDc_;

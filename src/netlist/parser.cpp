@@ -1,6 +1,4 @@
 #include <cctype>
-#include <fstream>
-#include <functional>
 #include <iostream>
 #include <memory>
 #include <sstream>
@@ -10,6 +8,8 @@
 #include <utility>
 
 #include "netlist/parser.h"
+#include "netlist/reader.h"
+#include "netlist/subcircuit.h"
 #include "circuit/circuit.h"
 #include "devices/bjt.hpp"
 #include "devices/capacitor.hpp"
@@ -23,19 +23,6 @@
 #include "utils/string_utils.hpp"
 
 namespace {
-struct LogicalLine {
-    std::size_t lineNumber = 0;
-    std::string text;
-    std::vector<std::string> tokens;
-};
-
-struct SubcircuitDefinition {
-    std::size_t lineNumber = 0;
-    std::string name;
-    std::vector<std::string> pins;
-    std::vector<LogicalLine> body;
-};
-
 ModelType parseModelType(const std::string& token){
     const std::string type = to_lower_copy(token);
     if(type == "d") return ModelType::Diode;
@@ -194,12 +181,6 @@ bool hasNonGroundNode(const std::vector<std::string>& tokens){
         case 'V':
         case 'I':
         case 'D': nodeCount = 2; break;
-        case 'X':
-            if(tokens.size() < 3){
-                return false;
-            }
-            nodeCount = tokens.size() - 2;
-            break;
         default: return false;
     }
 
@@ -209,32 +190,6 @@ bool hasNonGroundNode(const std::vector<std::string>& tokens){
         }
     }
     return false;
-}
-
-std::size_t elementNodeCount(const std::vector<std::string>& tokens){
-    if(tokens.empty() || tokens[0].empty()){
-        throw std::runtime_error("Empty element statement");
-    }
-
-    switch(std::toupper(static_cast<unsigned char>(tokens[0][0]))){
-        case 'Q': return 3;
-        case 'M': return 4;
-        case 'R':
-        case 'C':
-        case 'L':
-        case 'V':
-        case 'I':
-        case 'D': return 2;
-        case 'X':
-            if(tokens.size() < 3){
-                throw std::runtime_error(
-                    "Subcircuit instance requires nodes and a subcircuit name"
-                );
-            }
-            return tokens.size() - 2;
-        default:
-            throw std::runtime_error("Unsupported element: " + tokens[0]);
-    }
 }
 
 void appendUniquePrintVariable(std::vector<PrintVariable>& variables,
@@ -252,6 +207,17 @@ std::string canonicalOutputNode(std::string name){
         return "0";
     }
     return to_lower_copy(std::move(name));
+}
+
+std::vector<std::string> elementNodes(const std::vector<std::string>& tokens,
+                                      std::size_t first,
+                                      std::size_t count){
+    std::vector<std::string> nodes;
+    nodes.reserve(count);
+    for(std::size_t i = 0; i < count; ++i){
+        nodes.push_back(canonicalOutputNode(tokens.at(first + i)));
+    }
+    return nodes;
 }
 
 std::size_t sourceValueEnd(const std::vector<std::string>& tokens,
@@ -353,151 +319,20 @@ InstanceValues parseInstanceValues(const std::vector<std::string>& tokens,
 }
 
 bool Parser::parse(Circuit& circuit){
-    std::ifstream file(filename_);
-    if(!file){
-        std::cerr << "Cannot open input netlist <" << filename_ << ">\n";
-        return false;
-    }
-
     analysisPlan_ = {};
     title_.clear();
 
-    std::string line;
-    if(!std::getline(file, line)){
-        std::cerr << "Input netlist is empty <" << filename_ << ">\n";
+    NetlistSource source;
+    if(!NetlistReader(filename_).read(source)){
         return false;
     }
-    title_ = trim(line);
-    if(title_.empty()){
-        title_ = "Untitled circuit";
-    }
-
-    std::vector<LogicalLine> lines;
-    std::size_t lineNumber = 1;
-    bool endFound = false;
-    while(std::getline(file, line)){
-        ++lineNumber;
-
-        line = trim(strip_spice_comment(line));
-        if(line.empty() || line[0] == '*'){
-            continue;
-        }
-
-        if(endFound){
-            std::cerr << filename_ << ':' << lineNumber
-                      << ": .end must be the last netlist statement\n";
-            return false;
-        }
-
-        if(line[0] == '+'){
-            if(lines.empty()){
-                std::cerr << filename_ << ':' << lineNumber
-                          << ": continuation line has no previous statement\n";
-                return false;
-            }
-            lines.back().text += ' ' + trim(line.substr(1));
-            lines.back().tokens = tokenize_spice_line(lines.back().text);
-            continue;
-        }
-
-        std::vector<std::string> tokens = tokenize_spice_line(line);
-        if(tokens.empty()){
-            continue;
-        }
-        if(equal_ignore_case(tokens[0], ".end")){
-            if(tokens.size() != 1){
-                std::cerr << filename_ << ':' << lineNumber
-                          << ": .end does not accept arguments\n";
-                return false;
-            }
-            endFound = true;
-            continue;
-        }
-        lines.push_back({lineNumber, line, std::move(tokens)});
-    }
-
-    if(file.bad()){
-        std::cerr << "Failed while reading input netlist <" << filename_ << ">\n";
-        return false;
-    }
-    if(!endFound){
-        std::cerr << filename_ << ": missing required .end directive\n";
-        return false;
-    }
+    title_ = std::move(source.title);
 
     std::size_t activeLine = 1;
     try {
-        std::unordered_map<std::string, SubcircuitDefinition> subcircuits;
-        std::vector<LogicalLine> topLevelLines;
-        SubcircuitDefinition currentSubcircuit;
-        bool insideSubcircuit = false;
-
-        for(const auto& logicalLine: lines){
-            activeLine = logicalLine.lineNumber;
-            const auto& tokens = logicalLine.tokens;
-            if(equal_ignore_case(tokens[0], ".subckt")){
-                if(insideSubcircuit){
-                    throw std::runtime_error(
-                        "Nested .subckt definitions are not supported"
-                    );
-                }
-                if(tokens.size() < 3){
-                    throw std::runtime_error(
-                        ".subckt requires a name and at least one pin"
-                    );
-                }
-
-                currentSubcircuit = {};
-                currentSubcircuit.lineNumber = logicalLine.lineNumber;
-                currentSubcircuit.name = to_lower_copy(tokens[1]);
-                currentSubcircuit.pins.assign(tokens.begin() + 2, tokens.end());
-                std::unordered_set<std::string> pinNames;
-                for(const auto& pin: currentSubcircuit.pins){
-                    const std::string canonicalPin = to_lower_copy(pin);
-                    if(canonicalPin == "0" || canonicalPin == "gnd" ||
-                       !pinNames.insert(canonicalPin).second){
-                        throw std::runtime_error(
-                            ".subckt pins must be unique non-ground nodes"
-                        );
-                    }
-                }
-                insideSubcircuit = true;
-                continue;
-            }
-            if(equal_ignore_case(tokens[0], ".ends")){
-                if(!insideSubcircuit){
-                    throw std::runtime_error(".ends has no matching .subckt");
-                }
-                if(tokens.size() > 2 ||
-                   (tokens.size() == 2 &&
-                    !equal_ignore_case(tokens[1], currentSubcircuit.name))){
-                    throw std::runtime_error(
-                        ".ends name does not match its .subckt definition"
-                    );
-                }
-                const std::string subcircuitName = currentSubcircuit.name;
-                if(!subcircuits.emplace(
-                    subcircuitName,
-                    std::move(currentSubcircuit)
-                ).second){
-                    throw std::runtime_error(
-                        "Duplicate .subckt definition: " + subcircuitName
-                    );
-                }
-                insideSubcircuit = false;
-                continue;
-            }
-
-            if(insideSubcircuit){
-                currentSubcircuit.body.push_back(logicalLine);
-            } else {
-                topLevelLines.push_back(logicalLine);
-            }
-        }
-        if(insideSubcircuit){
-            activeLine = currentSubcircuit.lineNumber;
-            throw std::runtime_error(".subckt is missing a matching .ends");
-        }
+        SubcircuitLibrary subcircuits;
+        std::vector<LogicalNetlistLine> topLevelLines =
+            subcircuits.collect(std::move(source.lines));
 
         for(const auto& logicalLine: topLevelLines){
             activeLine = logicalLine.lineNumber;
@@ -550,6 +385,7 @@ bool Parser::parse(Circuit& circuit){
         }
 
         std::unordered_set<std::string> modelNames;
+        modelNames.reserve(topLevelLines.size());
         for(const auto& logicalLine: topLevelLines){
             activeLine = logicalLine.lineNumber;
             const auto& tokens = logicalLine.tokens;
@@ -567,6 +403,7 @@ bool Parser::parse(Circuit& circuit){
         }
 
         std::unordered_set<std::string> deviceNames;
+        deviceNames.reserve(topLevelLines.size());
         bool foundNonGroundNode = false;
         const auto registerPrimitive = [&](const std::vector<std::string>& tokens){
             if(!deviceNames.insert(to_lower_copy(tokens[0])).second){
@@ -580,87 +417,6 @@ bool Parser::parse(Circuit& circuit){
             foundNonGroundNode = foundNonGroundNode || hasNonGroundNode(tokens);
         };
 
-        std::function<void(const std::vector<std::string>&,
-                           const std::string&)> expandSubcircuit;
-        expandSubcircuit = [&](const std::vector<std::string>& instanceTokens,
-                               const std::string& instancePath){
-            if(instanceTokens.size() < 3){
-                throw std::runtime_error(
-                    "Subcircuit instance requires nodes and a subcircuit name"
-                );
-            }
-
-            const std::string subcircuitName = to_lower_copy(instanceTokens.back());
-            const auto definition = subcircuits.find(subcircuitName);
-            if(definition == subcircuits.end()){
-                throw std::runtime_error(
-                    "Unknown subcircuit: " + instanceTokens.back()
-                );
-            }
-
-            const std::size_t actualNodeCount = instanceTokens.size() - 2;
-            if(actualNodeCount != definition->second.pins.size()){
-                throw std::runtime_error(
-                    "Subcircuit " + instanceTokens.back() + " expects " +
-                    std::to_string(definition->second.pins.size()) +
-                    " nodes but received " + std::to_string(actualNodeCount)
-                );
-            }
-
-            std::unordered_map<std::string, std::string> bindings;
-            for(std::size_t i = 0; i < actualNodeCount; ++i){
-                bindings.emplace(
-                    to_lower_copy(definition->second.pins[i]),
-                    instanceTokens[i + 1]
-                );
-            }
-
-            for(const auto& bodyLine: definition->second.body){
-                activeLine = bodyLine.lineNumber;
-                if(bodyLine.tokens.empty()){
-                    continue;
-                }
-                if(bodyLine.tokens[0][0] == '.'){
-                    throw std::runtime_error(
-                        "Control directives inside .subckt are not supported: " +
-                        bodyLine.tokens[0]
-                    );
-                }
-
-                std::vector<std::string> flattened = bodyLine.tokens;
-                const std::size_t nodeCount = elementNodeCount(flattened);
-                if(flattened.size() <= nodeCount){
-                    throw std::runtime_error(
-                        "Malformed element in .subckt: " + flattened[0]
-                    );
-                }
-                for(std::size_t i = 1; i <= nodeCount; ++i){
-                    const std::string node = to_lower_copy(flattened[i]);
-                    if(node == "0" || node == "gnd"){
-                        flattened[i] = "0";
-                        continue;
-                    }
-                    const auto boundNode = bindings.find(node);
-                    flattened[i] = boundNode == bindings.end()
-                        ? instancePath + ":" + node
-                        : boundNode->second;
-                }
-
-                if(std::toupper(static_cast<unsigned char>(flattened[0][0])) == 'X'){
-                    expandSubcircuit(
-                        flattened,
-                        instancePath + "/" + to_lower_copy(flattened[0])
-                    );
-                } else {
-                    // Keep the primitive designator at the front: parseLine
-                    // dispatches on it, while the suffix makes each flattened
-                    // instance name unique for diagnostics and output lookup.
-                    flattened[0] += "@" + instancePath;
-                    registerPrimitive(flattened);
-                }
-            }
-        };
-
         for(const auto& logicalLine: topLevelLines){
             activeLine = logicalLine.lineNumber;
             const auto& tokens = logicalLine.tokens;
@@ -668,7 +424,13 @@ bool Parser::parse(Circuit& circuit){
                 continue;
             }
             if(std::toupper(static_cast<unsigned char>(tokens[0][0])) == 'X'){
-                expandSubcircuit(tokens, to_lower_copy(tokens[0]));
+                subcircuits.expandInstance(
+                    logicalLine,
+                    [&](FlattenedNetlistElement&& flattened){
+                        activeLine = flattened.lineNumber;
+                        registerPrimitive(flattened.tokens);
+                    }
+                );
             } else {
                 registerPrimitive(tokens);
             }
@@ -681,6 +443,10 @@ bool Parser::parse(Circuit& circuit){
                 "Netlist requires at least one non-ground node"
             );
         }
+    } catch(const SubcircuitError& ex){
+        std::cerr << filename_ << ':' << ex.lineNumber()
+                  << ": parse error: " << ex.what() << '\n';
+        return false;
     } catch(const std::exception& ex){
         std::cerr << filename_ << ':' << activeLine
                   << ": parse error: " << ex.what() << '\n';
@@ -987,7 +753,8 @@ bool Parser::parseModel(Circuit& circuit, const std::vector<std::string>& tokens
         throw std::runtime_error("Unsupported model type: " + tokens[2]);
     }
 
-    auto model = std::make_unique<Model>(to_lower_copy(tokens[1]), type);
+    Model::Parameters parameters;
+    parameters.reserve(tokens.size() - 3);
 
     for(std::size_t i = 3; i < tokens.size(); ++i){
         std::string key;
@@ -999,9 +766,14 @@ bool Parser::parseModel(Circuit& circuit, const std::vector<std::string>& tokens
         }
         const double parsed = parse_spice_number(value);
         validateModelParameter(type, key, parsed);
-        model->setParam(key, parsed);
+        parameters.insert_or_assign(std::move(key), parsed);
     }
 
+    auto model = std::make_unique<Model>(
+        to_lower_copy(tokens[1]),
+        type,
+        std::move(parameters)
+    );
     circuit.addModel(std::move(model));
     return true;
 }
@@ -1015,25 +787,25 @@ bool Parser::parseLine(Circuit& circuit, const std::vector<std::string>& tokens)
     switch(type){
         case 'R':
             if(tokens.size() != 4) throw std::runtime_error("Resistor requires exactly two nodes and one value");
-            circuit.addDevice<Resistor>(tokens[0], std::vector<std::string>{tokens[1], tokens[2]}, positiveElementValue(tokens, 3, "Resistor"));
+            circuit.addDevice<Resistor>(tokens[0], elementNodes(tokens, 1, 2), positiveElementValue(tokens, 3, "Resistor"));
             return true;
         case 'C':
             if(tokens.size() != 4) throw std::runtime_error("Capacitor requires exactly two nodes and one value");
-            circuit.addDevice<Capacitor>(tokens[0], std::vector<std::string>{tokens[1], tokens[2]}, positiveElementValue(tokens, 3, "Capacitor"));
+            circuit.addDevice<Capacitor>(tokens[0], elementNodes(tokens, 1, 2), positiveElementValue(tokens, 3, "Capacitor"));
             return true;
         case 'L':
             if(tokens.size() != 4) throw std::runtime_error("Inductor requires exactly two nodes and one value");
-            circuit.addDevice<Inductor>(tokens[0], std::vector<std::string>{tokens[1], tokens[2]}, positiveElementValue(tokens, 3, "Inductor"));
+            circuit.addDevice<Inductor>(tokens[0], elementNodes(tokens, 1, 2), positiveElementValue(tokens, 3, "Inductor"));
             return true;
         case 'V':
             if(tokens.size() < 4) throw std::runtime_error("Bad voltage source line");
             if(sourceValueEnd(tokens, 3) != tokens.size()) throw std::runtime_error("Only a single DC voltage-source value is supported");
-            circuit.addDevice<VoltageSource>(tokens[0], std::vector<std::string>{tokens[1], tokens[2]}, parse_spice_value_token(tokens, 3));
+            circuit.addDevice<VoltageSource>(tokens[0], elementNodes(tokens, 1, 2), parse_spice_value_token(tokens, 3));
             return true;
         case 'I':
             if(tokens.size() < 4) throw std::runtime_error("Bad current source line");
             if(sourceValueEnd(tokens, 3) != tokens.size()) throw std::runtime_error("Only a single DC current-source value is supported");
-            circuit.addDevice<CurrentSource>(tokens[0], std::vector<std::string>{tokens[1], tokens[2]}, parse_spice_value_token(tokens, 3));
+            circuit.addDevice<CurrentSource>(tokens[0], elementNodes(tokens, 1, 2), parse_spice_value_token(tokens, 3));
             return true;
         case 'D': {
             if(tokens.size() < 4) throw std::runtime_error("Bad diode line");
@@ -1047,7 +819,7 @@ bool Parser::parseLine(Circuit& circuit, const std::vector<std::string>& tokens)
                 false,
                 true
             );
-            circuit.addDevice<Diode>(tokens[0], std::vector<std::string>{tokens[1], tokens[2]}, model, values.area);
+            circuit.addDevice<Diode>(tokens[0], elementNodes(tokens, 1, 2), model, values.area);
             return true;
         }
         case 'Q': {
@@ -1062,7 +834,7 @@ bool Parser::parseLine(Circuit& circuit, const std::vector<std::string>& tokens)
                 false,
                 true
             );
-            circuit.addDevice<BJT>(tokens[0], std::vector<std::string>{tokens[1], tokens[2], tokens[3]}, model, values.area);
+            circuit.addDevice<BJT>(tokens[0], elementNodes(tokens, 1, 3), model, values.area);
             return true;
         }
         case 'M': {
@@ -1079,7 +851,7 @@ bool Parser::parseLine(Circuit& circuit, const std::vector<std::string>& tokens)
             );
             circuit.addDevice<MOSFET>(
                 tokens[0],
-                std::vector<std::string>{tokens[1], tokens[2], tokens[3], tokens[4]},
+                elementNodes(tokens, 1, 4),
                 model,
                 values.width,
                 values.length

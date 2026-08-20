@@ -39,15 +39,20 @@ void NodeMap::build(const std::vector<std::unique_ptr<Device>>& devices){
     }
 }
 
-int NodeMap::idxOf(std::string name) const {
-    name = to_lower_copy(name);
-    if(name == "0" || name == "gnd"){
+int NodeMap::idxOf(const std::string& name) const {
+    if(name == "0" || equal_ignore_case(name, "gnd")){
         return -1;
     }
-    
+
     auto it = name_to_idx.find(name);
+    if(it != name_to_idx.end()){
+        return it->second;
+    }
+
+    const std::string canonicalName = to_lower_copy(name);
+    it = name_to_idx.find(canonicalName);
     if(it == name_to_idx.end()){
-        throw std::runtime_error("Unknown node: " + name);
+        throw std::runtime_error("Unknown node: " + canonicalName);
     }
 
     return it->second;

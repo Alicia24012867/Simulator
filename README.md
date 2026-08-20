@@ -4,6 +4,16 @@
 
 本项目实现的是明确受限的 SPICE 子集，并非完整 ngspice 替代品。I/O 层遵循常见 SPICE netlist、`.print` listing 和 ASCII rawfile 约定，未支持的控制卡或输出表达式会直接报错，不会静默忽略。
 
+## 代码结构
+
+- `src/netlist/reader.cpp`：文件读取、注释与续行处理，以及 `.end` 位置校验。
+- `src/netlist/subcircuit.cpp`：`.subckt` 定义收集和 `X` 实例递归展平；不依赖 `Circuit`，只输出原语 token。
+- `src/netlist/parser.cpp`：控制卡、模型和原语器件的语义校验与构造。
+- `src/circuit/`：节点编号、MNA 构建及 OP/TRAN/PTA 求解调度。
+- `src/io/`：listing 与 ASCII rawfile 写出。
+
+这种分层使网表语法、层次展开和求解模型可以独立演进。大型网表的普通逻辑行不再长期保留原始文本；子电路引脚索引在定义阶段预计算，展开每个实例时无需构造临时绑定表。
+
 ## 已支持功能
 
 ### 器件
