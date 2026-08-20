@@ -258,6 +258,113 @@ def main():
                 "unknown command-line OP field diagnostic is absent",
             )
 
+            locked_tran = root / "locked-tran.cir"
+            locked_tran.write_text(
+                "Netlist transient controls take priority\n"
+                "V1 in 0 1\n"
+                "R1 in out 1k\n"
+                "C1 out 0 1n\n"
+                ".tran 1n 4n 0 1n UIC\n"
+                ".end\n"
+            )
+            locked_tran_config = root / "locked-tran.json"
+            locked_tran_config.write_text(
+                "{\n"
+                '  "schema_version": 1,\n'
+                '  "tran": {\n'
+                '    "enabled": false,\n'
+                '    "output_interval": -1,\n'
+                '    "stop_time": -1,\n'
+                '    "output_start_time": -1,\n'
+                '    "maximum_step": -1,\n'
+                '    "use_initial_conditions": false\n'
+                "  }\n"
+                "}\n"
+            )
+            result = run(
+                simulator,
+                "--config",
+                locked_tran_config,
+                locked_tran,
+            )
+            require(
+                result.returncode == 0,
+                "netlist .tran controls did not override config values: "
+                f"{result.stderr}",
+            )
+            result = run(
+                simulator,
+                "--tran-option",
+                "enabled=false",
+                "--tran-option",
+                "output-interval=-1",
+                "--tran-option",
+                "stop-time=-1",
+                "--tran-option",
+                "output-start-time=-1",
+                "--tran-option",
+                "maximum-step=-1",
+                "--tran-option",
+                "use-initial-conditions=false",
+                locked_tran,
+            )
+            require(
+                result.returncode == 0,
+                "netlist .tran controls did not override CLI values: "
+                f"{result.stderr}",
+            )
+
+            locked_pstran = root / "locked-pstran.cir"
+            locked_pstran.write_text(
+                "Netlist pseudo-transient controls take priority\n"
+                "V1 in 0 1\n"
+                "R1 in 0 1k\n"
+                ".pstran convval=1 initstep=1n minstep=1p maxstep=1u "
+                "tau=1n vbe0=0.7 tauramp=1n\n"
+                ".op\n"
+                ".end\n"
+            )
+            locked_pstran_config = root / "locked-pstran.json"
+            locked_pstran_config.write_text(
+                "{\n"
+                '  "schema_version": 1,\n'
+                '  "pta": {\n'
+                '    "mode": "disabled",\n'
+                '    "initial_step": 0,\n'
+                '    "derivative_tolerance": 0,\n'
+                '    "compound_time_constant": -1\n'
+                "  }\n"
+                "}\n"
+            )
+            result = run(
+                simulator,
+                "--config",
+                locked_pstran_config,
+                locked_pstran,
+            )
+            require(
+                result.returncode == 0,
+                "netlist .pstran controls did not override config values: "
+                f"{result.stderr}",
+            )
+            result = run(
+                simulator,
+                "--pta",
+                "disabled",
+                "--pta-option",
+                "initial-step=0",
+                "--pta-option",
+                "derivative-tolerance=0",
+                "--pta-option",
+                "compound-time-constant=-1",
+                locked_pstran,
+            )
+            require(
+                result.returncode == 0,
+                "netlist .pstran controls did not override CLI values: "
+                f"{result.stderr}",
+            )
+
             result = run(
                 simulator,
                 "--config-search-depth",

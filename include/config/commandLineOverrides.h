@@ -6,6 +6,7 @@
 #include "analysis/ptaAnalysis.h"
 #include "analysis/solverOptions.h"
 #include "analysis/transientAnalysis.h"
+#include "config/netlistParameterLocks.h"
 
 namespace simulator::config {
 
@@ -20,7 +21,8 @@ bool applyPtaOption(
     const std::string& assignment,
     PtaAnalysisConfig& options,
     std::string& key,
-    std::string& error
+    std::string& error,
+    const PtaParameterLocks& netlistLocks = {}
 );
 
 bool applyTransientOption(
@@ -29,7 +31,8 @@ bool applyTransientOption(
     std::string& key,
     std::string& error,
     const std::optional<TransientAnalysisConfig>& baseOptions = std::nullopt,
-    std::optional<double> hardMaximumStep = std::nullopt
+    std::optional<double> hardMaximumStep = std::nullopt,
+    const TransientParameterLocks& netlistLocks = {}
 );
 
 }  // namespace simulator::config

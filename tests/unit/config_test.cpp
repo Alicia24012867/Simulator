@@ -38,19 +38,6 @@ void expectRuntimeError(Callback&& callback, const std::string& description){
     expect(threw, description);
 }
 
-template<class Callback>
-void expectInvalidArgument(Callback&& callback,
-                           const std::string& description){
-    bool threw = false;
-    try {
-        callback();
-    } catch(const std::invalid_argument&) {
-        threw = true;
-    } catch(...) {
-    }
-    expect(threw, description);
-}
-
 class TemporaryDirectory {
 public:
     TemporaryDirectory(){
@@ -473,8 +460,8 @@ void testConfigOverrideApplication(){
     expect(
         transient && transient->outputInterval == 2e-9 &&
             transient->stopTime == 20e-9 &&
-            transient->maximumStep && *transient->maximumStep == 1e-9,
-        "transient settings apply without relaxing netlist step caps"
+            transient->maximumStep && *transient->maximumStep == 5e-9,
+        "transient settings are applied when no netlist field is locked"
     );
     expect(
         transient && transient->solverOptions.maximumRejects == 4 &&
@@ -487,17 +474,20 @@ void testConfigOverrideApplication(){
             {"schema_version": 1, "pta": {"mode": "disabled"}}
         )"))
     );
-    expectInvalidArgument(
-        [&] {
-            simulator::config::applyConfigOverrides(
-                invalidPstranMode,
-                operatingPoint,
-                pta,
-                transient,
-                true
-            );
-        },
-        ".pstran mode cannot be disabled by configuration"
+    simulator::config::NetlistAnalysisParameterLocks pstranLocks;
+    pstranLocks.pta.mode = true;
+    pta.mode = PtaMode::Force;
+    simulator::config::applyConfigOverrides(
+        invalidPstranMode,
+        operatingPoint,
+        pta,
+        transient,
+        true,
+        pstranLocks
+    );
+    expect(
+        pta.mode == PtaMode::Force,
+        ".pstran mode silently takes priority over configuration"
     );
 
     const auto invalidOperatingPoint = simulator::config::parseConfigOverrides(
@@ -708,6 +698,108 @@ void testCommandLineOverrideApplication(){
     );
 }
 
+void testNetlistParameterLocks(){
+    const auto overrides = simulator::config::parseConfigOverrides(
+        loadedConfigFor(nlohmann::json::parse(R"(
+            {
+                "schema_version": 1,
+                "pta": {
+                    "mode": "disabled",
+                    "initial_step": "2n",
+                    "derivative_tolerance": 0.4,
+                    "compound_time_constant": "5n"
+                },
+                "tran": {
+                    "enabled": false,
+                    "output_interval": "2n",
+                    "stop_time": "20n",
+                    "output_start_time": "3n",
+                    "maximum_step": "4n",
+                    "use_initial_conditions": false,
+                    "solver": {"maximum_rejects": 3}
+                }
+            }
+        )"))
+    );
+
+    simulator::config::NetlistAnalysisParameterLocks locks;
+    locks.pta.mode = true;
+    locks.pta.initialStep = true;
+    locks.pta.derivativeTolerance = true;
+    locks.pta.compoundTimeConstant = true;
+    locks.transient.enabled = true;
+    locks.transient.outputInterval = true;
+    locks.transient.stopTime = true;
+    locks.transient.outputStartTime = true;
+    locks.transient.maximumStep = true;
+    locks.transient.useInitialConditions = true;
+
+    PtaAnalysisConfig pta;
+    pta.mode = PtaMode::Force;
+    pta.initialStep = 1e-9;
+    pta.derivativeTolerance = 0.8;
+    pta.compoundTimeConstant = 1e-9;
+    std::optional<TransientAnalysisConfig> transient;
+    transient.emplace();
+    transient->outputInterval = 1e-9;
+    transient->stopTime = 10e-9;
+    transient->outputStartTime = 2e-9;
+    transient->maximumStep = 3e-9;
+    transient->useInitialConditions = true;
+
+    OperatingPointSolverOptions operatingPoint;
+    simulator::config::applyConfigOverrides(
+        overrides,
+        operatingPoint,
+        pta,
+        transient,
+        true,
+        locks
+    );
+    expect(
+        pta.mode == PtaMode::Force &&
+            std::abs(pta.initialStep - 1e-9) < 1e-20 &&
+            pta.derivativeTolerance == 0.8 &&
+            std::abs(pta.compoundTimeConstant - 1e-9) < 1e-20,
+        "locked PTA netlist parameters take priority over configuration"
+    );
+    expect(
+        transient && std::abs(transient->outputInterval - 1e-9) < 1e-20 &&
+            std::abs(transient->stopTime - 10e-9) < 1e-19 &&
+            std::abs(transient->outputStartTime - 2e-9) < 1e-20 &&
+            transient->maximumStep &&
+            std::abs(*transient->maximumStep - 3e-9) < 1e-20 &&
+            transient->useInitialConditions &&
+            transient->solverOptions.maximumRejects == 3,
+        "locked TRAN card values win while unset solver values are injected"
+    );
+
+    std::string key;
+    std::string error;
+    const bool ptaApplied = simulator::config::applyPtaOption(
+        "initial-step=4n",
+        pta,
+        key,
+        error,
+        locks.pta
+    );
+    const bool tranApplied = simulator::config::applyTransientOption(
+        "stop-time=40n",
+        transient,
+        key,
+        error,
+        std::nullopt,
+        std::nullopt,
+        locks.transient
+    );
+    expect(
+        ptaApplied && tranApplied &&
+            std::abs(pta.initialStep - 1e-9) < 1e-20 && transient &&
+            std::abs(transient->stopTime - 10e-9) < 1e-19,
+        "locked netlist parameters silently take priority over CLI values"
+    );
+}
+
 void testInvalidConfigOverrides(){
     const auto expectInvalid = [](
         const char* document,
@@ -769,6 +861,7 @@ int main(){
         testConfigOverrideParsing();
         testConfigOverrideApplication();
         testCommandLineOverrideApplication();
+        testNetlistParameterLocks();
         testInvalidConfigOverrides();
     } catch(const std::exception& error) {
         std::cerr << "Unexpected test error: " << error.what() << '\n';

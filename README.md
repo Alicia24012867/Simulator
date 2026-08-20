@@ -199,7 +199,7 @@ make
 
 ### 配置文件发现与校验
 
-程序可读取名为 `config.json` 的 JSON 配置文件，用于覆盖 OP、PTA 和 TRAN 的求解参数。不存在配置文件时，全部默认值与此前保持一致。
+程序可读取名为 `config.json` 的 JSON 配置文件，用于注入 OP、PTA 和 TRAN 的求解参数。不存在配置文件时，全部默认值与此前保持一致。网表控制卡中显式给出的同名参数始终优先于配置文件。
 
 默认会从进程的当前工作目录开始查找 `config.json`，再逐级查找父目录；默认最多向上查找 8 个父目录。找到最近的文件后停止搜索。注意搜索起点是启动 `spice` 时的工作目录，而不是网表文件所在的目录。
 
@@ -304,7 +304,9 @@ make
 
 `--op-option` 支持 `newton.*` 与 `source-stepping.*` 的所有字段。`--pta-option` 支持 `pta` 的全部字段，PTA 模式则继续使用现有的 `--pta disabled|force|fallback`；`initial-bjt-vbe=null` 可清空该可选值。`--tran-option` 支持 `tran` 顶层字段与 `solver.*` 的全部字段，`enabled=false` 可禁用瞬态分析，其他 TRAN 字段会在不存在 `.tran` 时创建一个瞬态分析配置；新建配置仍必须最终提供有效的 `output-interval` 与 `stop-time`。所有数值均支持 SPICE 单位后缀（如 `1n`、`10u`），布尔值接受 `true`/`false` 或 `1`/`0`。
 
-覆盖优先级为“内建默认值 < 网表控制卡 < `config.json` < 显式 CLI 分析参数”。命令行覆盖在配置文件之后依次执行，因此可修正配置文件中最终无效的组合参数。`.pstran` 始终强制 PTA 模式；配置文件不能将其改为 `disabled` 或 `fallback`，且不能与命令行 `--pta` 同用。网表的 `TMAX` / `DELMAX` 是硬上限，因此 `tran.maximum_step` 与 `--tran-option maximum-step=...` 可覆盖配置文件的同名值，但不能超过网表给定的上限。`tran` 节点会启用瞬态分析；`enabled: false` 可显式禁用网表中的瞬态分析。
+覆盖优先级为“内建默认值 < `config.json` < 显式 CLI 分析参数 < 网表控制卡”。配置文件与命令行的同名值相互冲突时仍由命令行优先；但只要 `.cir` / `.sp` 中已显式设置该参数，程序便静默保留网表值，不输出警告或错误。
+
+目前受保护的网表控制字段包括 `.tran` 的 `TSTEP`、`TSTOP`、显式 `TSTART`、`TMAX` 和 `UIC`，`.options DELMAX`，以及 `.pstran` 中显式给出的 `convval`、`initstep`、`minstep`、`maxstep`、`tau`、`vbe0`、`tauramp` 与 PTA 模式。未由网表给出的 OP 参数、TRAN 求解器参数及 PTA 其他参数仍可由配置文件或命令行注入。`.pstran` 始终强制 PTA 模式，因此与 `--pta` 或 `pta.mode` 冲突时会静默保留 `force`。网表的 `TMAX` / `DELMAX` 是硬上限，外部的 `tran.maximum_step` 或 `--tran-option maximum-step=...` 不会改变它。网表含 `.tran` 时，外部 `enabled=false` 也不会禁用该分析；没有 `.tran` 时，`enabled: false` 仍可禁用由外部配置创建的瞬态分析。
 
 查看命令行帮助：
 

@@ -26,13 +26,21 @@ struct PrintVariable {
 // for syntax compatibility until its model-specific scaling rule is known.
 struct PstranAnalysisConfig {
     double convergenceValue = 1.0;
+    bool convergenceValueSpecified = false;
     double initialStep = 1.0e-9;
+    bool initialStepSpecified = false;
     double minimumStep = 1.0e-15;
+    bool minimumStepSpecified = false;
     double maximumStep = 1.0e3;
+    bool maximumStepSpecified = false;
     double tau = 0.0;
+    bool tauSpecified = false;
     double vbe0 = 0.0;
+    bool vbe0Specified = false;
     double kvgs0 = 0.0;
+    bool kvgs0Specified = false;
     double tauRamp = 0.0;
+    bool tauRampSpecified = false;
 
     PtaAnalysisConfig makePtaConfig() const {
         PtaAnalysisConfig config;
@@ -49,6 +57,12 @@ struct PstranAnalysisConfig {
     }
 };
 
+struct TransientNetlistParameterPresence {
+    bool outputStartTime = false;
+    bool maximumStep = false;
+    bool useInitialConditions = false;
+};
+
 // Analysis requests found in one netlist. More analysis types can be added here
 // without changing Parser's public result interface.
 struct AnalysisPlan {
@@ -56,6 +70,8 @@ struct AnalysisPlan {
     bool operatingPointPrintRequested = false;
     bool transientPrintRequested = false;
     std::optional<TransientAnalysisConfig> transient;
+    std::optional<TransientNetlistParameterPresence>
+        transientNetlistParameters;
     // HSPICE-compatible .option(s) DELMAX.  Once a .tran card is present it
     // is folded into TransientAnalysisConfig::maximumStep as a hard cap.
     std::optional<double> delmax;

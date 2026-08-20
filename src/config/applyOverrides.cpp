@@ -65,27 +65,28 @@ PtaMode toPtaMode(PtaModeOverride mode){
 void applyPtaOverrides(
     const PtaOverrides& overrides,
     PtaAnalysisConfig& config,
-    bool pstranForcesPtaMode
+    bool pstranForcesPtaMode,
+    const PtaParameterLocks& netlistLocks
 ){
-    if(overrides.mode){
-        const PtaMode mode = toPtaMode(*overrides.mode);
-        if(pstranForcesPtaMode && mode != PtaMode::Force){
-            throw std::invalid_argument(
-                ".pstran cannot be combined with a non-force PTA mode"
-            );
-        }
-        config.mode = mode;
+    if(overrides.mode && !netlistLocks.mode){
+        config.mode = toPtaMode(*overrides.mode);
     }
     if(overrides.newton){
         applyNewtonOverrides(*overrides.newton, config.newtonOptions);
     }
 
-    if(overrides.initialStep) config.initialStep = *overrides.initialStep;
-    if(overrides.minimumStep) config.minimumStep = *overrides.minimumStep;
-    if(overrides.maximumStep) config.maximumStep = *overrides.maximumStep;
+    if(overrides.initialStep && !netlistLocks.initialStep) {
+        config.initialStep = *overrides.initialStep;
+    }
+    if(overrides.minimumStep && !netlistLocks.minimumStep) {
+        config.minimumStep = *overrides.minimumStep;
+    }
+    if(overrides.maximumStep && !netlistLocks.maximumStep) {
+        config.maximumStep = *overrides.maximumStep;
+    }
     if(overrides.maximumSteps) config.maximumSteps = *overrides.maximumSteps;
 
-    if(overrides.derivativeTolerance){
+    if(overrides.derivativeTolerance && !netlistLocks.derivativeTolerance){
         config.derivativeTolerance = *overrides.derivativeTolerance;
     }
     if(overrides.derivativeRelativeTolerance){
@@ -101,7 +102,7 @@ void applyPtaOverrides(
             *overrides.derivativeCurrentAbsoluteTolerance;
     }
 
-    if(overrides.dcResidualTolerance){
+    if(overrides.dcResidualTolerance && !netlistLocks.dcResidualTolerance){
         config.dcResidualTolerance = *overrides.dcResidualTolerance;
     }
     if(overrides.dcResidualRelativeTolerance){
@@ -133,7 +134,8 @@ void applyPtaOverrides(
         config.voltageSourceInductance = *overrides.voltageSourceInductance;
     }
 
-    if(overrides.compoundTimeConstant){
+    if(overrides.compoundTimeConstant &&
+       !netlistLocks.compoundTimeConstant){
         config.compoundTimeConstant = *overrides.compoundTimeConstant;
     }
     if(overrides.compoundInitialResistance){
@@ -142,10 +144,10 @@ void applyPtaOverrides(
     if(overrides.compoundInitialConductance){
         config.compoundInitialConductance = *overrides.compoundInitialConductance;
     }
-    if(overrides.sourceRampTime){
+    if(overrides.sourceRampTime && !netlistLocks.sourceRampTime){
         config.sourceRampTime = *overrides.sourceRampTime;
     }
-    if(overrides.initialBjtVbe.specified){
+    if(overrides.initialBjtVbe.specified && !netlistLocks.initialBjtVbe){
         config.initialBjtVbe = overrides.initialBjtVbe.value;
     }
 
@@ -226,9 +228,10 @@ void applyTransientSolverOverrides(
 
 void applyTransientOverrides(
     const TransientOverrides& overrides,
-    std::optional<TransientAnalysisConfig>& transient
+    std::optional<TransientAnalysisConfig>& transient,
+    const TransientParameterLocks& netlistLocks
 ){
-    if(overrides.enabled && !*overrides.enabled){
+    if(overrides.enabled && !*overrides.enabled && !netlistLocks.enabled){
         transient.reset();
         return;
     }
@@ -238,21 +241,19 @@ void applyTransientOverrides(
     }
 
     TransientAnalysisConfig& config = *transient;
-    if(overrides.outputInterval){
+    if(overrides.outputInterval && !netlistLocks.outputInterval){
         config.outputInterval = *overrides.outputInterval;
     }
-    if(overrides.stopTime){
+    if(overrides.stopTime && !netlistLocks.stopTime){
         config.stopTime = *overrides.stopTime;
     }
-    if(overrides.outputStartTime){
+    if(overrides.outputStartTime && !netlistLocks.outputStartTime){
         config.outputStartTime = *overrides.outputStartTime;
     }
-    if(overrides.maximumStep){
-        config.maximumStep = config.maximumStep
-            ? std::min(*config.maximumStep, *overrides.maximumStep)
-            : *overrides.maximumStep;
+    if(overrides.maximumStep && !netlistLocks.maximumStep){
+        config.maximumStep = *overrides.maximumStep;
     }
-    if(overrides.useInitialConditions){
+    if(overrides.useInitialConditions && !netlistLocks.useInitialConditions){
         config.useInitialConditions = *overrides.useInitialConditions;
     }
     if(overrides.solver){
@@ -267,7 +268,8 @@ void applyConfigOverrides(
     OperatingPointSolverOptions& operatingPoint,
     PtaAnalysisConfig& pta,
     std::optional<TransientAnalysisConfig>& transient,
-    bool pstranForcesPtaMode
+    bool pstranForcesPtaMode,
+    const NetlistAnalysisParameterLocks& netlistLocks
 ){
     if(overrides.operatingPoint){
         if(overrides.operatingPoint->newton){
@@ -285,11 +287,20 @@ void applyConfigOverrides(
     }
 
     if(overrides.pta){
-        applyPtaOverrides(*overrides.pta, pta, pstranForcesPtaMode);
+        applyPtaOverrides(
+            *overrides.pta,
+            pta,
+            pstranForcesPtaMode,
+            netlistLocks.pta
+        );
     }
 
     if(overrides.transient){
-        applyTransientOverrides(*overrides.transient, transient);
+        applyTransientOverrides(
+            *overrides.transient,
+            transient,
+            netlistLocks.transient
+        );
     }
 }
 

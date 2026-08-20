@@ -477,6 +477,7 @@ bool Parser::parseAnalysisDirective(const std::vector<std::string>& tokens){
     }
 
     TransientAnalysisConfig config;
+    TransientNetlistParameterPresence presence;
     config.outputInterval = parse_spice_number(tokens[1]);
     config.stopTime = parse_spice_number(tokens[2]);
 
@@ -494,6 +495,7 @@ bool Parser::parseAnalysisDirective(const std::vector<std::string>& tokens){
                 throw std::runtime_error(".tran specifies UIC more than once");
             }
             config.useInitialConditions = true;
+            presence.useInitialConditions = true;
             continue;
         }
         optionalTimes.push_back(parse_spice_number(tokens[i]));
@@ -504,6 +506,7 @@ bool Parser::parseAnalysisDirective(const std::vector<std::string>& tokens){
     }
     if(!optionalTimes.empty()){
         config.outputStartTime = optionalTimes[0];
+        presence.outputStartTime = true;
         if(config.outputStartTime < 0.0 ||
            config.outputStartTime >= config.stopTime){
             throw std::runtime_error(".tran TSTART must be non-negative and smaller than TSTOP");
@@ -511,12 +514,14 @@ bool Parser::parseAnalysisDirective(const std::vector<std::string>& tokens){
     }
     if(optionalTimes.size() == 2){
         config.maximumStep = optionalTimes[1];
+        presence.maximumStep = true;
         if(*config.maximumStep <= 0.0){
             throw std::runtime_error(".tran TMAX must be positive");
         }
     }
 
     analysisPlan_.transient = config;
+    analysisPlan_.transientNetlistParameters = presence;
     return true;
 }
 
@@ -603,20 +608,28 @@ void Parser::parsePstranDirective(const std::vector<std::string>& tokens){
         const double parsed = parse_spice_number(value);
         if(key == "convval"){
             config.convergenceValue = parsed;
+            config.convergenceValueSpecified = true;
         } else if(key == "initstep"){
             config.initialStep = parsed;
+            config.initialStepSpecified = true;
         } else if(key == "minstep"){
             config.minimumStep = parsed;
+            config.minimumStepSpecified = true;
         } else if(key == "maxstep"){
             config.maximumStep = parsed;
+            config.maximumStepSpecified = true;
         } else if(key == "tau"){
             config.tau = parsed;
+            config.tauSpecified = true;
         } else if(key == "vbe0"){
             config.vbe0 = parsed;
+            config.vbe0Specified = true;
         } else if(key == "kvgs0"){
             config.kvgs0 = parsed;
+            config.kvgs0Specified = true;
         } else if(key == "tauramp"){
             config.tauRamp = parsed;
+            config.tauRampSpecified = true;
         } else {
             throw std::runtime_error("Unsupported .pstran parameter: " + key);
         }

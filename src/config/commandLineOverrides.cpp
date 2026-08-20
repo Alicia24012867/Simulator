@@ -97,6 +97,36 @@ TransientAnalysisConfig& requireTransientConfig(
     return *options;
 }
 
+bool isPtaOptionLocked(
+    const std::string& key,
+    const PtaParameterLocks& netlistLocks
+){
+    return (key == "initial-step" && netlistLocks.initialStep) ||
+        (key == "minimum-step" && netlistLocks.minimumStep) ||
+        (key == "maximum-step" && netlistLocks.maximumStep) ||
+        (key == "derivative-tolerance" &&
+         netlistLocks.derivativeTolerance) ||
+        (key == "dc-residual-tolerance" &&
+         netlistLocks.dcResidualTolerance) ||
+        (key == "compound-time-constant" &&
+         netlistLocks.compoundTimeConstant) ||
+        (key == "source-ramp-time" && netlistLocks.sourceRampTime) ||
+        (key == "initial-bjt-vbe" && netlistLocks.initialBjtVbe);
+}
+
+bool isTransientOptionLocked(
+    const std::string& key,
+    const TransientParameterLocks& netlistLocks
+){
+    return (key == "enabled" && netlistLocks.enabled) ||
+        (key == "output-interval" && netlistLocks.outputInterval) ||
+        (key == "stop-time" && netlistLocks.stopTime) ||
+        (key == "output-start-time" && netlistLocks.outputStartTime) ||
+        (key == "maximum-step" && netlistLocks.maximumStep) ||
+        (key == "use-initial-conditions" &&
+         netlistLocks.useInitialConditions);
+}
+
 }  // namespace
 
 bool applyOperatingPointOption(
@@ -146,11 +176,15 @@ bool applyPtaOption(
     const std::string& assignment,
     PtaAnalysisConfig& options,
     std::string& key,
-    std::string& error
+    std::string& error,
+    const PtaParameterLocks& netlistLocks
 ){
     std::string value;
     if(!splitAssignment(assignment, key, value, error)){
         return false;
+    }
+    if(isPtaOptionLocked(key, netlistLocks)){
+        return true;
     }
 
     if(key == "newton.maximum-iterations"){
@@ -270,11 +304,15 @@ bool applyTransientOption(
     std::string& key,
     std::string& error,
     const std::optional<TransientAnalysisConfig>& baseOptions,
-    std::optional<double> hardMaximumStep
+    std::optional<double> hardMaximumStep,
+    const TransientParameterLocks& netlistLocks
 ){
     std::string value;
     if(!splitAssignment(assignment, key, value, error)){
         return false;
+    }
+    if(isTransientOptionLocked(key, netlistLocks)){
+        return true;
     }
 
     if(key == "enabled"){

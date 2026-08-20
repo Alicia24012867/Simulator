@@ -70,7 +70,7 @@ void printUsage(std::ostream& os, const char* program){
        << "  --config path              Read this configuration file only\n"
        << "  --config-search-depth N    Search at most N parent directories\n"
        << "  --print-config-path         Report the selected configuration file\n";
-    os << "\nAnalysis overrides (repeat as needed; CLI wins over config.json):\n"
+    os << "\nAnalysis overrides (repeat as needed; netlist controls win):\n"
        << "  --op-option name=value    OP fields: newton.* or source-stepping.*\n"
        << "  --tran-option name=value  TRAN fields: top-level or solver.*\n"
        << "  --pta-option name=value   PTA fields below; --pta selects its mode\n";
@@ -134,6 +134,44 @@ bool parsePtaMode(const std::string& text, PtaMode& mode){
         return true;
     }
     return false;
+}
+
+simulator::config::NetlistAnalysisParameterLocks
+netlistParameterLocks(const AnalysisPlan& plan){
+    simulator::config::NetlistAnalysisParameterLocks locks;
+
+    if(plan.transient){
+        locks.transient.enabled = true;
+        locks.transient.outputInterval = true;
+        locks.transient.stopTime = true;
+
+        if(plan.transientNetlistParameters){
+            const auto& presence = *plan.transientNetlistParameters;
+            locks.transient.outputStartTime = presence.outputStartTime;
+            locks.transient.maximumStep = presence.maximumStep;
+            locks.transient.useInitialConditions =
+                presence.useInitialConditions;
+        }
+        if(plan.delmax){
+            locks.transient.maximumStep = true;
+        }
+    }
+
+    if(plan.pseudoTransient){
+        const auto& pstran = *plan.pseudoTransient;
+        locks.pta.mode = true;
+        locks.pta.initialStep = pstran.initialStepSpecified;
+        locks.pta.minimumStep = pstran.minimumStepSpecified;
+        locks.pta.maximumStep = pstran.maximumStepSpecified ||
+            plan.delmax.has_value();
+        locks.pta.derivativeTolerance = pstran.convergenceValueSpecified;
+        locks.pta.dcResidualTolerance = pstran.convergenceValueSpecified;
+        locks.pta.compoundTimeConstant = pstran.tauSpecified;
+        locks.pta.sourceRampTime = pstran.tauRampSpecified;
+        locks.pta.initialBjtVbe = pstran.vbe0Specified;
+    }
+
+    return locks;
 }
 
 bool parseCommandLine(int argc,
@@ -644,10 +682,7 @@ int main(int argc, char* argv[]){
     }
 
     AnalysisPlan plan = parser.analysisPlan();
-    if(plan.pseudoTransient && options.ptaModeSpecified){
-        std::cerr << ".pstran cannot be combined with command-line --pta mode\n";
-        return 2;
-    }
+    const auto netlistLocks = netlistParameterLocks(plan);
 
     const std::optional<TransientAnalysisConfig> netlistTransient =
         plan.transient;
@@ -665,7 +700,8 @@ int main(int argc, char* argv[]){
             operatingPointConfig,
             ptaConfig,
             plan.transient,
-            plan.pseudoTransient.has_value()
+            plan.pseudoTransient.has_value(),
+            netlistLocks
         );
 
         for(const std::string& assignment:
@@ -685,7 +721,7 @@ int main(int argc, char* argv[]){
             }
         }
 
-        if(options.ptaModeSpecified){
+        if(options.ptaModeSpecified && !netlistLocks.pta.mode){
             ptaConfig.mode = options.ptaMode;
         }
         for(const std::string& assignment: options.ptaOptionAssignments){
@@ -695,7 +731,8 @@ int main(int argc, char* argv[]){
                    assignment,
                    ptaConfig,
                    key,
-                   error)){
+                   error,
+                   netlistLocks.pta)){
                 throw std::invalid_argument(
                     "invalid command-line PTA option <" + assignment +
                     ">: " + error
@@ -711,7 +748,8 @@ int main(int argc, char* argv[]){
                    key,
                    error,
                    netlistTransient,
-                   netlistMaximumTransientStep)){
+                   netlistMaximumTransientStep,
+                   netlistLocks.transient)){
                 throw std::invalid_argument(
                     "invalid command-line TRAN option <" + assignment +
                     ">: " + error

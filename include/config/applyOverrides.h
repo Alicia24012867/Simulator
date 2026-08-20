@@ -5,6 +5,7 @@
 #include "analysis/ptaAnalysis.h"
 #include "analysis/solverOptions.h"
 #include "analysis/transientAnalysis.h"
+#include "config/netlistParameterLocks.h"
 #include "config/overrides.h"
 
 namespace simulator::config {
@@ -14,7 +15,8 @@ void applyConfigOverrides(
     OperatingPointSolverOptions& operatingPoint,
     PtaAnalysisConfig& pta,
     std::optional<TransientAnalysisConfig>& transient,
-    bool pstranForcesPtaMode
+    bool pstranForcesPtaMode,
+    const NetlistAnalysisParameterLocks& netlistLocks = {}
 );
 
 }  // namespace simulator::config
