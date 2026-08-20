@@ -152,6 +152,21 @@ def main():
                 "-b",
                 "--output-root",
                 debug_disabled_root,
+                valid,
+            )
+            require(
+                result.returncode == 0,
+                f"initial debug-enabled run failed: {result.stderr}",
+            )
+            require(
+                (debug_disabled_root / "valid" / "valid.solve.txt").is_file(),
+                "initial debug-enabled run did not write a solve report",
+            )
+            result = run(
+                simulator,
+                "-b",
+                "--output-root",
+                debug_disabled_root,
                 "--debug",
                 "false",
                 valid,
@@ -168,7 +183,7 @@ def main():
                 )
             require(
                 not (debug_disabled_bundle / "valid.solve.txt").exists(),
-                "CLI debug=false unexpectedly wrote a solve report",
+                "CLI debug=false did not remove the stale solve report",
             )
 
             debug_config = root / "debug-disabled.json"
@@ -1046,6 +1061,18 @@ def main():
 
             no_report_failure = root / "unsolved-no-report.cir"
             no_report_failure.write_text(unsolved.read_text())
+            result = run(simulator, "-b", no_report_failure)
+            require(
+                result.returncode != 0,
+                "initial debug-enabled singular circuit unexpectedly solved",
+            )
+            no_report_bundle = root / "unsolved-no-report"
+            require(
+                (
+                    no_report_bundle / "unsolved-no-report.solve.txt"
+                ).is_file(),
+                "initial debug-enabled failure did not write a solve report",
+            )
             result = run(
                 simulator,
                 "-b",
@@ -1057,7 +1084,6 @@ def main():
                 result.returncode != 0,
                 "debug=false singular circuit unexpectedly solved",
             )
-            no_report_bundle = root / "unsolved-no-report"
             require(
                 (no_report_bundle / "unsolved-no-report.err").is_file(),
                 "debug=false failure did not preserve the error log",
@@ -1066,7 +1092,7 @@ def main():
                 not (
                     no_report_bundle / "unsolved-no-report.solve.txt"
                 ).exists(),
-                "debug=false failure unexpectedly wrote a solve report",
+                "debug=false failure did not remove the stale solve report",
             )
             print("PASS solve failure preserves existing output")
         except Exception as exc:

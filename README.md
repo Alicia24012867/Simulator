@@ -181,10 +181,10 @@ Values:
 ### 错误日志与求解报告
 
 - `.err` 保存本次运行写到 stderr 的内容；成功且未请求额外诊断时通常为空。诊断仍会同步显示在终端。
-- `.solve.txt` 默认启用，保存运行状态、总墙钟时间、电路器件构成、节点与 MNA 规模、当前解幅值范围、实际求解方法链、每阶段迭代/阻尼/失败原因、source stepping 每次尝试、PTA 每个伪时间步及收敛指标、TRAN 接受/拒绝步统计、CPU/墙钟用时、最终生效配置和基于诊断指标生成的调参观察项。使用 `--debug false` 或配置文件根字段 `"debug": false` 可关闭本次运行的 `.solve.txt` 写入；`.out`、`.raw` 和 `.err` 仍照常生成。
+- `.solve.txt` 默认启用，保存运行状态、总墙钟时间、电路器件构成、节点与 MNA 规模、当前解幅值范围、实际求解方法链、每阶段迭代/阻尼/失败原因、source stepping 每次尝试、PTA 每个伪时间步及收敛指标、TRAN 接受/拒绝步统计、CPU/墙钟用时、最终生效配置和基于诊断指标生成的调参观察项。使用 `--debug false` 或配置文件根字段 `"debug": false` 会关闭本次运行的报告写入，并在提交本次 artifact 时移除该 bundle 中已有的旧 `.solve.txt`；`.out`、`.raw` 和 `.err` 仍照常生成。
 - Fallback 报告会保留完整链路，例如 `direct Newton failed -> source stepping failed -> adaptive PTA succeeded`，不会只保留最后一次 PTA 结果。
 
-输出数值使用 classic locale、科学计数法，并拒绝写出 NaN/Inf。成功运行先在内存中生成结果，再将 `.out/.raw/.err` 和（启用 debug 时）`.solve.txt` 作为一组事务提交；任一暂存或替换失败都会回滚。解析、构建或求解失败时只更新 `.err` 和（启用时）`.solve.txt`，已有的有效 `.out/.raw` 保持不变。input、四个规范 artifact 和兼容 listing/raw 镜像不能通过规范路径、符号链接或硬链接相互指向同一文件。
+输出数值使用 classic locale、科学计数法，并拒绝写出 NaN/Inf。成功运行先在内存中生成结果，再将 `.out/.raw/.err` 和（启用 debug 时）`.solve.txt` 作为一组事务提交；关闭 debug 时，同一事务会移除旧 `.solve.txt`。任一暂存、替换或移除失败都会回滚。解析、构建或求解失败时只更新 `.err` 和（启用时）`.solve.txt`，或在关闭 debug 时移除旧报告；已有的有效 `.out/.raw` 保持不变。input、四个规范 artifact 和兼容 listing/raw 镜像不能通过规范路径、符号链接或硬链接相互指向同一文件。
 
 ## 构建与运行
 

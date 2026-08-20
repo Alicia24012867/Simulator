@@ -439,6 +439,7 @@ struct StagedOutput {
     std::filesystem::path temporary;
     std::filesystem::path backup;
     const char* description = nullptr;
+    bool removeOnly = false;
     bool committed = false;
 };
 
@@ -446,6 +447,7 @@ struct PendingOutput {
     std::filesystem::path destination;
     std::string_view content;
     const char* description = nullptr;
+    bool removeOnly = false;
 };
 
 std::filesystem::path normalizedPath(const std::filesystem::path& path){
@@ -577,6 +579,15 @@ bool stageFile(const std::filesystem::path& path,
     return true;
 }
 
+bool stageRemoval(const std::filesystem::path& path,
+                  const char* description,
+                  StagedOutput& staged){
+    staged.destination = path;
+    staged.description = description;
+    staged.removeOnly = true;
+    return true;
+}
+
 bool commitStagedOutputs(std::vector<StagedOutput>& outputs,
                          std::ostream& error){
     const auto rollback = [&outputs, &error](){
@@ -672,6 +683,9 @@ bool commitStagedOutputs(std::vector<StagedOutput>& outputs,
     }
 
     for(auto& output: outputs){
+        if(output.removeOnly){
+            continue;
+        }
         std::error_code collisionError;
         if(std::filesystem::exists(output.destination, collisionError)){
             error << "Output destination appeared during commit <"
@@ -705,6 +719,32 @@ bool commitStagedOutputs(std::vector<StagedOutput>& outputs,
         output.committed = true;
     }
 
+    // Remove stale artifacts before deleting ordinary backups.  If removal
+    // fails, rollback can still restore every pre-run file, including the
+    // stale artifact that was moved aside for removal.
+    for(auto& output: outputs){
+        if(!output.removeOnly || output.backup.empty()){
+            continue;
+        }
+
+        std::error_code removalError;
+        const bool removed = std::filesystem::remove(
+            output.backup,
+            removalError
+        );
+        if(removalError || !removed){
+            error << "Cannot remove stale " << output.description << " <"
+                  << output.destination.string() << ">";
+            if(removalError){
+                error << ": " << removalError.message();
+            }
+            error << '\n';
+            rollback();
+            return false;
+        }
+        output.backup.clear();
+    }
+
     for(auto& output: outputs){
         removeTemporaryOutput(output.backup);
         output.backup.clear();
@@ -720,12 +760,20 @@ bool writeOutputsAtomically(const std::vector<PendingOutput>& pendingOutputs,
 
     for(const auto& pending: pendingOutputs){
         StagedOutput staged;
-        if(!stageFile(
-               pending.destination,
-               pending.content,
-               pending.description,
-               staged,
-               error)){
+        const bool stagedSuccessfully = pending.removeOnly
+            ? stageRemoval(
+                pending.destination,
+                pending.description,
+                staged
+            )
+            : stageFile(
+                pending.destination,
+                pending.content,
+                pending.description,
+                staged,
+                error
+            );
+        if(!stagedSuccessfully){
             discardStagedOutputs(stagedOutputs);
             return false;
         }
@@ -960,7 +1008,8 @@ bool SpiceOutputFiles::writeAtomically(
         {
             {paths.listingPath, listing, "listing output"},
             {paths.rawPath, raw, "raw output"},
-            {paths.errorPath, errorLog, "error log"}
+            {paths.errorPath, errorLog, "error log"},
+            {paths.reportPath, {}, "solve report", true}
         },
         error
     );
@@ -991,7 +1040,10 @@ bool SpiceOutputFiles::writeFailureAtomically(
     std::ostream& error
 ){
     return writeOutputsAtomically(
-        {{paths.errorPath, errorLog, "error log"}},
+        {
+            {paths.errorPath, errorLog, "error log"},
+            {paths.reportPath, {}, "solve report", true}
+        },
         error
     );
 }
