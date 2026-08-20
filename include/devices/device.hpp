@@ -81,6 +81,10 @@ public:
         return -1;
     }
 
+    virtual double nominalSourceValue() const {
+        return 0.0;
+    }
+
     virtual bool isNonlinear() const {
         return false;
     }
@@ -97,6 +101,8 @@ public:
     }
 
     virtual void setOperatingPointSourceScale(double) {}
+
+    virtual void initializePtaState(double) {}
 
     virtual void saveIterationState() {}
 

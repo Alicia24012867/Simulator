@@ -19,6 +19,10 @@ public:
         return branch;
     }
 
+    double nominalSourceValue() const override{
+        return v;
+    }
+
     void pattern(MNA& mna) override{
         assert(branch >= 0);
 

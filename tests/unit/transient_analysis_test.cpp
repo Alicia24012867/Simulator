@@ -339,6 +339,96 @@ void testPtaConfigValidation(){
         [&config] { config.validate(); },
         "negative DC residual relative tolerance is invalid"
     );
+
+    config = PtaAnalysisConfig{};
+    config.compoundTimeConstant = -1.0;
+    expectInvalidArgument(
+        [&config] { config.validate(); },
+        "negative CEPTA time constant is invalid"
+    );
+
+    config = PtaAnalysisConfig{};
+    config.sourceRampTime = -1.0;
+    expectInvalidArgument(
+        [&config] { config.validate(); },
+        "negative PTA source-ramp time is invalid"
+    );
+
+    config = PtaAnalysisConfig{};
+    config.initialBjtVbe = std::numeric_limits<double>::quiet_NaN();
+    expectInvalidArgument(
+        [&config] { config.validate(); },
+        "non-finite PTA BJT initial voltage is invalid"
+    );
+}
+
+void testPtaSourceRamp(){
+    expectNear(
+        ptaSourceRampScale(0.0, 0.0),
+        1.0,
+        "zero tauramp disables source ramping"
+    );
+    expectNear(
+        ptaSourceRampScale(0.0, 2.0),
+        0.0,
+        "PTA source ramp starts at zero"
+    );
+    expectNear(
+        ptaSourceRampScale(1.0, 2.0),
+        0.5,
+        "PTA cosine source ramp reaches half scale at its midpoint"
+    );
+    expectNear(
+        ptaSourceRampScale(2.0, 2.0),
+        1.0,
+        "PTA source ramp reaches nominal scale at tauramp"
+    );
+    expectNear(
+        ptaSourceRampScale(3.0, 2.0),
+        1.0,
+        "PTA source ramp remains at nominal scale"
+    );
+}
+
+void testPtaCompoundPseudoElements(){
+    MNA capacitorMna;
+    capacitorMna.resize(2);
+    capacitorMna.reservePattern(4);
+    PseudoCapacitor capacitor(0, -1, 1.0, 1.0, 1.0, 1);
+    capacitor.pattern(capacitorMna);
+    capacitorMna.build();
+    capacitor.bindMatrix(capacitorMna);
+
+    const Eigen::VectorXd zero = Eigen::VectorXd::Zero(2);
+    const TransientStampContext capContext{
+        1.0,
+        1.0,
+        {1, 1.0, -1.0, 0.0},
+        zero,
+        nullptr
+    };
+    capacitorMna.clear();
+    capacitor.stampPseudo(capContext);
+    expectNear(
+        *capacitorMna.ptr(1, 1),
+        -(1.0 + std::exp(1.0)),
+        "CEPTA RVC branch uses R0*exp(t/tau) in series with C"
+    );
+
+    MNA inductorMna;
+    inductorMna.resize(2);
+    inductorMna.reservePattern(1);
+    PseudoInductor inductor(0, 1.0, 1.0, 1.0);
+    inductor.pattern(inductorMna);
+    inductorMna.build();
+    inductor.bindMatrix(inductorMna);
+    inductorMna.clear();
+    inductor.stampPseudo(capContext);
+    expectNear(
+        *inductorMna.ptr(0, 0),
+        -1.0 / (1.0 + std::exp(1.0)),
+        "CEPTA GVL stamp uses G0*exp(t/tau) in parallel with L"
+    );
 }
 
 void testPtaNormalizedDerivative(){
@@ -1236,6 +1326,8 @@ void testNewtonStepLimiting(){
 int main(){
     testSolverOptionsValidation();
     testPtaConfigValidation();
+    testPtaSourceRamp();
+    testPtaCompoundPseudoElements();
     testPtaNormalizedDerivative();
     testPtaNormalizedResidual();
     testPtaNodeCapacitanceGrowth();

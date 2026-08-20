@@ -162,6 +162,15 @@ public:
         stampSeriesResistors();
     }
 
+    void initializePtaState(double initialVbe) override{
+        // vbe is stored in intrinsic polarity, so one value works for both
+        // NPN and PNP models.  This seeds the first junction-limiting step
+        // without imposing mutually inconsistent voltages on shared nodes.
+        previousVbe_ = initialVbe;
+        previousVbc_ = 0.0;
+        hasPreviousVoltages_ = true;
+    }
+
     void saveIterationState() override{
         savedPreviousVbe_ = previousVbe_;
         savedPreviousVbc_ = previousVbc_;

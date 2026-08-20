@@ -78,6 +78,8 @@ struct TransientStampContext {
     TransientDerivativeCoefficients derivative;
     const Eigen::VectorXd& previousSolution;
     const Eigen::VectorXd* olderSolution = nullptr;
+    double previousTime = 0.0;
+    double olderTime = 0.0;
 
     double previousSolutionVal(int idx) const {
         if(idx < 0){
@@ -407,7 +409,9 @@ public:
             targetTime - acceptedTime_,
             coefficients(targetTime),
             solutionN_,
-            hasOlderSolution_ ? &solutionNm1_ : nullptr
+            hasOlderSolution_ ? &solutionNm1_ : nullptr,
+            acceptedTime_,
+            hasOlderSolution_ ? acceptedTime_ - previousStep_ : acceptedTime_
         };
     }
 

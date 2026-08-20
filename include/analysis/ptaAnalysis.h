@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <optional>
 #include <stdexcept>
 
 #include <Eigen/Core>
@@ -9,7 +11,7 @@
 enum class PtaMode{
     Disabled,   // normal NR 
     Force,      // pta method is required explicitly
-    Fallback    // pta called when NR failed
+    Fallback    // pta called when NR fails
 };
 
 struct PtaAnalysisConfig{
@@ -39,6 +41,16 @@ struct PtaAnalysisConfig{
     double maximumNodeCapacitance = 1.0e-3;
     double currentSourceCapacitance = 1.0e-12;
     double voltageSourceInductance = 1.0e-9;
+
+    // .pstran compatibility controls.  A positive compoundTimeConstant
+    // selects CEPTA-style RVC/GVL pseudo-elements.  The 1-ohm/1-siemens
+    // initial values match the resval=1 decks distributed with the benchmark
+    // family; the public control card does not expose separate R0/G0 values.
+    double compoundTimeConstant = 0.0;
+    double compoundInitialResistance = 1.0;
+    double compoundInitialConductance = 1.0;
+    double sourceRampTime = 0.0;
+    std::optional<double> initialBjtVbe;
 
     // Adaptive rules
     double failedStepScale = 0.5;         // used when NR failed
@@ -121,6 +133,17 @@ struct PtaAnalysisConfig{
             );
         }
 
+        if(!std::isfinite(compoundTimeConstant) ||
+           compoundTimeConstant < 0.0 ||
+           !isPositiveFinite(compoundInitialResistance) ||
+           !isPositiveFinite(compoundInitialConductance) ||
+           !std::isfinite(sourceRampTime) || sourceRampTime < 0.0 ||
+           (initialBjtVbe && !std::isfinite(*initialBjtVbe))){
+            throw std::invalid_argument(
+                "PTA compound-element, source-ramp, and BJT initial-value controls are invalid"
+            );
+        }
+
         if(!std::isfinite(failedStepScale) ||
            failedStepScale <= 0.0 || failedStepScale >= 1.0){
             throw std::invalid_argument(
@@ -164,6 +187,21 @@ struct PtaAnalysisConfig{
         }
     }
 };
+
+// DPTA source ramp.  The cosine profile has zero slope at both endpoints and
+// tauramp=0 deliberately means that ramping is disabled.
+inline double ptaSourceRampScale(double time, double rampTime) noexcept {
+    if(!std::isfinite(time) || time < 0.0 ||
+       !std::isfinite(rampTime) || rampTime < 0.0){
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    if(rampTime == 0.0 || time >= rampTime){
+        return 1.0;
+    }
+
+    constexpr double pi = 3.141592653589793238462643383279502884;
+    return 0.5 * (1.0 - std::cos(pi * time / rampTime));
+}
 
 struct PtaDerivativeEstimate {
     bool valid = false;

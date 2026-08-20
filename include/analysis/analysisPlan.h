@@ -21,10 +21,9 @@ struct PrintVariable {
 };
 
 // Parameters accepted by the .pstran pseudo-transient control card.  The
-// solver currently has direct equivalents for convval and the step limits.
-// The remaining values are retained so decks using this card can be read
-// without silently discarding their controls; they are not yet consumed by
-// the present pseudo-device model.
+// solver has direct equivalents for convval, the step limits, CEPTA tau,
+// source ramping, and the BJT junction-voltage seed.  kvgs0 remains retained
+// for syntax compatibility until its model-specific scaling rule is known.
 struct PstranAnalysisConfig {
     double convergenceValue = 1.0;
     double initialStep = 1.0e-9;
@@ -43,6 +42,9 @@ struct PstranAnalysisConfig {
         config.maximumStep = maximumStep;
         config.derivativeTolerance = convergenceValue;
         config.dcResidualTolerance = convergenceValue;
+        config.compoundTimeConstant = tau;
+        config.sourceRampTime = tauRamp;
+        config.initialBjtVbe = vbe0;
         return config;
     }
 };

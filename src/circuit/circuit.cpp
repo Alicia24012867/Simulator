@@ -510,11 +510,11 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
         return converged;
     };
 
-    setOperatingPointSourceScale(1.0);
-
     TransientIntegrator integrator;
     double time = 0.0;
     double step = config.initialStep;
+
+    initializePtaStates(config, time);
 
     integrator.Initialize(time, mna_->solution());
 
@@ -542,6 +542,15 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
 
         const Eigen::VectorXd acceptedSolution =
             integrator.currentSolution();
+
+        const double sourceScale = ptaSourceRampScale(
+            nextTime,
+            config.sourceRampTime
+        );
+        if(!std::isfinite(sourceScale)){
+            return finish(false);
+        }
+        setOperatingPointSourceScale(sourceScale);
 
         mna_->setSolution(integrator.predict(nextTime));
         saveNonlinearIterationStates();
@@ -611,7 +620,10 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
             return finish(false);
         }
 
-        // Test the original DC residual F(x), excluding artificial PTA terms.
+        // Test the original DC residual F(x), excluding artificial PTA terms
+        // and always using the nominal independent-source values.  The ramp
+        // is a convergence aid and must not redefine the target DC system.
+        setOperatingPointSourceScale(1.0);
         assembleOperatingPointSystem();
         Eigen::VectorXd matrixProduct;
         Eigen::VectorXd residual;
@@ -871,6 +883,23 @@ void Circuit::setOperatingPointSourceScale(double scale){
     }
 }
 
+void Circuit::initializePtaStates(const PtaAnalysisConfig& config,
+                                  double time){
+    const double sourceScale = ptaSourceRampScale(
+        time,
+        config.sourceRampTime
+    );
+    setOperatingPointSourceScale(sourceScale);
+
+    if(config.initialBjtVbe){
+        for(auto& device: devices_){
+            if(device->getType() == DeviceType::BJT){
+                device->initializePtaState(*config.initialBjtVbe);
+            }
+        }
+    }
+}
+
 void Circuit::saveNonlinearIterationStates(){
     for(auto* device: iterationStateDevices_){
         device->saveIterationState();
@@ -961,6 +990,8 @@ void Circuit::materializePseudoDevices(const PtaAnalysisConfig& config){
         pseudoDevices_.push_back(std::move(device));
     };
 
+    const bool useCompoundElements = config.compoundTimeConstant > 0.0;
+
     for(const PendingPtaPlacement& placement: pendingPtaPlacements_){
         const Device* owner = placement.owner;
         if(owner == nullptr){
@@ -978,10 +1009,18 @@ void Circuit::materializePseudoDevices(const PtaAnalysisConfig& config){
 
                 const int node = nodes[terminal];
                 if(node >= 0 && cappedNodes.insert(node).second){
+                    const int branch = useCompoundElements
+                        ? allocateUnknown()
+                        : -1;
                     auto capacitor = std::make_unique<PseudoCapacitor>(
                         node,
                         -1,
-                        config.initialNodeCapacitance
+                        config.initialNodeCapacitance,
+                        useCompoundElements
+                            ? config.compoundInitialResistance
+                            : 0.0,
+                        config.compoundTimeConstant,
+                        branch
                     );
                     PseudoCapacitor* rawCapacitor = capacitor.get();
 
@@ -1011,10 +1050,18 @@ void Circuit::materializePseudoDevices(const PtaAnalysisConfig& config){
                 };
 
                 if(p != n && cappedSourcePairs.insert(key).second){
+                    const int branch = useCompoundElements
+                        ? allocateUnknown()
+                        : -1;
                     addPseudo(std::make_unique<PseudoCapacitor>(
                         p,
                         n,
-                        config.currentSourceCapacitance
+                        config.currentSourceCapacitance,
+                        useCompoundElements
+                            ? config.compoundInitialResistance
+                            : 0.0,
+                        config.compoundTimeConstant,
+                        branch
                     ));
                 }
                 break;
@@ -1025,7 +1072,15 @@ void Circuit::materializePseudoDevices(const PtaAnalysisConfig& config){
                 if(branch >= 0 && inductedBranches.insert(branch).second){
                     addPseudo(std::make_unique<PseudoInductor>(
                         branch,
-                        config.voltageSourceInductance
+                        config.voltageSourceInductance,
+                        useCompoundElements
+                            ? config.compoundInitialConductance
+                            : 0.0,
+                        config.compoundTimeConstant,
+                        nodes.size() >= 1 ? nodes[0] : -1,
+                        nodes.size() >= 2 ? nodes[1] : -1,
+                        owner->nominalSourceValue(),
+                        config.sourceRampTime
                     ));
                 }
                 break;

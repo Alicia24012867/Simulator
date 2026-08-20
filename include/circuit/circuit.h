@@ -167,6 +167,8 @@ private:
 
     void setOperatingPointSourceScale(double scale);
 
+    void initializePtaStates(const PtaAnalysisConfig& config, double time);
+
     void saveNonlinearIterationStates();
 
     void restoreNonlinearIterationStates();
