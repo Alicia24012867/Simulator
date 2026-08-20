@@ -74,7 +74,7 @@ def main():
             nested = project / "nested"
             nested.mkdir(parents=True)
             discovered = project / "config.json"
-            discovered.write_text('{"source": "parent"}\n')
+            discovered.write_text('{"schema_version": 1}\n')
             result = run(
                 simulator,
                 "--print-config-path",
@@ -142,11 +142,29 @@ def main():
             )
             require(
                 result.returncode == 2,
-                "invalid JSON did not return a usage error",
+                "invalid json did not return a usage error",
             )
             require(
-                "Invalid JSON in configuration file" in result.stderr,
-                "invalid JSON diagnostic is absent",
+                "Invalid json in configuration file" in result.stderr,
+                "invalid json diagnostic is absent",
+            )
+
+            unsupported = root / "unsupported.json"
+            unsupported.write_text('{"schema_version": 1, "source": true}\n')
+            result = run(
+                simulator,
+                "--config",
+                unsupported,
+                "--parse-only",
+                deck,
+            )
+            require(
+                result.returncode == 2,
+                "unsupported configuration field did not return a usage error",
+            )
+            require(
+                "$.source is not supported" in result.stderr,
+                "unsupported configuration field diagnostic is absent",
             )
 
             result = run(

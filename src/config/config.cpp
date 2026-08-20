@@ -43,7 +43,7 @@ LoadedConfig readConfigFile(const std::filesystem::path& path){
         input >> document;
     } catch(const nlohmann::json::exception& error) {
         throw std::runtime_error(
-            "Invalid JSON in configuration file " + describePath(path) +
+            "Invalid json in configuration file " + describePath(path) +
             ": " + error.what()
         );
     }

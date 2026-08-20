@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "config/config.h"
+#include "config/overrides.h"
 #include "circuit/circuit.h"
 #include "io/spiceOutput.h"
 #include "netlist/parser.h"
@@ -649,8 +650,12 @@ int main(int argc, char* argv[]){
     configOptions.parentSearchLimit = options.configSearchDepth;
 
     simulator::config::LoadedConfig loadedConfig;
+    [[maybe_unused]] simulator::config::ConfigOverrides configOverrides;
+
     try {
         loadedConfig = simulator::config::loadConfig(configOptions);
+        configOverrides =
+            simulator::config::parseConfigOverrides(loadedConfig);
     } catch(const std::runtime_error& error) {
         std::cerr << "Invalid configuration: " << error.what() << '\n';
         return 2;

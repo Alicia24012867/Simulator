@@ -133,9 +133,11 @@ CONFIG_TEST_SOURCE ?= tests/unit/config_test.cpp
 CONFIG_TEST_TARGET ?= $(UNIT_TEST_BUILD_DIR)/config_test
 CONFIG_CLI_TEST_SCRIPT ?= $(TEST_SCRIPT_DIR)/test_config.py
 
-$(CONFIG_TEST_TARGET): $(CONFIG_TEST_SOURCE) ./src/config/config.cpp $(HEADERS)
+$(CONFIG_TEST_TARGET): $(CONFIG_TEST_SOURCE) \
+	./src/config/config.cpp ./src/config/overrides.cpp $(HEADERS)
 	@mkdir -p "$(@D)"
-	$(CXX) $(CXX_FLAGS) -o "$@" "$<" ./src/config/config.cpp
+	$(CXX) $(CXX_FLAGS) -o "$@" "$<" \
+		./src/config/config.cpp ./src/config/overrides.cpp
 
 test-config: $(CONFIG_TEST_TARGET) $(TARGET)
 	@"$(CONFIG_TEST_TARGET)"

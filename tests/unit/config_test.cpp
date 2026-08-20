@@ -1,4 +1,5 @@
 #include "config/config.h"
+#include "config/overrides.h"
 
 #include <chrono>
 #include <filesystem>
@@ -101,6 +102,16 @@ void writeFile(const std::filesystem::path& path, const std::string& contents){
     }
 }
 
+simulator::config::LoadedConfig loadedConfigFor(
+    const nlohmann::json& document
+){
+    simulator::config::LoadedConfig loaded;
+    loaded.found = true;
+    loaded.path = "unit-test-config.json";
+    loaded.document = document;
+    return loaded;
+}
+
 void testAutomaticDiscovery(){
     TemporaryDirectory temporary;
     const std::filesystem::path project = temporary.path() / "project";
@@ -127,7 +138,7 @@ void testAutomaticDiscovery(){
     );
     expect(
         loaded.document.at("scope") == "project",
-        "loaded document preserves JSON values"
+        "loaded document preserves json values"
     );
 
     options.parentSearchLimit = 1;
@@ -161,7 +172,7 @@ void testSearchLimitAndDefaultFallback(){
     expect(loaded.path.empty(), "missing automatic configuration has no path");
     expect(
         loaded.document.is_object() && loaded.document.empty(),
-        "missing automatic configuration returns an empty JSON object"
+        "missing automatic configuration returns an empty json object"
     );
 }
 
@@ -182,7 +193,7 @@ void testExplicitConfiguration(){
     );
     expect(
         loaded.document.at("enabled") == true,
-        "explicit configuration preserves JSON boolean values"
+        "explicit configuration preserves json boolean values"
     );
 
     options.explicitPath = temporary.path() / "missing.json";
@@ -200,17 +211,17 @@ void testInvalidConfigurationFiles(){
     TemporaryDirectory temporary;
     simulator::config::ConfigSearchOptions options;
 
-    const std::filesystem::path invalidJson =
+    const std::filesystem::path invalidjson =
         temporary.path() / "invalid.json";
-    writeFile(invalidJson, "{");
-    options.explicitPath = invalidJson;
+    writeFile(invalidjson, "{");
+    options.explicitPath = invalidjson;
     expectRuntimeError(
         [&] {
             static_cast<void>(
                 simulator::config::loadConfig(options, temporary.path())
             );
         },
-        "invalid JSON is rejected"
+        "invalid json is rejected"
     );
 
     const std::filesystem::path arrayRoot =
@@ -223,7 +234,7 @@ void testInvalidConfigurationFiles(){
                 simulator::config::loadConfig(options, temporary.path())
             );
         },
-        "non-object JSON root is rejected"
+        "non-object json root is rejected"
     );
 
     const std::filesystem::path directoryPath =
@@ -240,6 +251,137 @@ void testInvalidConfigurationFiles(){
     );
 }
 
+void testConfigOverrideParsing(){
+    const simulator::config::ConfigOverrides missing =
+        simulator::config::parseConfigOverrides({});
+    expect(
+        !missing.schemaVersion && !missing.pta && !missing.transient,
+        "missing configuration produces no overrides"
+    );
+
+    const auto overrides = simulator::config::parseConfigOverrides(
+        loadedConfigFor(nlohmann::json::parse(R"(
+            {
+                "schema_version": 1,
+                "pta": {
+                    "mode": "FoRcE",
+                    "initial_step": "2.5n",
+                    "maximum_steps": 7,
+                    "initial_bjt_vbe": 0.72,
+                    "include_diodes": false
+                },
+                "tran": {
+                    "enabled": true,
+                    "output_interval": 2e-9,
+                    "stop_time": "10n",
+                    "use_initial_conditions": false,
+                    "solver": {
+                        "relative_tolerance": 0.001,
+                        "maximum_rejects": 0
+                    }
+                }
+            }
+        )"))
+    );
+
+    expect(
+        overrides.schemaVersion && *overrides.schemaVersion == 1,
+        "schema version is retained"
+    );
+    expect(
+        overrides.pta && overrides.pta->mode &&
+            *overrides.pta->mode == simulator::config::PtaModeOverride::Force,
+        "PTA mode is parsed case-insensitively"
+    );
+    expect(
+        overrides.pta && overrides.pta->initialStep &&
+            *overrides.pta->initialStep == 2.5e-9,
+        "PTA SPICE numeric string is converted"
+    );
+    expect(
+        overrides.pta && overrides.pta->maximumSteps &&
+            *overrides.pta->maximumSteps == 7,
+        "PTA integer override is retained"
+    );
+    expect(
+        overrides.pta && overrides.pta->initialBjtVbe.specified &&
+            overrides.pta->initialBjtVbe.value &&
+            *overrides.pta->initialBjtVbe.value == 0.72,
+        "PTA BJT voltage override is retained"
+    );
+    expect(
+        overrides.pta && overrides.pta->includeDiodes &&
+            !*overrides.pta->includeDiodes,
+        "PTA boolean override is retained"
+    );
+    expect(
+        overrides.transient && overrides.transient->enabled &&
+            *overrides.transient->enabled &&
+            overrides.transient->stopTime &&
+            *overrides.transient->stopTime == 1e-8,
+        "transient numeric and boolean overrides are retained"
+    );
+    expect(
+        overrides.transient && overrides.transient->solver &&
+            overrides.transient->solver->maximumRejects &&
+            *overrides.transient->solver->maximumRejects == 0,
+        "transient solver integer override is retained"
+    );
+
+    const auto nullBjtVbe = simulator::config::parseConfigOverrides(
+        loadedConfigFor(nlohmann::json::parse(R"(
+            {"schema_version": 1, "pta": {"initial_bjt_vbe": null}}
+        )"))
+    );
+    expect(
+        nullBjtVbe.pta && nullBjtVbe.pta->initialBjtVbe.specified &&
+            !nullBjtVbe.pta->initialBjtVbe.value,
+        "null BJT voltage explicitly clears the override"
+    );
+}
+
+void testInvalidConfigOverrides(){
+    const auto expectInvalid = [](
+        const char* document,
+        const std::string& description
+    ){
+        expectRuntimeError(
+            [&] {
+                static_cast<void>(simulator::config::parseConfigOverrides(
+                    loadedConfigFor(nlohmann::json::parse(document))
+                ));
+            },
+            description
+        );
+    };
+
+    expectInvalid("{}", "configuration schema version is required");
+    expectInvalid(
+        R"({"schema_version": 2})",
+        "unsupported configuration schema version is rejected"
+    );
+    expectInvalid(
+        R"({"schema_version": 1, "unknown": true})",
+        "unknown top-level configuration field is rejected"
+    );
+    expectInvalid(
+        R"({"schema_version": 1, "pta": {"maximum_steps": 1.5}})",
+        "fractional PTA integer field is rejected"
+    );
+    expectInvalid(
+        R"({"schema_version": 1, "pta": {"include_diodes": "true"}})",
+        "non-boolean PTA flag is rejected"
+    );
+    expectInvalid(
+        R"({"schema_version": 1, "tran": {"solver": []}})",
+        "non-object transient solver section is rejected"
+    );
+    expectInvalid(
+        R"({"schema_version": 1, "tran": {"maximum_step": "abc"}})",
+        "invalid SPICE numeric string is rejected"
+    );
+}
+
 }  // namespace
 
 int main(){
@@ -248,6 +390,8 @@ int main(){
         testSearchLimitAndDefaultFallback();
         testExplicitConfiguration();
         testInvalidConfigurationFiles();
+        testConfigOverrideParsing();
+        testInvalidConfigOverrides();
     } catch(const std::exception& error) {
         std::cerr << "Unexpected test error: " << error.what() << '\n';
         return 1;
