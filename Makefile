@@ -8,6 +8,9 @@ SRC = ./src/main.cpp \
 	  $(wildcard ./src/netlist/*.cpp)
 HEADERS = $(shell find ./include -type f 2>/dev/null)
 TARGET = spice
+BUILD_DIR ?= build
+OBJECTS = $(patsubst ./src/%.cpp,$(BUILD_DIR)/%.o,$(SRC))
+DEPENDENCIES = $(OBJECTS:.o=.d)
 UNIT_TEST_SOURCE ?= tests/unit/transient_analysis_test.cpp
 UNIT_TEST_BUILD_DIR ?= tests/.build
 UNIT_TEST_TARGET ?= $(UNIT_TEST_BUILD_DIR)/transient_analysis_test
@@ -107,8 +110,14 @@ check-eigen:
 
 check-deps: check-eigen
 
-$(TARGET): $(SRC) $(HEADERS) | check-eigen
-	$(CXX) $(CXX_FLAGS) $(EIGEN_FLAGS) -o $(TARGET) $(SRC)
+$(TARGET): $(OBJECTS) | check-eigen
+	$(CXX) $(CXX_FLAGS) $(EIGEN_FLAGS) -o $(TARGET) $(OBJECTS)
+
+$(BUILD_DIR)/%.o: ./src/%.cpp
+	@mkdir -p "$(@D)"
+	$(CXX) $(CXX_FLAGS) $(EIGEN_FLAGS) -MMD -MP -c -o "$@" "$<"
+
+-include $(DEPENDENCIES)
 
 $(UNIT_TEST_TARGET): $(UNIT_TEST_SOURCE) ./src/circuit/circuit.cpp \
 	./src/circuit/nodeMap.cpp $(HEADERS) | check-eigen
@@ -299,5 +308,6 @@ compare-tran:
 
 clean:
 	rm -f $(TARGET)
+	rm -rf "$(BUILD_DIR)"
 	rm -rf "$(ACTUAL_DIR)"
 	rm -rf "$(UNIT_TEST_BUILD_DIR)"

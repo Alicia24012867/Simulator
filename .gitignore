@@ -1,4 +1,5 @@
 spice
+build/
 tests/output/
 tests/.build/
 tests/private
