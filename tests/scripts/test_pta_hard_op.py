@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from contextlib import nullcontext
 from pathlib import Path
 
 
@@ -41,6 +42,7 @@ ABSOLUTE_TOLERANCE = {
     "v(qb)": 1.0e-8,
     "i(vdd)": 1.0e-10,
 }
+REPORT_HEADER = "SPICE Solver Report"
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -48,6 +50,11 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("simulator", type=Path)
     parser.add_argument("netlist", type=Path)
     parser.add_argument("reference", type=Path)
+    parser.add_argument(
+        "--output-root",
+        type=Path,
+        help="keep ordinary/force/fallback artifact bundles under this directory",
+    )
     return parser.parse_args()
 
 
@@ -68,6 +75,32 @@ def run(simulator: Path, *arguments: object) -> subprocess.CompletedProcess[str]
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise RuntimeError(message)
+
+
+def output_artifacts(output_root: Path, netlist: Path) -> dict[str, Path]:
+    stem = netlist.stem
+    case_directory = output_root / stem
+    return {
+        "listing": case_directory / f"{stem}.out",
+        "raw": case_directory / f"{stem}.raw",
+        "error": case_directory / f"{stem}.err",
+        "report": case_directory / f"{stem}.solve.txt",
+    }
+
+
+def check_solver_report(
+    report: Path,
+    status: str,
+    required_methods: tuple[str, ...],
+) -> str:
+    require(report.is_file(), f"solver report is missing: {report}")
+    text = report.read_text(errors="replace")
+    require(REPORT_HEADER in text, "solver report header is missing")
+    require(f"Status: {status}" in text, f"solver report status is not {status}")
+    require("Method path:" in text, "solver report method path is missing")
+    for method in required_methods:
+        require(method in text, f"solver report does not mention {method}")
+    return text
 
 
 def check_pta_diagnostics(stderr: str) -> None:
@@ -122,30 +155,56 @@ def main() -> int:
     require(netlist.is_file(), f"netlist not found: {netlist}")
     require(reference.is_file(), f"reference not found: {reference}")
 
-    ordinary = run(simulator, "--pta", "disabled", netlist)
-    require(
-        ordinary.returncode == 1,
-        f"ordinary OP unexpectedly returned {ordinary.returncode}: "
-        f"{ordinary.stderr}{ordinary.stdout}",
+    root_context = (
+        nullcontext(arguments.output_root.resolve())
+        if arguments.output_root
+        else tempfile.TemporaryDirectory(prefix="pta-hard-op-")
     )
-    require(
-        "Operating point analysis failed" in ordinary.stderr,
-        f"ordinary OP failure diagnostic is missing: {ordinary.stderr}",
-    )
-    require(not ordinary.stdout, "failed ordinary OP emitted a partial listing")
-
-    with tempfile.TemporaryDirectory(prefix="pta-hard-op-") as directory:
+    with root_context as directory:
         root = Path(directory)
+        root.mkdir(parents=True, exist_ok=True)
+
+        ordinary_root = root / "ordinary"
+        ordinary = run(
+            simulator,
+            "--pta",
+            "disabled",
+            "-b",
+            "--output-root",
+            ordinary_root,
+            netlist,
+        )
+        require(
+            ordinary.returncode == 1,
+            f"ordinary OP unexpectedly returned {ordinary.returncode}: "
+            f"{ordinary.stderr}{ordinary.stdout}",
+        )
+        require(not ordinary.stdout, "failed batch OP wrote to stdout")
+        ordinary_artifacts = output_artifacts(ordinary_root, netlist)
+        ordinary_error = ordinary.stderr
+        if ordinary_artifacts["error"].is_file():
+            ordinary_error += ordinary_artifacts["error"].read_text(errors="replace")
+        require(
+            "Operating point analysis failed" in ordinary_error,
+            f"ordinary OP failure diagnostic is missing: {ordinary_error}",
+        )
+        check_solver_report(
+            ordinary_artifacts["report"],
+            "failed",
+            ("direct Newton", "source stepping"),
+        )
+
         for mode in ("force", "fallback"):
-            listing = root / f"{mode}.out"
+            mode_root = root / mode
             result = run(
                 simulator,
                 "--pta",
                 mode,
                 "--pta-diagnostics",
                 *PTA_OPTIONS,
-                "-o",
-                listing,
+                "-b",
+                "--output-root",
+                mode_root,
                 netlist,
             )
             require(
@@ -153,9 +212,28 @@ def main() -> int:
                 f"{mode} PTA failed ({result.returncode}): "
                 f"{result.stderr}{result.stdout}",
             )
-            require(not result.stdout, f"{mode} PTA ignored the listing output path")
-            check_pta_diagnostics(result.stderr)
-            check_operating_point(listing, reference)
+            require(not result.stdout, f"{mode} PTA wrote listing output in batch mode")
+
+            artifacts = output_artifacts(mode_root, netlist)
+            for name, artifact in artifacts.items():
+                require(artifact.is_file(), f"{mode} PTA {name} is missing: {artifact}")
+
+            report_text = check_solver_report(
+                artifacts["report"],
+                "succeeded",
+                (
+                    ("adaptive PTA",)
+                    if mode == "force"
+                    else ("direct Newton", "source stepping", "adaptive PTA")
+                ),
+            )
+            diagnostics_text = (
+                result.stderr
+                + artifacts["error"].read_text(errors="replace")
+                + report_text
+            )
+            check_pta_diagnostics(diagnostics_text)
+            check_operating_point(artifacts["listing"], reference)
 
     print("PASS PTA hard OP: ordinary path fails; force and fallback converge")
     return 0

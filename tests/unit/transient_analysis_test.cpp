@@ -2,8 +2,11 @@
 #include "analysis/pta_analysis.h"
 #include "analysis/solver_options.h"
 #include "circuit/circuit.h"
+#include "devices/current_source.hpp"
 #include "devices/device.hpp"
 #include "devices/pseudo_device.hpp"
+#include "devices/resistor.hpp"
+#include "devices/voltage_source.hpp"
 #include "math/mna.hpp"
 #include "math/newton_step.hpp"
 
@@ -785,6 +788,176 @@ void testPtaMinimumStepCapacitanceRecovery(){
         diagnostics.capacitanceReductions > 0,
         "PTA diagnostics expose adaptive recovery counters"
     );
+
+    const OperatingPointDiagnostics& detailed =
+        circuit.operatingPointDiagnostics();
+    expect(
+        detailed.attempted && detailed.converged && detailed.ptaAttempted,
+        "detailed operating-point diagnostics retain the PTA method"
+    );
+    expect(
+        detailed.finalMethod.find("PTA") != std::string::npos,
+        "detailed operating-point diagnostics identify the final method"
+    );
+    expect(
+        detailed.ptaIterations > 0 &&
+        detailed.iterations >= detailed.ptaIterations,
+        "detailed PTA diagnostics retain total iteration counts"
+    );
+    expect(
+        detailed.ptaAcceptedSteps > 0 &&
+        detailed.ptaRejectedSteps > 0,
+        "detailed PTA diagnostics separate accepted and rejected steps"
+    );
+    expect(
+        !detailed.ptaAttempts.empty() &&
+        detailed.ptaAttempts.back().reachedSteadyState,
+        "PTA attempt history ends with the steady-state decision"
+    );
+    expect(
+        std::any_of(
+            detailed.ptaAttempts.begin(),
+            detailed.ptaAttempts.end(),
+            [](const PtaStepAttemptDiagnostics& attempt){
+                return attempt.restartedAfterCapacitanceGrowth;
+            }
+        ),
+        "PTA attempt history records capacitance-growth recovery"
+    );
+    expect(
+        detailed.ptaWallSeconds >= 0.0 && detailed.wallSeconds >= 0.0,
+        "PTA diagnostics expose non-negative wall-clock durations"
+    );
+
+    const CircuitDiagnostics circuitInfo = circuit.circuitDiagnostics();
+    expect(
+        circuitInfo.deviceCount == 1 &&
+        circuitInfo.nonlinearDeviceCount == 1 &&
+        circuitInfo.nodeCount == 1 &&
+        circuitInfo.unknownCount == 1,
+        "circuit diagnostics expose topology and nonlinear-device counts"
+    );
+    expect(
+        circuitInfo.pseudoDeviceCount > 0 &&
+        circuitInfo.matrixNonZeros > 0 &&
+        circuitInfo.hasFiniteSolution,
+        "circuit diagnostics expose PTA structure and a finite solution"
+    );
+}
+
+void testLinearSolverDiagnostics(){
+    Circuit circuit;
+    circuit.addDevice<Resistor>(
+        "R1",
+        std::vector<std::string>{"out", "0"},
+        1.0e3
+    );
+    circuit.addDevice<CurrentSource>(
+        "I1",
+        std::vector<std::string>{"out", "0"},
+        1.0e-3
+    );
+
+    expect(circuit.build(PtaAnalysisConfig{}), "linear diagnostics fixture builds");
+    expect(circuit.solveOperatingPoint(), "linear operating point converges");
+
+    const OperatingPointDiagnostics& operatingPoint =
+        circuit.operatingPointDiagnostics();
+    expect(
+        operatingPoint.attempted && operatingPoint.converged &&
+            operatingPoint.finalMethod == "linear",
+        "linear OP diagnostics identify the direct linear method"
+    );
+    expect(
+        operatingPoint.directNewton.attempted &&
+            !operatingPoint.directNewton.usedNewtonRaphson &&
+            operatingPoint.directNewton.converged &&
+            operatingPoint.directNewton.iterations == 1,
+        "linear OP diagnostics distinguish sparse solve from Newton-Raphson"
+    );
+    expect(
+        operatingPoint.sourceAttempts.empty() && !operatingPoint.ptaAttempted &&
+            operatingPoint.iterations == 1,
+        "linear OP diagnostics do not invent continuation or PTA attempts"
+    );
+
+    const CircuitDiagnostics circuitInfo = circuit.circuitDiagnostics();
+    expect(
+        circuitInfo.deviceCount == 2 &&
+            circuitInfo.nonlinearDeviceCount == 0 &&
+            circuitInfo.nodeCount == 1 && circuitInfo.unknownCount == 1,
+        "linear circuit diagnostics expose topology counts"
+    );
+    expect(
+        circuitInfo.matrixNonZeros == 1 && circuitInfo.hasFiniteSolution &&
+            circuitInfo.devicesByType.size() == 2,
+        "linear circuit diagnostics expose matrix and solution characteristics"
+    );
+
+    TransientAnalysisConfig transient;
+    transient.outputInterval = 1.0e-6;
+    transient.stopTime = 3.0e-6;
+    transient.maximumStep = transient.outputInterval;
+    transient.useInitialConditions = true;
+    expect(circuit.solveTransient(transient), "linear transient converges");
+
+    const TransientDiagnostics& transientInfo = circuit.transientDiagnostics();
+    expect(
+        transientInfo.attempted && transientInfo.converged &&
+            transientInfo.timeSteps > 0 && transientInfo.attemptedSteps > 0,
+        "linear transient diagnostics record completed time stepping"
+    );
+    expect(
+        transientInfo.lastNewton.attempted &&
+            !transientInfo.lastNewton.usedNewtonRaphson &&
+            transientInfo.lastNewton.converged,
+        "linear transient diagnostics distinguish sparse solve from Newton-Raphson"
+    );
+    expect(
+        transientInfo.minimumAttemptedStep > 0.0 &&
+            transientInfo.maximumAcceptedStep > 0.0 &&
+            transientInfo.cpuSeconds >= transientInfo.initializationCpuSeconds &&
+            transientInfo.wallSeconds >= transientInfo.initializationWallSeconds,
+        "linear transient diagnostics retain finite step ranges and timing"
+    );
+}
+
+void testLinearFailureDiagnostics(){
+    Circuit circuit;
+    circuit.addDevice<VoltageSource>(
+        "V1",
+        std::vector<std::string>{"out", "0"},
+        1.0
+    );
+    circuit.addDevice<VoltageSource>(
+        "V2",
+        std::vector<std::string>{"out", "0"},
+        2.0
+    );
+
+    expect(circuit.build(PtaAnalysisConfig{}), "singular linear fixture builds");
+    expect(!circuit.solveOperatingPoint(), "conflicting ideal sources fail");
+
+    const OperatingPointDiagnostics& diagnostics =
+        circuit.operatingPointDiagnostics();
+    expect(
+        diagnostics.attempted && !diagnostics.converged &&
+            diagnostics.finalMethod == "linear",
+        "failed linear OP retains its method classification"
+    );
+    expect(
+        diagnostics.directNewton.attempted &&
+            !diagnostics.directNewton.usedNewtonRaphson &&
+            !diagnostics.directNewton.converged &&
+            diagnostics.directNewton.iterations == 1,
+        "failed linear OP records one sparse-solve attempt"
+    );
+    expect(
+        diagnostics.sourceAttempts.empty() && !diagnostics.ptaAttempted &&
+            diagnostics.failureReason.find("sparse linear system") !=
+                std::string::npos,
+        "failed linear OP records its sparse-system failure without fallback history"
+    );
 }
 
 void testRequiresBdf2History(){
@@ -1430,6 +1603,8 @@ int main(){
     testPtaNodeCapacitanceGrowth();
     testPtaNodeCapacitanceOscillationAdaptation();
     testPtaMinimumStepCapacitanceRecovery();
+    testLinearSolverDiagnostics();
+    testLinearFailureDiagnostics();
     testRequiresBdf2History();
     testZeroErrorUsesMaximumScale();
     testVoltageAndCurrentAbsoluteTolerances();

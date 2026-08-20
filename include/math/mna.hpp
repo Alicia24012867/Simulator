@@ -32,6 +32,8 @@ public:
 
     int size() const { return n_; }
 
+    int nonZeroCount() const { return static_cast<int>(A_.nonZeros()); }
+
     void reservePattern(std::size_t count){
         pattern_.reserve(count);
     }

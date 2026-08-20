@@ -26,9 +26,11 @@ PRIVATE_TESTCASE_DIR ?= tests/private
 ACTUAL_DIR ?= tests/output
 OP_ACTUAL_DIR ?= $(ACTUAL_DIR)/op
 TRAN_ACTUAL_DIR ?= $(ACTUAL_DIR)/tran
+PRIVATE_ACTUAL_DIR ?= $(ACTUAL_DIR)/private
 PTA_OUTPUT_ROOT ?= $(ACTUAL_DIR)/pta
 PTA_MODE ?= disabled
 PTA_OUTPUT_DIR ?= $(PTA_OUTPUT_ROOT)/$(PTA_MODE)
+PTA_HARD_OUTPUT_DIR ?= $(PTA_OUTPUT_ROOT)/hard-op
 STANDARD_ROOT ?= tests/references
 OP_STANDARD_DIR ?= $(STANDARD_ROOT)/op
 TRAN_STANDARD_DIR ?= $(STANDARD_ROOT)/tran
@@ -184,7 +186,7 @@ test-op: $(TARGET)
 	$(PYTHON) $(TEST_SCRIPT_DIR)/validate_raw.py \
 		--analysis op \
 		--listing-dir "$(OP_ACTUAL_DIR)" \
-		"$(OP_ACTUAL_DIR)"/*.raw || status=1; \
+		"$(OP_ACTUAL_DIR)"/*/*.raw || status=1; \
 	$(PYTHON) $(TEST_SCRIPT_DIR)/compare_spice.py \
 		--analysis op \
 		--standard "$(OP_STANDARD_DIR)" \
@@ -207,7 +209,7 @@ test-tran: $(TARGET)
 	$(PYTHON) $(TEST_SCRIPT_DIR)/validate_raw.py \
 		--analysis tran \
 		--listing-dir "$(TRAN_ACTUAL_DIR)" \
-		"$(TRAN_ACTUAL_DIR)"/*.raw || status=1; \
+		"$(TRAN_ACTUAL_DIR)"/*/*.raw || status=1; \
 	$(PYTHON) $(TEST_SCRIPT_DIR)/compare_spice.py \
 		--analysis tran \
 		--standard "$(TRAN_STANDARD_DIR)" \
@@ -219,10 +221,13 @@ test-tran: $(TARGET)
 	exit $$status
 
 test-private: $(TARGET)
-	@$(PYTHON) $(TEST_SCRIPT_DIR)/test_private_netlists.py \
-		./$(TARGET) \
-		$(PRIVATE_TESTCASE_DIR) \
-		--timeout $(PRIVATE_TIMEOUT)
+	@rm -rf "$(PRIVATE_ACTUAL_DIR)"; \
+	mkdir -p "$(PRIVATE_ACTUAL_DIR)"; \
+	$(PYTHON) "$(CASE_RUNNER)" \
+		--analysis private \
+		--simulator "./$(TARGET)" \
+		--case-dir "$(PRIVATE_TESTCASE_DIR)" \
+		--output-dir "$(PRIVATE_ACTUAL_DIR)"
 
 test-netlists: $(TARGET)
 	@$(PYTHON) $(TEST_SCRIPT_DIR)/test_private_netlists.py \
@@ -234,10 +239,13 @@ test-netlists: $(TARGET)
 # This is a solver-differentiation benchmark, not a permanent release gate:
 # improving ordinary Newton so it converges should prompt updating the fixture.
 test-pta-hard-op: $(TARGET)
-	@$(PYTHON) $(TEST_SCRIPT_DIR)/test_pta_hard_op.py \
+	@rm -rf "$(PTA_HARD_OUTPUT_DIR)"; \
+	mkdir -p "$(PTA_HARD_OUTPUT_DIR)"; \
+	$(PYTHON) $(TEST_SCRIPT_DIR)/test_pta_hard_op.py \
 		./$(TARGET) \
 		$(TESTCASE_ROOT)/pta/nr_fail_cross_coupled_cmos_latch.cir \
-		$(STANDARD_ROOT)/pta/nr_fail_cross_coupled_cmos_latch.out
+		$(STANDARD_ROOT)/pta/nr_fail_cross_coupled_cmos_latch.out \
+		--output-root "$(PTA_HARD_OUTPUT_DIR)"
 
 # PTA tests intentionally use only OP decks.  Every mode is compared against
 # the existing ngspice OP references; pta-run prints the end-to-end suite time.
@@ -259,8 +267,8 @@ pta-run: $(TARGET)
 		fi; \
 		name=$${netlist##*/}; name=$${name%.cir}; \
 		"./$(TARGET)" --pta "$(PTA_MODE)" -b \
-			-o "$(PTA_OUTPUT_DIR)/$$name.out" "$$netlist" \
-			>/dev/null 2>"$(PTA_OUTPUT_DIR)/$$name.err" || status=1; \
+			--output-root "$(PTA_OUTPUT_DIR)" "$$netlist" \
+			>/dev/null || status=1; \
 		count=$$((count + 1)); \
 	done; \
 	finish=$$($(PYTHON) -c 'import time; print(time.perf_counter())'); \

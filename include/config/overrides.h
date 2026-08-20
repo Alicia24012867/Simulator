@@ -142,6 +142,7 @@ struct TransientOverrides {
 
 struct ConfigOverrides {
     std::optional<int> schemaVersion;
+    std::optional<bool> debug;
     std::optional<OperatingPointOverrides> operatingPoint;
     std::optional<PtaOverrides> pta;
     std::optional<TransientOverrides> transient;

@@ -13,6 +13,9 @@ namespace simulator::app {
 
 struct CommandLineOptions {
     std::string inputPath;
+    std::optional<std::filesystem::path> outputRoot;
+    // Compatibility mirrors. Structured artifacts are always generated;
+    // these paths optionally receive additional listing/raw copies.
     std::optional<std::string> listingPath;
     std::optional<std::string> rawPath;
     std::optional<std::filesystem::path> configPath;
@@ -21,9 +24,13 @@ struct CommandLineOptions {
     PtaMode ptaMode = PtaMode::Disabled;
     bool ptaModeSpecified = false;
     bool ptaDiagnostics = false;
+    // An absent value lets config.json select the default.  A supplied CLI
+    // value takes precedence over the configuration file.
+    std::optional<bool> debug;
     std::vector<std::string> operatingPointOptionAssignments;
     std::vector<std::string> ptaOptionAssignments;
     std::vector<std::string> transientOptionAssignments;
+    bool batchMode = false;
     bool parseOnly = false;
     bool helpRequested = false;
 };

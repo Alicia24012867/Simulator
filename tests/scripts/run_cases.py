@@ -8,11 +8,31 @@ import time
 from pathlib import Path
 
 
+REPORT_HEADER = "SPICE Solver Report"
+
+
+def validate_report(path, analysis, succeeded):
+    if not path.is_file():
+        return f"missing solver report: {path}"
+
+    text = path.read_text(errors="replace")
+    expected_status = "Status: succeeded" if succeeded else "Status: failed"
+    if REPORT_HEADER not in text:
+        return f"solver report has no {REPORT_HEADER!r} header: {path}"
+    if expected_status not in text:
+        return f"solver report has no {expected_status!r} status: {path}"
+
+    analysis_label = "Transient analysis:" if analysis == "tran" else "Method path:"
+    if analysis_label not in text:
+        return f"solver report has no {analysis_label!r} section: {path}"
+    return None
+
+
 def parse_arguments():
     parser = argparse.ArgumentParser(
         description="Run SPICE regression cases with per-case timing."
     )
-    parser.add_argument("--analysis", choices=("op", "tran"), required=True)
+    parser.add_argument("--analysis", choices=("op", "tran", "private"), required=True)
     parser.add_argument("--simulator", type=Path, required=True)
     parser.add_argument("--case-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -22,7 +42,14 @@ def parse_arguments():
 def main():
     arguments = parse_arguments()
     simulator = arguments.simulator.resolve()
-    cases = sorted(arguments.case_dir.glob("*.cir"))
+    if arguments.analysis == "private":
+        cases = sorted(
+            path
+            for path in arguments.case_dir.iterdir()
+            if path.is_file() and path.suffix.lower() in {".cir", ".sp"}
+        )
+    else:
+        cases = sorted(arguments.case_dir.glob("*.cir"))
     if not cases:
         print(f"No {arguments.analysis} cases found in {arguments.case_dir}", file=sys.stderr)
         return 2
@@ -33,25 +60,58 @@ def main():
 
     for case in cases:
         stem = case.stem
-        listing = arguments.output_dir / f"{stem}.out"
-        raw = arguments.output_dir / f"{stem}.raw"
-        error = arguments.output_dir / f"{stem}.err"
+        case_output = arguments.output_dir / stem
+        listing = case_output / f"{stem}.out"
+        raw = case_output / f"{stem}.raw"
+        error = case_output / f"{stem}.err"
+        report = case_output / f"{stem}.solve.txt"
 
         start = time.perf_counter()
-        with error.open("w", encoding="utf-8") as error_stream:
-            result = subprocess.run(
-                [simulator, "-b", "-o", listing, "-r", raw, case],
-                stdout=subprocess.DEVNULL,
-                stderr=error_stream,
-                check=False,
-            )
+        result = subprocess.run(
+            [
+                simulator,
+                "-b",
+                "--output-root",
+                arguments.output_dir,
+                case,
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
         elapsed_ms = (time.perf_counter() - start) * 1_000.0
-        outcome = "PASS" if result.returncode == 0 else f"FAIL ({result.returncode})"
+
+        artifact_failures = []
+        for artifact in (listing, raw, error):
+            if not artifact.is_file():
+                artifact_failures.append(f"missing output artifact: {artifact}")
+        report_failure = validate_report(
+            report,
+            arguments.analysis,
+            result.returncode == 0,
+        )
+        if report_failure:
+            artifact_failures.append(report_failure)
+        if result.stdout:
+            artifact_failures.append("batch mode unexpectedly wrote to stdout")
+
+        passed = result.returncode == 0 and not artifact_failures
+        if passed:
+            outcome = "PASS"
+        elif result.returncode != 0:
+            outcome = f"FAIL ({result.returncode})"
+        else:
+            outcome = "FAIL (artifacts)"
         print(
             f"TIME {arguments.analysis:<4} {stem:<48} "
             f"{elapsed_ms:10.3f} ms  {outcome}"
         )
-        failures += result.returncode != 0
+        for failure in artifact_failures:
+            print(f"  {failure}", file=sys.stderr)
+        if result.stderr:
+            print(result.stderr, file=sys.stderr, end="")
+        failures += not passed
 
     suite_elapsed_ms = (time.perf_counter() - suite_start) * 1_000.0
     print(

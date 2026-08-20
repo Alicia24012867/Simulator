@@ -241,8 +241,15 @@ def main():
     print(f"Tolerance: atol={args.atol:g}, rtol={args.rtol:g}")
 
     for standard_path in standards:
-        actual_path = actual_dir / standard_path.name
-        error_path = actual_dir / f"{standard_path.stem}.err"
+        case_dir = actual_dir / standard_path.stem
+        if case_dir.is_dir():
+            actual_path = case_dir / standard_path.name
+            error_path = case_dir / f"{standard_path.stem}.err"
+        else:
+            # Keep flat hand-built fixtures usable; simulator regression
+            # output itself always takes the nested branch above.
+            actual_path = actual_dir / standard_path.name
+            error_path = actual_dir / f"{standard_path.stem}.err"
         failures, comparisons = compare_case(
             standard_path,
             actual_path,

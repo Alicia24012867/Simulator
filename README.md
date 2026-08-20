@@ -6,7 +6,7 @@
 
 ## 代码结构
 
-- `src/main.cpp`：只负责装配配置、解析、求解和输出流程，保持为薄入口。
+- `src/main.cpp`：编排配置加载、网表解析、求解、诊断捕获和 artifact 提交流程。
 - `src/app/command_line.cpp`：命令行语法、重复参数检查和帮助文本。
 - `src/netlist/reader.cpp`：文件读取、注释与续行处理，以及 `.end` 位置校验。
 - `src/netlist/subcircuit.cpp`：`.subckt` 定义收集和 `X` 实例递归展平；不依赖 `Circuit`，只输出原语 token。
@@ -15,7 +15,9 @@
 - `src/config/parse_overrides.cpp`：严格 schema 校验，并生成类型化覆盖层。
 - `src/config/apply_overrides.cpp`、`option_overrides.cpp`：分别应用配置文件覆盖和命令行 `name=value` 覆盖，同时保护网表中显式指定的参数。
 - `src/circuit/`：节点编号、MNA 构建及 OP/TRAN/PTA 求解调度。
-- `src/io/spice_output.cpp`：listing、ASCII rawfile 格式化，以及多输出文件的事务式写入。
+- `include/analysis/solver_diagnostics.h`：OP、source stepping、PTA 和 TRAN 的类型化求解诊断数据。
+- `src/io/spice_output.cpp`：listing、ASCII rawfile 格式化，以及结果目录和多文件事务提交。
+- `src/io/solver_report.cpp`：把电路规模、方法链、迭代/步长统计、耗时、有效配置和调参提示写成求解报告。
 - `third_party/nlohmann/json.hpp`：随仓库固定版本的 header-only JSON 解析器。
 
 这种分层使网表语法、层次展开和求解模型可以独立演进。大型网表的普通逻辑行不再长期保留原始文本；子电路引脚索引在定义阶段预计算，展开每个实例时无需构造临时绑定表。
@@ -114,15 +116,29 @@
 
 同一 PTA 选项不可重复指定；所有覆盖值会在建模前统一执行配置校验，非法范围或相互矛盾的边界会以命令行错误退出。
 
-PTA 在 MNA pattern 固化前加入人工伪元件：独立电压源 branch 上的伪电感、独立电流源两端的伪电容，以及晶体管节点到地的伪电容。其伪时间迭代复用现有的 Backward Euler / 受步长比限制的 BDF2 `TransientIntegrator`；每一步以归一化 BDF 导数和归一化原始 OP 残差共同判定稳态。导数指标为 `h*|dx/dt| / (abstol + reltol*scale)`；残差指标为 `|Ax-b| / (abstol + reltol*max(|Ax|, |b|))`。二者都会区分节点 KCL 行的电流绝对容差与电压源支路行的电压绝对容差，`derivative-tolerance` 和 `dc-residual-tolerance` 是对应的无量纲阈值。使用 `--pta-diagnostics` 可将 PTA 是否实际执行、收敛指标、全局增容次数、节点降容次数和最小步长恢复次数写至 stderr。Newton 失败时先缩小伪时间步长；在最小步长仍失败时，增大所有节点伪电容并重启积分历史。每个成功步后，伪时间步会按 `successful-step-scale` 增长，同时仍受最大步长和 BDF2 步长比限制；节点电压变化反向时会按相邻步变化幅度比降低该节点伪电容，两个 ratio 参数分别划分小/中及中/重振荡。
+PTA 在 MNA pattern 固化前加入人工伪元件：独立电压源 branch 上的伪电感、独立电流源两端的伪电容，以及晶体管节点到地的伪电容。其伪时间迭代复用现有的 Backward Euler / 受步长比限制的 BDF2 `TransientIntegrator`；每一步以归一化 BDF 导数和归一化原始 OP 残差共同判定稳态。导数指标为 `h*|dx/dt| / (abstol + reltol*scale)`；残差指标为 `|Ax-b| / (abstol + reltol*max(|Ax|, |b|))`。二者都会区分节点 KCL 行的电流绝对容差与电压源支路行的电压绝对容差，`derivative-tolerance` 和 `dc-residual-tolerance` 是对应的无量纲阈值。使用 `--pta-diagnostics` 可将 PTA 是否实际执行、收敛指标、全局增容次数、节点降容次数和最小步长恢复次数写至 stderr，并同步保存在结果目录的 `.err` 中。Newton 失败时先缩小伪时间步长；在最小步长仍失败时，增大所有节点伪电容并重启积分历史。每个成功步后，伪时间步会按 `successful-step-scale` 增长，同时仍受最大步长和 BDF2 步长比限制；节点电压变化反向时会按相邻步变化幅度比降低该节点伪电容，两个 ratio 参数分别划分小/中及中/重振荡。
 
 该功能仍处于实验阶段。自适应规则具有单元测试，并有一条端到端夹具覆盖“最小步长失败 → 全局增容 → 重启 → 恢复收敛”路径及后续节点降容。当前 Force OP 回归覆盖的 18 个网表、76 个输出值均可通过参考对比。归一化导数收敛已避免固定绝对阈值随伪时间步和未知量量级失真的问题；其默认容差与困难非线性电路的鲁棒性仍需更广泛的基准验证。因此 `force` 与 `fallback` 可用于回归和实验，但暂不视为生产求解保证。
 
 ## 输出格式
 
+每次非 `--parse-only` 运行都会创建一个去掉网表最后扩展名的同名目录，并生成 `.out`、`.raw`、`.err` 以及默认启用的 `.solve.txt` artifact bundle。例如输入 `circuits/amplifier.cir`：
+
+```text
+circuits/
+  amplifier.cir
+  amplifier/
+    amplifier.out
+    amplifier.raw
+    amplifier.err
+    amplifier.solve.txt
+```
+
+使用 `--output-root results` 时，目录改为 `results/amplifier/`，其中的文件名保持不变。`--parse-only` 只校验输入，不创建结果目录。`-b` / `--batch` 禁止向 stdout 回显 listing，但不影响 artifact。位置输出参数、`-o` 和 `-r` 仍可用于额外生成兼容的 listing/rawfile 镜像；规范结果始终写入上述同名目录。
+
 ### SPICE listing
 
-默认写到 stdout；使用位置参数或 `-o` 写入文件。`.print` 决定 listing 的变量和顺序：
+同名 `.out` 始终生成；非 batch 且未指定额外 listing 镜像时也会回显到 stdout。`.print` 决定 listing 的变量和顺序：
 
 ```text
 Circuit: Level 1 - RC step with UIC
@@ -141,7 +157,7 @@ branch current 在 listing 中使用 ngspice 常见的 `device#branch` 列名。
 
 ### ASCII rawfile
 
-使用 `-r` 额外写出 SPICE ASCII rawfile。rawfile 不受 `.print` 过滤，包含全部节点电压和全部 branch unknown 电流；瞬态的第一个 variable 固定为 `time`。
+同名 `.raw` 始终生成。rawfile 不受 `.print` 过滤，包含全部节点电压和全部 branch unknown 电流；瞬态的第一个 variable 固定为 `time`。
 
 ```text
 Title: Level 1 - RC step with UIC
@@ -162,7 +178,13 @@ Values:
 	0.000000000000000e+00
 ```
 
-输出数值使用 classic locale、科学计数法，并拒绝写出 NaN/Inf。程序先在内存中生成结果，再把所有文件输出写入目标目录中的临时文件；全部暂存成功后才备份并替换旧文件，正常写入错误会触发回滚。解析、构建、求解或暂存失败都不会提前截断旧结果。input、listing 和 rawfile 不能通过规范路径、符号链接或硬链接指向同一文件。
+### 错误日志与求解报告
+
+- `.err` 保存本次运行写到 stderr 的内容；成功且未请求额外诊断时通常为空。诊断仍会同步显示在终端。
+- `.solve.txt` 默认启用，保存运行状态、总墙钟时间、电路器件构成、节点与 MNA 规模、当前解幅值范围、实际求解方法链、每阶段迭代/阻尼/失败原因、source stepping 每次尝试、PTA 每个伪时间步及收敛指标、TRAN 接受/拒绝步统计、CPU/墙钟用时、最终生效配置和基于诊断指标生成的调参观察项。使用 `--debug false` 或配置文件根字段 `"debug": false` 可关闭本次运行的 `.solve.txt` 写入；`.out`、`.raw` 和 `.err` 仍照常生成。
+- Fallback 报告会保留完整链路，例如 `direct Newton failed -> source stepping failed -> adaptive PTA succeeded`，不会只保留最后一次 PTA 结果。
+
+输出数值使用 classic locale、科学计数法，并拒绝写出 NaN/Inf。成功运行先在内存中生成结果，再将 `.out/.raw/.err` 和（启用 debug 时）`.solve.txt` 作为一组事务提交；任一暂存或替换失败都会回滚。解析、构建或求解失败时只更新 `.err` 和（启用时）`.solve.txt`，已有的有效 `.out/.raw` 保持不变。input、四个规范 artifact 和兼容 listing/raw 镜像不能通过规范路径、符号链接或硬链接相互指向同一文件。
 
 ## 构建与运行
 
@@ -186,16 +208,17 @@ brew install eigen
 make
 ```
 
-运行并输出 listing：
+运行并在网表旁生成同名结果目录：
 
 ```sh
 ./spice tests/cases/op/level1_01_resistive_bridge_mesh.cir
-./spice tests/cases/op/level1_01_resistive_bridge_mesh.cir result.out
-./spice -b -o result.out tests/cases/op/level1_01_resistive_bridge_mesh.cir
+./spice -b tests/cases/op/level1_01_resistive_bridge_mesh.cir
+./spice -b --output-root results \
+  tests/cases/tran/level1_01_rc_step_ladder.cir
 ./spice --parse-only tests/private/UA741PFBx10.sp
 ```
 
-同时生成 listing 与 rawfile：
+额外生成旧式平铺镜像：
 
 ```sh
 ./spice -b -o result.out -r result.raw tests/cases/tran/level1_01_rc_step_ladder.cir
@@ -203,7 +226,7 @@ make
 
 ### 配置文件发现与校验
 
-程序可读取名为 `config.json` 的 JSON 配置文件，用于注入 OP、PTA 和 TRAN 的求解参数。不存在配置文件时，全部默认值与此前保持一致。网表控制卡中显式给出的同名参数始终优先于配置文件。
+程序可读取名为 `config.json` 的 JSON 配置文件，用于注入 OP、PTA 和 TRAN 的求解参数，并控制是否输出详细求解报告。不存在配置文件时，全部默认值与此前保持一致。网表控制卡中显式给出的同名参数始终优先于配置文件。
 
 默认会从进程的当前工作目录开始查找 `config.json`，再逐级查找父目录；默认最多向上查找 8 个父目录。找到最近的文件后停止搜索。注意搜索起点是启动 `spice` 时的工作目录，而不是网表文件所在的目录。
 
@@ -232,6 +255,7 @@ make
 ```json
 {
   "schema_version": 1,
+  "debug": true,
   "op": {
     "newton": {
       "maximum_iterations": 1000,
@@ -266,6 +290,7 @@ make
 
 允许的字段如下；未知字段、错误类型、无穷数和非法 SPICE 数值都会以配置错误退出。
 
+- `debug`：布尔值，默认 `true`。控制是否写出同名 `.solve.txt` 报告；命令行 `--debug true|false` 的优先级更高。
 - `op.newton`：`maximum_iterations`、`tolerance`、`maximum_solution_step`。
 - `op.source_stepping`：`enabled`、`initial_step`、`maximum_step`、`minimum_step`、`growth_factor`、`failure_scale`。
 - `pta.newton`：与 `op.newton` 相同。`pta` 还支持 `mode`、`initial_step`、`minimum_step`、`maximum_step`、`maximum_steps`、所有 `derivative_*` 与 `dc_*` 容差、`initial_node_capacitance`、`minimum_node_capacitance`、`maximum_node_capacitance`、`current_source_capacitance`、`voltage_source_inductance`、`compound_time_constant`、`compound_initial_resistance`、`compound_initial_conductance`、`source_ramp_time`、`initial_bjt_vbe`、所有振荡/电容缩放字段，以及 `include_mos_bulk`、`include_diodes`。
@@ -310,6 +335,8 @@ make
 
 覆盖优先级为“内建默认值 < `config.json` < 显式 CLI 分析参数 < 网表控制卡”。配置文件与命令行的同名值相互冲突时仍由命令行优先；但只要 `.cir` / `.sp` 中已显式设置该参数，程序便静默保留网表值，不输出警告或错误。
 
+`.solve.txt` 的输出开关独立于分析参数：内建默认值为 `true`，配置根字段 `debug` 可调整默认值，`--debug true|false` 最终覆盖配置文件；网表控制卡不会改变它。
+
 目前受保护的网表控制字段包括 `.tran` 的 `TSTEP`、`TSTOP`、显式 `TSTART`、`TMAX` 和 `UIC`，`.options DELMAX`，以及 `.pstran` 中显式给出的 `convval`、`initstep`、`minstep`、`maxstep`、`tau`、`vbe0`、`tauramp` 与 PTA 模式。未由网表给出的 OP 参数、TRAN 求解器参数及 PTA 其他参数仍可由配置文件或命令行注入。`.pstran` 始终强制 PTA 模式，因此与 `--pta` 或 `pta.mode` 冲突时会静默保留 `force`。网表的 `TMAX` / `DELMAX` 是硬上限，外部的 `tran.maximum_step` 或 `--tran-option maximum-step=...` 不会改变它。网表含 `.tran` 时，外部 `enabled=false` 也不会禁用该分析；没有 `.tran` 时，`enabled: false` 仍可禁用由外部配置创建的瞬态分析。
 
 查看命令行帮助：
@@ -331,8 +358,11 @@ tests/
     op/          18 个由 ngspice 独立生成的 OP listing reference
     tran/        18 个由 ngspice 独立生成并重采样的 TRAN listing reference
   output/
-    op/          测试产生的 .out / .raw / .err
-    tran/        测试产生的 .out / .raw / .err
+    op/<case>/   每个 OP 网表的 .out / .raw / .err / .solve.txt
+    tran/<case>/ 每个 TRAN 网表的 .out / .raw / .err / .solve.txt
+    pta/<mode>/<case>/  PTA OP 回归的四个 artifact
+    pta/hard-op/<mode>/<case>/  困难 PTA 用例的 ordinary / force / fallback artifact
+    private/<case>/  私有网表求解后的四个 artifact
 ```
 
 运行全部 36 个用例：
@@ -344,7 +374,7 @@ make test
 `make test-unit` 可单独运行瞬态/PTA 数值单元测试，`make test-core` 可单独运行命令行和 SPICE 字符串工具单元测试，`make test-config` 可单独运行配置模块单元测试和配置 CLI 端到端测试。
 
 `make test-op` 与 `make test-tran` 会在每个网表执行后输出一条
-`TIME <analysis> <case> <milliseconds> PASS/FAIL`，并输出该分析组的总墙钟时间。单例时间覆盖 simulator 子进程启动、解析、建模、求解以及 `.out` / `.raw` 写出；rawfile 校验和 ngspice 对照时间不包含在其中，便于 PTA 前后比较求解端到端开销。
+`TIME <analysis> <case> <milliseconds> PASS/FAIL`，并输出该分析组的总墙钟时间。单例时间覆盖 simulator 子进程启动、解析、建模、求解以及四个 artifact 写出；rawfile 校验和 ngspice 对照时间不包含在其中，便于 PTA 前后比较求解端到端开销。
 
 PTA Force OP 回归与参考精度比较可一并运行：
 
@@ -376,7 +406,7 @@ make test-cases
 make test-op
 make test-tran
 make test-netlists  # 递归解析 tests/ 下所有 .cir / .sp，不执行求解
-make test-private   # 仅解析 tests/private/
+make test-private   # 求解 tests/private/ 并写入 tests/output/private/；复杂网表可能耗时较长
 make compare
 make compare-op
 make compare-tran
@@ -385,8 +415,8 @@ make compare-tran
 `make test` 会完成以下检查：
 
 1. 构建 simulator，并运行瞬态/PTA、命令行、SPICE 字符串工具和配置单元测试。
-2. 使用 `tests/scripts/test_io.py` 检查 SPICE 注释、续行、大小写、严格数值/model/实例参数、`.end`、混合 OP/TRAN 输出、事务式文件替换、硬链接保护和 CLI。
-3. 对每个 netlist 同时生成 listing、ASCII rawfile 和 stderr 文件。
+2. 使用 `tests/scripts/test_io.py` 检查 SPICE 注释、续行、大小写、严格数值/model/实例参数、`.end`、混合 OP/TRAN 输出、同名结果目录、成功/失败求解报告、事务式文件替换、硬链接保护和 CLI。
+3. 对每个 netlist 生成独立子目录以及 `.out`、`.raw`、`.err` 和默认启用的 `.solve.txt` artifact，并校验报告状态与分析段落及 debug 开关行为。
 4. 使用 `tests/scripts/validate_raw.py` 校验 rawfile header、变量数量、点数、有限数值和瞬态时间单调性，并把 raw 数据与同次 listing 逐点、逐变量交叉核对。
 5. 使用 `tests/scripts/compare_spice.py` 解析标准与实际 `Index` 表格，并按绝对误差加相对误差比较。
 6. 使用 `--parse-only` 递归读取 `tests/` 下全部 `.cir` / `.sp`，覆盖 `tests/private/` 的遗留 Level-3 MOS 模型卡与层次化子电路；此检查只验证语法、实例、模型和分析参数的读取与校验，不要求求解收敛。
@@ -431,12 +461,12 @@ make generate-standards  # 需要 ngspice
 
 ```text
 include/
-  analysis/      分析计划、瞬态配置、stamp 上下文与积分器
+  analysis/      分析计划、求解诊断、瞬态配置、stamp 上下文与积分器
   app/           命令行接口
   circuit/       Circuit 求解编排与 NodeMap 拓扑接口
   config/        配置加载、类型化覆盖及参数优先级接口
   devices/       器件定义及 OP / TRAN stamp
-  io/            SPICE listing / rawfile 与事务式文件输出接口
+  io/            SPICE listing / rawfile、求解报告与事务式 artifact 接口
   math/          Eigen 稀疏 MNA、Newton 步长控制与数值限制工具
   models/        .model 参数存储
   netlist/       网表读取、层次展开与 Parser 接口
@@ -445,14 +475,14 @@ src/
   app/           命令行解析
   circuit/       Circuit 与 NodeMap 实现
   config/        配置加载、schema 解析和覆盖应用
-  io/            listing / rawfile 格式化与文件提交
+  io/            listing / rawfile / 求解报告格式化与文件提交
   netlist/       网表读取、子电路展开与语义解析
   main.cpp       应用入口与高层流程编排
 tests/
   cases/         OP / TRAN netlist 与 SOURCES.md
   references/    ngspice 独立参考 listing
   scripts/       用例生成、参考生成与回归校验脚本
-  output/        测试生成的 listing / rawfile / stderr（不纳入版本控制）
+  output/        按网表分目录的测试 artifact（不纳入版本控制）
 ```
 
 项目内头文件统一相对于 `include/` 引用，文件名统一使用 snake_case。`include/analysis`、`include/devices`、`include/math` 和 `include/models` 当前主要是 header-only 模块；存在独立实现文件的模块则在 `src/` 中使用对应职责目录。Makefile 自动收集 `src/` 及其一级职责目录中的 `.cpp` 文件。默认构建使用 `-O3`；调试时可用 `make OPT_FLAGS=-O0` 覆盖。

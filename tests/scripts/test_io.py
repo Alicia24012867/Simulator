@@ -94,6 +94,147 @@ def main():
                 "raw output was incorrectly filtered by .print",
             )
 
+            bundle = root / "valid"
+            bundled_listing = bundle / "valid.out"
+            bundled_raw = bundle / "valid.raw"
+            bundled_error = bundle / "valid.err"
+            bundled_report = bundle / "valid.solve.txt"
+            require(bundle.is_dir(), "netlist-named output directory is missing")
+            require(
+                bundled_listing.read_text() == listing_text,
+                "bundled listing differs from the legacy mirror",
+            )
+            require(
+                bundled_raw.read_text() == raw_text,
+                "bundled rawfile differs from the legacy mirror",
+            )
+            require(
+                bundled_error.read_text() == "",
+                "successful bundled error log is not empty",
+            )
+            report_text = bundled_report.read_text()
+            for expected in (
+                "SPICE Solver Report",
+                "Status: succeeded",
+                "Circuit characteristics:",
+                "Method path:",
+                "Transient analysis:",
+                "Effective solver configuration:",
+                "Convergence and tuning observations:",
+            ):
+                require(expected in report_text, f"solve report missing {expected}")
+            require(
+                "Final Newton update infinity norm:" not in report_text
+                and "Convergence tolerance:" not in report_text,
+                "linear OP/TRAN report included inapplicable Newton metrics",
+            )
+
+            alternate_root = root / "alternate-results"
+            result = run(
+                simulator,
+                "-b",
+                "--output-root",
+                alternate_root,
+                valid,
+            )
+            require(
+                result.returncode == 0 and not result.stdout,
+                f"custom output root failed: {result.stderr}",
+            )
+            require(
+                (alternate_root / "valid" / "valid.solve.txt").is_file(),
+                "custom output root did not retain the netlist-named directory",
+            )
+
+            debug_disabled_root = root / "debug-disabled-results"
+            result = run(
+                simulator,
+                "-b",
+                "--output-root",
+                debug_disabled_root,
+                "--debug",
+                "false",
+                valid,
+            )
+            require(
+                result.returncode == 0,
+                f"CLI debug=false run failed: {result.stderr}",
+            )
+            debug_disabled_bundle = debug_disabled_root / "valid"
+            for artifact in ("valid.out", "valid.raw", "valid.err"):
+                require(
+                    (debug_disabled_bundle / artifact).is_file(),
+                    f"debug=false omitted required artifact {artifact}",
+                )
+            require(
+                not (debug_disabled_bundle / "valid.solve.txt").exists(),
+                "CLI debug=false unexpectedly wrote a solve report",
+            )
+
+            debug_config = root / "debug-disabled.json"
+            debug_config.write_text('{"schema_version": 1, "debug": false}\n')
+            config_disabled_root = root / "config-debug-disabled-results"
+            result = run(
+                simulator,
+                "-b",
+                "--config",
+                debug_config,
+                "--output-root",
+                config_disabled_root,
+                valid,
+            )
+            require(
+                result.returncode == 0,
+                f"config debug=false run failed: {result.stderr}",
+            )
+            require(
+                not (
+                    config_disabled_root / "valid" / "valid.solve.txt"
+                ).exists(),
+                "configuration debug=false unexpectedly wrote a solve report",
+            )
+
+            debug_override_root = root / "debug-cli-override-results"
+            result = run(
+                simulator,
+                "-b",
+                "--config",
+                debug_config,
+                "--debug",
+                "true",
+                "--output-root",
+                debug_override_root,
+                valid,
+            )
+            require(
+                result.returncode == 0,
+                f"CLI debug override run failed: {result.stderr}",
+            )
+            require(
+                (
+                    debug_override_root / "valid" / "valid.solve.txt"
+                ).is_file(),
+                "CLI debug=true did not override configuration debug=false",
+            )
+
+            multi_suffix = root / "multi.stage.cir"
+            multi_suffix.write_text(valid.read_text())
+            result = run(simulator, "-b", multi_suffix)
+            require(result.returncode == 0, f"multi-suffix netlist failed: {result.stderr}")
+            require(
+                (root / "multi.stage" / "multi.stage.solve.txt").is_file(),
+                "output directory did not remove only the final netlist suffix",
+            )
+
+            parse_only = root / "parse-only.cir"
+            parse_only.write_text(valid.read_text())
+            result = run(simulator, "--parse-only", parse_only)
+            require(result.returncode == 0, f"parse-only failed: {result.stderr}")
+            require(
+                not (root / "parse-only").exists(),
+                "parse-only unexpectedly created an output bundle",
+            )
+
             standard_dir = root / "mixed-standard"
             actual_dir = root / "mixed-actual"
             standard_dir.mkdir()
@@ -149,6 +290,70 @@ def main():
                     f"{raw_validation.stdout}{raw_validation.stderr}",
                 )
             print("PASS valid SPICE syntax, comments, continuation, case folding")
+        except Exception as exc:
+            failures.append(str(exc))
+
+        try:
+            source_stepping_case = (
+                Path(__file__).resolve().parents[1]
+                / "cases"
+                / "op"
+                / "level2_07_bjt_differential_pair_mesh.cir"
+            )
+            source_root = root / "source-stepping-results"
+            result = run(
+                simulator,
+                "-b",
+                "--output-root",
+                source_root,
+                "--op-option",
+                "newton.maximum-iterations=2",
+                source_stepping_case,
+            )
+            require(
+                result.returncode == 0,
+                f"source-stepping recovery failed: {result.stderr}",
+            )
+            source_report = (
+                source_root
+                / source_stepping_case.stem
+                / f"{source_stepping_case.stem}.solve.txt"
+            ).read_text()
+            require(
+                "Method path: direct Newton failed -> source stepping succeeded"
+                in source_report,
+                "source-stepping report omitted the failed-to-recovered method chain",
+            )
+            require(
+                "Total iterations:" in source_report
+                and "Final solver attempt iterations:" in source_report
+                and "Source stepping:" in source_report,
+                "source-stepping report omitted iteration or attempt details",
+            )
+            source_attempt_lines = [
+                line
+                for line in source_report.splitlines()
+                if "accepted_scale=" in line and "target_scale=" in line
+            ]
+            require(source_attempt_lines, "source-stepping attempt trace is empty")
+            for line in source_attempt_lines:
+                fields = {}
+                for token in line.split():
+                    for name in ("accepted_scale", "step", "target_scale"):
+                        prefix = f"{name}="
+                        if token.startswith(prefix):
+                            fields[name] = float(token[len(prefix):])
+                require(
+                    set(fields) == {"accepted_scale", "step", "target_scale"},
+                    f"malformed source-stepping trace line: {line}",
+                )
+                actual_step = fields["target_scale"] - fields["accepted_scale"]
+                require(
+                    abs(fields["step"] - actual_step)
+                    <= 1.0e-12 * max(1.0, abs(actual_step)),
+                    f"reported source step is not the actual clamped increment: {line}",
+                )
+            print("PASS source-stepping recovery report")
         except Exception as exc:
             failures.append(str(exc))
 
@@ -575,6 +780,32 @@ def main():
             require(result.returncode != 0, "input hard-link alias was accepted")
             require(same_path.read_text() == original, "hard-link input was truncated")
 
+            canonical_raw = root / "valid" / "valid.raw"
+            canonical_raw_text = canonical_raw.read_text()
+            result = run(simulator, "-o", canonical_raw, valid)
+            require(
+                result.returncode != 0,
+                "legacy listing mirror was allowed to replace canonical raw output",
+            )
+            require(
+                canonical_raw.read_text() == canonical_raw_text,
+                "canonical raw output changed after mirror-path rejection",
+            )
+
+            canonical_report = root / "valid" / "valid.solve.txt"
+            report_alias = root / "canonical-report-hard-link.out"
+            os.link(canonical_report, report_alias)
+            canonical_report_text = canonical_report.read_text()
+            result = run(simulator, "-o", report_alias, valid)
+            require(
+                result.returncode != 0,
+                "hard-link mirror alias of the canonical report was accepted",
+            )
+            require(
+                canonical_report.read_text() == canonical_report_text,
+                "canonical report changed after hard-link mirror rejection",
+            )
+
             case_probe = root / "case-probe"
             case_probe.write_text("probe\n")
             case_insensitive = (root / "CASE-PROBE").exists()
@@ -649,11 +880,61 @@ def main():
             )
             protected_output = root / "solve-protected.out"
             protected_output.write_text("keep after solve failure\n")
+            failure_bundle = root / "unsolved"
+            failure_bundle.mkdir()
+            bundled_listing = failure_bundle / "unsolved.out"
+            bundled_raw = failure_bundle / "unsolved.raw"
+            bundled_listing.write_text("keep bundled listing\n")
+            bundled_raw.write_text("keep bundled rawfile\n")
             result = run(simulator, "-o", protected_output, unsolved)
             require(result.returncode != 0, "singular circuit unexpectedly solved")
             require(
                 protected_output.read_text() == "keep after solve failure\n",
                 "failed solve truncated an existing output",
+            )
+            require(
+                bundled_listing.read_text() == "keep bundled listing\n" and
+                bundled_raw.read_text() == "keep bundled rawfile\n",
+                "failed solve replaced a previous successful artifact pair",
+            )
+            failure_error = (failure_bundle / "unsolved.err").read_text()
+            failure_report = (failure_bundle / "unsolved.solve.txt").read_text()
+            require(
+                "Operating point analysis failed" in failure_error,
+                "failed solve error log omitted the terminal diagnostic",
+            )
+            require(
+                "Status: failed" in failure_report and
+                "Method path: direct sparse linear solve failed" in failure_report and
+                "Direct sparse linear solve:" in failure_report and
+                "Failure reason:" in failure_report and
+                "sparse linear system" in failure_report,
+                "failed solve report omitted convergence diagnostics",
+            )
+
+            no_report_failure = root / "unsolved-no-report.cir"
+            no_report_failure.write_text(unsolved.read_text())
+            result = run(
+                simulator,
+                "-b",
+                "--debug",
+                "false",
+                no_report_failure,
+            )
+            require(
+                result.returncode != 0,
+                "debug=false singular circuit unexpectedly solved",
+            )
+            no_report_bundle = root / "unsolved-no-report"
+            require(
+                (no_report_bundle / "unsolved-no-report.err").is_file(),
+                "debug=false failure did not preserve the error log",
+            )
+            require(
+                not (
+                    no_report_bundle / "unsolved-no-report.solve.txt"
+                ).exists(),
+                "debug=false failure unexpectedly wrote a solve report",
             )
             print("PASS solve failure preserves existing output")
         except Exception as exc:

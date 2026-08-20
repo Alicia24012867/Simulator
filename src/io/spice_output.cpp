@@ -1,6 +1,7 @@
 #include "io/spice_output.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <ctime>
@@ -441,7 +442,13 @@ struct StagedOutput {
     bool committed = false;
 };
 
-std::filesystem::path normalizedPath(const std::string& path){
+struct PendingOutput {
+    std::filesystem::path destination;
+    std::string_view content;
+    const char* description = nullptr;
+};
+
+std::filesystem::path normalizedPath(const std::filesystem::path& path){
     std::error_code error;
     std::filesystem::path normalized =
         std::filesystem::weakly_canonical(path, error);
@@ -456,8 +463,8 @@ std::filesystem::path normalizedPath(const std::string& path){
         : normalized.lexically_normal();
 }
 
-bool pathsReferToSameFile(const std::string& left,
-                          const std::string& right){
+bool pathsReferToSameFile(const std::filesystem::path& left,
+                          const std::filesystem::path& right){
     if(normalizedPath(left) == normalizedPath(right)){
         return true;
     }
@@ -465,6 +472,13 @@ bool pathsReferToSameFile(const std::string& left,
     std::error_code error;
     const bool equivalent = std::filesystem::equivalent(left, right, error);
     return !error && equivalent;
+}
+
+std::filesystem::path pathWithSuffix(const std::filesystem::path& stem,
+                                     const char* suffix){
+    std::filesystem::path result = stem;
+    result += suffix;
+    return result;
 }
 
 std::filesystem::path temporaryOutputPath(
@@ -510,7 +524,7 @@ void discardStagedOutputs(std::vector<StagedOutput>& outputs){
     }
 }
 
-bool stageFile(const std::string& path,
+bool stageFile(const std::filesystem::path& path,
                std::string_view content,
                const char* description,
                StagedOutput& staged,
@@ -522,11 +536,11 @@ bool stageFile(const std::string& path,
     if(std::filesystem::exists(staged.destination, statusError) &&
        !std::filesystem::is_regular_file(staged.destination, statusError)){
         error << "Cannot replace non-regular " << description << " <"
-              << path << ">\n";
+              << path.string() << ">\n";
         return false;
     }
     if(statusError){
-        error << "Cannot inspect " << description << " <" << path
+        error << "Cannot inspect " << description << " <" << path.string()
               << ">: " << statusError.message() << '\n';
         return false;
     }
@@ -543,7 +557,8 @@ bool stageFile(const std::string& path,
         std::ios::out | std::ios::trunc | std::ios::binary
     );
     if(!output){
-        error << "Cannot open " << description << " <" << path << ">\n";
+        error << "Cannot open " << description << " <" << path.string()
+              << ">\n";
         removeTemporaryOutput(staged.temporary);
         staged.temporary.clear();
         return false;
@@ -554,7 +569,7 @@ bool stageFile(const std::string& path,
     output.close();
     if(!output){
         error << "Failed while writing " << description
-              << " <" << path << ">\n";
+              << " <" << path.string() << ">\n";
         removeTemporaryOutput(staged.temporary);
         staged.temporary.clear();
         return false;
@@ -698,7 +713,197 @@ bool commitStagedOutputs(std::vector<StagedOutput>& outputs,
     return true;
 }
 
+bool writeOutputsAtomically(const std::vector<PendingOutput>& pendingOutputs,
+                            std::ostream& error){
+    std::vector<StagedOutput> stagedOutputs;
+    stagedOutputs.reserve(pendingOutputs.size());
+
+    for(const auto& pending: pendingOutputs){
+        StagedOutput staged;
+        if(!stageFile(
+               pending.destination,
+               pending.content,
+               pending.description,
+               staged,
+               error)){
+            discardStagedOutputs(stagedOutputs);
+            return false;
+        }
+        stagedOutputs.push_back(std::move(staged));
+    }
+
+    return commitStagedOutputs(stagedOutputs, error);
+}
+
 }  // namespace
+
+OutputBundlePaths OutputBundlePaths::derive(
+    const std::filesystem::path& inputPath,
+    const std::optional<std::filesystem::path>& outputRoot
+){
+    OutputBundlePaths paths;
+    const std::filesystem::path stem = inputPath.filename().stem();
+    paths.directory = outputRoot
+        ? *outputRoot / stem
+        : inputPath.parent_path() / stem;
+    paths.listingPath = paths.directory / pathWithSuffix(stem, ".out");
+    paths.rawPath = paths.directory / pathWithSuffix(stem, ".raw");
+    paths.errorPath = paths.directory / pathWithSuffix(stem, ".err");
+    paths.reportPath = paths.directory / pathWithSuffix(stem, ".solve.txt");
+    return paths;
+}
+
+bool OutputBundlePaths::validate(const std::filesystem::path& inputPath,
+                                 std::ostream& error) const{
+    if(inputPath.empty() || inputPath.filename().empty()){
+        error << "Cannot derive output bundle from an empty input filename\n";
+        return false;
+    }
+    if(directory.empty()){
+        error << "Output bundle directory must not be empty\n";
+        return false;
+    }
+    if(pathsReferToSameFile(directory, inputPath)){
+        error << "Input netlist and output bundle directory must be different\n";
+        return false;
+    }
+
+    std::error_code directoryError;
+    const bool directoryExists = std::filesystem::exists(
+        directory,
+        directoryError
+    );
+    if(directoryError){
+        error << "Cannot inspect output bundle directory <"
+              << directory.string() << ">: "
+              << directoryError.message() << '\n';
+        return false;
+    }
+    if(directoryExists){
+        std::error_code typeError;
+        if(!std::filesystem::is_directory(directory, typeError) || typeError){
+            error << "Output bundle path is not a directory <"
+                  << directory.string() << ">\n";
+            return false;
+        }
+    }
+
+    const std::array<std::pair<const std::filesystem::path*, const char*>, 4>
+        outputs = {{
+            {&listingPath, "listing output"},
+            {&rawPath, "raw output"},
+            {&errorPath, "error log"},
+            {&reportPath, "solve report"}
+        }};
+    const std::filesystem::path normalizedDirectory = normalizedPath(directory);
+
+    for(const auto& output: outputs){
+        const std::filesystem::path& path = *output.first;
+        const std::filesystem::path filename = path.filename();
+        if(path.empty() || filename.empty() || filename == "." ||
+           filename == ".."){
+            error << "Invalid " << output.second << " path <"
+                  << path.string() << ">\n";
+            return false;
+        }
+        if(normalizedPath(path.parent_path()) != normalizedDirectory){
+            error << "The " << output.second
+                  << " must be a direct child of output bundle directory <"
+                  << directory.string() << ">\n";
+            return false;
+        }
+        if(pathsReferToSameFile(path, inputPath)){
+            error << "Input netlist and " << output.second
+                  << " must be different files\n";
+            return false;
+        }
+
+        std::error_code statusError;
+        const bool exists = std::filesystem::exists(path, statusError);
+        if(statusError){
+            error << "Cannot inspect " << output.second << " <"
+                  << path.string() << ">: " << statusError.message() << '\n';
+            return false;
+        }
+        if(exists){
+            std::error_code typeError;
+            if(!std::filesystem::is_regular_file(path, typeError) || typeError){
+                error << "Cannot replace non-regular " << output.second << " <"
+                      << path.string() << ">\n";
+                return false;
+            }
+        }
+    }
+
+    for(std::size_t left = 0; left < outputs.size(); ++left){
+        for(std::size_t right = left + 1; right < outputs.size(); ++right){
+            if(pathsReferToSameFile(*outputs[left].first, *outputs[right].first)){
+                error << "Output bundle paths for " << outputs[left].second
+                      << " and " << outputs[right].second
+                      << " must be different files\n";
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool OutputBundlePaths::prepare(const std::filesystem::path& inputPath,
+                                std::ostream& error) const{
+    if(!validate(inputPath, error)){
+        return false;
+    }
+
+    std::error_code createError;
+    std::filesystem::create_directories(directory, createError);
+    if(createError){
+        error << "Cannot create output bundle directory <"
+              << directory.string() << ">: " << createError.message() << '\n';
+        return false;
+    }
+
+    // Revalidate after creation to catch aliases or concurrent path changes.
+    return validate(inputPath, error);
+}
+
+bool OutputBundlePaths::validateMirrors(
+    const std::optional<std::string>& listingMirror,
+    const std::optional<std::string>& rawMirror,
+    std::ostream& error
+) const{
+    const std::array<std::pair<const std::filesystem::path*, const char*>, 4>
+        outputs = {{
+            {&listingPath, "listing output"},
+            {&rawPath, "raw output"},
+            {&errorPath, "error log"},
+            {&reportPath, "solve report"}
+        }};
+
+    const auto validateMirror = [&outputs, &error, this](
+        const std::optional<std::string>& mirror,
+        const char* description
+    ) {
+        if(!mirror){
+            return true;
+        }
+        if(pathsReferToSameFile(*mirror, directory)){
+            error << "The " << description
+                  << " must not be the output bundle directory\n";
+            return false;
+        }
+        for(const auto& output: outputs){
+            if(pathsReferToSameFile(*mirror, *output.first)){
+                error << "The " << description << " and canonical "
+                      << output.second << " must be different files\n";
+                return false;
+            }
+        }
+        return true;
+    };
+
+    return validateMirror(listingMirror, "listing mirror") &&
+           validateMirror(rawMirror, "raw mirror");
+}
 
 bool SpiceOutputFiles::validatePaths(
     const std::string& inputPath,
@@ -729,37 +934,79 @@ bool SpiceOutputFiles::writeAtomically(
     std::string_view raw,
     std::ostream& error
 ){
-    std::vector<StagedOutput> stagedOutputs;
-    stagedOutputs.reserve(
+    std::vector<PendingOutput> pendingOutputs;
+    pendingOutputs.reserve(
         static_cast<std::size_t>(listingPath.has_value()) +
         static_cast<std::size_t>(rawPath.has_value())
     );
 
     if(listingPath){
-        StagedOutput staged;
-        if(!stageFile(
-               *listingPath,
-               listing,
-               "listing output",
-               staged,
-               error)){
-            discardStagedOutputs(stagedOutputs);
-            return false;
-        }
-        stagedOutputs.push_back(std::move(staged));
+        pendingOutputs.push_back({*listingPath, listing, "listing output"});
     }
     if(rawPath){
-        StagedOutput staged;
-        if(!stageFile(
-               *rawPath,
-               raw,
-               "raw output",
-               staged,
-               error)){
-            discardStagedOutputs(stagedOutputs);
-            return false;
-        }
-        stagedOutputs.push_back(std::move(staged));
+        pendingOutputs.push_back({*rawPath, raw, "raw output"});
     }
-    return commitStagedOutputs(stagedOutputs, error);
+    return writeOutputsAtomically(pendingOutputs, error);
+}
+
+bool SpiceOutputFiles::writeAtomically(
+    const OutputBundlePaths& paths,
+    std::string_view listing,
+    std::string_view raw,
+    std::string_view errorLog,
+    std::ostream& error
+){
+    return writeOutputsAtomically(
+        {
+            {paths.listingPath, listing, "listing output"},
+            {paths.rawPath, raw, "raw output"},
+            {paths.errorPath, errorLog, "error log"}
+        },
+        error
+    );
+}
+
+bool SpiceOutputFiles::writeAtomically(
+    const OutputBundlePaths& paths,
+    std::string_view listing,
+    std::string_view raw,
+    std::string_view errorLog,
+    std::string_view report,
+    std::ostream& error
+){
+    return writeOutputsAtomically(
+        {
+            {paths.listingPath, listing, "listing output"},
+            {paths.rawPath, raw, "raw output"},
+            {paths.errorPath, errorLog, "error log"},
+            {paths.reportPath, report, "solve report"}
+        },
+        error
+    );
+}
+
+bool SpiceOutputFiles::writeFailureAtomically(
+    const OutputBundlePaths& paths,
+    std::string_view errorLog,
+    std::ostream& error
+){
+    return writeOutputsAtomically(
+        {{paths.errorPath, errorLog, "error log"}},
+        error
+    );
+}
+
+bool SpiceOutputFiles::writeFailureAtomically(
+    const OutputBundlePaths& paths,
+    std::string_view errorLog,
+    std::string_view report,
+    std::ostream& error
+){
+    return writeOutputsAtomically(
+        {
+            {paths.errorPath, errorLog, "error log"},
+            {paths.reportPath, report, "solve report"}
+        },
+        error
+    );
 }

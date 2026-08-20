@@ -1,6 +1,7 @@
 #include "circuit/circuit.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <ctime>
 #include <limits>
@@ -22,6 +23,35 @@ namespace {
 constexpr double kSourceScaleDone = 1.0 - 1.0e-12;
 constexpr double kTimeRelativeTolerance =
     64.0 * std::numeric_limits<double>::epsilon();
+
+using SteadyClock = std::chrono::steady_clock;
+
+double elapsedWallSeconds(SteadyClock::time_point start){
+    return std::chrono::duration<double>(SteadyClock::now() - start).count();
+}
+
+void updateStepRange(double step, double& minimum, double& maximum){
+    if(!std::isfinite(step) || step <= 0.0){
+        return;
+    }
+    if(minimum == 0.0 || step < minimum){
+        minimum = step;
+    }
+    maximum = std::max(maximum, step);
+}
+
+const char* transientFailureReason(TransientStepAction action){
+    switch(action){
+        case TransientStepAction::FailInvalidEstimate:
+            return "transient error estimate is invalid";
+        case TransientStepAction::FailMinimumStep:
+            return "transient step cannot be reduced above the minimum step";
+        case TransientStepAction::FailRejectLimit:
+            return "transient step rejection limit was reached";
+        default:
+            return "transient step controller failed";
+    }
+}
 
 bool timeReached(double time, double target){
     const double scale = std::max(
@@ -73,13 +103,93 @@ PtaDiagnostics Circuit::ptaDiagnostics() const{
         operatingPointStats_.ptaAttempted,
         operatingPointStats_.converged,
         operatingPointStats_.hasPtaConvergenceMetrics,
-        operatingPointStats_.iterations,
+        operatingPointStats_.ptaIterations,
         operatingPointStats_.ptaCapacitanceGrowths,
         operatingPointStats_.ptaCapacitanceReductions,
         operatingPointStats_.ptaMinimumStepRecoveries,
         operatingPointStats_.ptaNormalizedDerivative,
         operatingPointStats_.ptaNormalizedDcResidual
     };
+}
+
+const OperatingPointDiagnostics&
+Circuit::operatingPointDiagnostics() const noexcept {
+    return operatingPointStats_;
+}
+
+const TransientDiagnostics& Circuit::transientDiagnostics() const noexcept {
+    return transientStats_;
+}
+
+CircuitDiagnostics Circuit::circuitDiagnostics() const {
+    CircuitDiagnostics diagnostics;
+    diagnostics.deviceCount = static_cast<int>(devices_.size());
+    diagnostics.modelCount = static_cast<int>(models_.size());
+    diagnostics.nodeCount = nodeMap_ ? nodeMap_->nodeCount() : 0;
+    diagnostics.unknownCount = mna_ ? mna_->size() : 0;
+    diagnostics.matrixNonZeros = mna_ ? mna_->nonZeroCount() : 0;
+    diagnostics.pseudoDeviceCount = static_cast<int>(pseudoDevices_.size());
+
+    constexpr int deviceTypeCount = 8;
+    int counts[deviceTypeCount] = {};
+    for(const auto& device: devices_){
+        const int typeIndex = static_cast<int>(device->getType());
+        if(typeIndex >= 0 && typeIndex < deviceTypeCount){
+            ++counts[typeIndex];
+        }
+        if(device->isNonlinear()){
+            ++diagnostics.nonlinearDeviceCount;
+        }
+    }
+    for(int typeIndex = 0; typeIndex < deviceTypeCount; ++typeIndex){
+        if(counts[typeIndex] == 0){
+            continue;
+        }
+        diagnostics.devicesByType.push_back({
+            deviceTypeName(static_cast<DeviceType>(typeIndex)),
+            counts[typeIndex]
+        });
+    }
+
+    if(!mna_ || mna_->solution().size() == 0 ||
+       !mna_->solution().allFinite()){
+        return diagnostics;
+    }
+
+    diagnostics.hasFiniteSolution = true;
+    const Eigen::VectorXd& solution = mna_->solution();
+    diagnostics.maximumAbsoluteSolution = solution.cwiseAbs().maxCoeff();
+
+    if(nodeMap_ && nodeMap_->nodeCount() > 0){
+        const auto nodeVoltages = solution.head(nodeMap_->nodeCount());
+        diagnostics.minimumNodeVoltage = nodeVoltages.minCoeff();
+        diagnostics.maximumNodeVoltage = nodeVoltages.maxCoeff();
+
+        Eigen::Index maximumNode = 0;
+        nodeVoltages.cwiseAbs().maxCoeff(&maximumNode);
+        diagnostics.maximumAbsoluteSolutionVariable =
+            "v(" + nodeMap_->nodeNameByIdx()[
+                static_cast<std::size_t>(maximumNode)] + ")";
+    }
+
+    for(const auto& device: devices_){
+        const int branch = device->branchUnknown();
+        if(branch < 0 ||
+           static_cast<Eigen::Index>(branch) >= solution.size()){
+            continue;
+        }
+        const double magnitude = std::abs(solution[branch]);
+        if(magnitude >= diagnostics.maximumAbsoluteBranchCurrent){
+            diagnostics.maximumAbsoluteBranchCurrent = magnitude;
+            diagnostics.maximumAbsoluteBranchCurrentDevice = device->getName();
+        }
+        if(magnitude >= diagnostics.maximumAbsoluteSolution){
+            diagnostics.maximumAbsoluteSolution = magnitude;
+            diagnostics.maximumAbsoluteSolutionVariable =
+                "i(" + device->getName() + ")";
+        }
+    }
+    return diagnostics;
 }
 
 int Circuit::allocateUnknown(){
@@ -147,69 +257,92 @@ bool Circuit::solveOperatingPoint(
     const OperatingPointSolverOptions& options
 ){
     operatingPointStats_ = {};
+    operatingPointStats_.attempted = true;
     operatingPointStats_.maxIterations = options.newton.maximumIterations;
     operatingPointStats_.tolerance = options.newton.tolerance;
     operatingPointStats_.minSourceStep = options.sourceStepping.minimumStep;
 
+    const std::clock_t startClock = std::clock();
+    const SteadyClock::time_point startWall = SteadyClock::now();
+    const auto finish = [this, startClock, startWall](
+        bool converged,
+        const std::string& failureReason = std::string{}
+    ) {
+        operatingPointStats_.converged = converged;
+        operatingPointStats_.cpuSeconds =
+            double(std::clock() - startClock) / CLOCKS_PER_SEC;
+        operatingPointStats_.wallSeconds = elapsedWallSeconds(startWall);
+        if(converged){
+            operatingPointStats_.failureReason.clear();
+        }else if(!failureReason.empty()){
+            operatingPointStats_.failureReason = failureReason;
+        }
+        return converged;
+    };
+
     if(!options.valid()){
-        return false;
+        return finish(false, "operating-point solver configuration is invalid");
     }
 
     const AssembleCallback assemble = [this] {
         assembleOperatingPointSystem();
     };
-    const std::clock_t startClock = std::clock();
     const Eigen::VectorXd initialSolution = mna_->solution();
 
     if(!hasNonlinearDevices()){
         setOperatingPointSourceScale(1.0);
 
-        NewtonStats linearStats;
+        NewtonSolveDiagnostics linearStats;
         const bool linearSolved = solveLinearSystem(assemble, linearStats);
+        operatingPointStats_.directNewton = linearStats;
         addNewtonStats(linearStats);
 
         operatingPointStats_.sourceScale = linearSolved ? 1.0 : 0.0;
-        operatingPointStats_.converged = linearSolved;
-        operatingPointStats_.cpuSeconds =
-            double(std::clock() - startClock) / CLOCKS_PER_SEC;
-        return linearSolved;
+        operatingPointStats_.finalMethod = "linear";
+        return finish(linearSolved, linearStats.failureReason);
     }
 
     saveNonlinearIterationStates();
     setOperatingPointSourceScale(1.0);
 
-    NewtonStats directStats;
+    NewtonSolveDiagnostics directStats;
     const bool directConverged = solveNewtonSystem(
         assemble,
         directStats,
         options.newton
     );
+    operatingPointStats_.directNewton = directStats;
     addNewtonStats(directStats);
 
     if(directConverged){
         operatingPointStats_.sourceScale = 1.0;
-        operatingPointStats_.converged = true;
-        operatingPointStats_.cpuSeconds =
-            double(std::clock() - startClock) / CLOCKS_PER_SEC;
-        return true;
+        operatingPointStats_.finalMethod = "direct Newton-Raphson";
+        return finish(true);
     }
 
     restoreNonlinearIterationStates();
     mna_->setSolution(initialSolution);
     setOperatingPointSourceScale(0.0);
 
-    if(!options.sourceStepping.enabled ||
-       !solveOperatingPointWithSourceStepping(assemble, options)){
-        operatingPointStats_.cpuSeconds =
-            double(std::clock() - startClock) / CLOCKS_PER_SEC;
-        return false;
+    if(!options.sourceStepping.enabled){
+        return finish(
+            false,
+            "direct Newton-Raphson failed (" + directStats.failureReason +
+                ") and source stepping is disabled"
+        );
+    }
+    if(!solveOperatingPointWithSourceStepping(assemble, options)){
+        return finish(
+            false,
+            operatingPointStats_.failureReason.empty()
+                ? "source stepping failed"
+                : operatingPointStats_.failureReason
+        );
     }
 
     setOperatingPointSourceScale(1.0);
-    operatingPointStats_.converged = true;
-    operatingPointStats_.cpuSeconds =
-        double(std::clock() - startClock) / CLOCKS_PER_SEC;
-    return true;
+    operatingPointStats_.finalMethod = "source stepping";
+    return finish(true);
 }
 
 bool Circuit::solveTransient(const TransientAnalysisConfig& config){
@@ -221,23 +354,46 @@ bool Circuit::solveTransient(
     const OperatingPointSolverOptions& operatingPointOptions
 ){
     transientStats_ = {};
+    transientStats_.attempted = true;
+    transientStats_.usedInitialConditions = config.useInitialConditions;
+    transientStats_.finalMethod =
+        "adaptive Backward Euler / variable-step BDF2";
     transientStats_.maxIterations =
         config.solverOptions.newtonOptions.maximumIterations;
     transientStats_.tolerance = config.solverOptions.newtonOptions.tolerance;
     transientSamples_.clear();
 
     const std::clock_t startClock = std::clock();
+    const SteadyClock::time_point startWall = SteadyClock::now();
     TransientIntegrator integrator;
     double time = 0.0;
+
+    const auto finishTransient = [this, startClock, startWall, &time](
+        bool converged,
+        const std::string& failureReason = std::string{}
+    ) {
+        transientStats_.converged = converged;
+        transientStats_.finalTime = time;
+        transientStats_.cpuSeconds =
+            double(std::clock() - startClock) / CLOCKS_PER_SEC;
+        transientStats_.wallSeconds = elapsedWallSeconds(startWall);
+        if(converged){
+            transientStats_.failureReason.clear();
+        }else if(!failureReason.empty()){
+            transientStats_.failureReason = failureReason;
+        }
+        return converged;
+    };
 
     const double maximumIntegrationStep = config.maximumStep
         ? *config.maximumStep
         : config.outputInterval;
 
     if(!config.valid() || !operatingPointOptions.valid()){
-        transientStats_.cpuSeconds =
-            double(std::clock() - startClock) / CLOCKS_PER_SEC;
-        return false;
+        return finishTransient(
+            false,
+            "transient or operating-point initialization configuration is invalid"
+        );
     }
 
     Eigen::VectorXd initialSolution;
@@ -250,9 +406,13 @@ bool Circuit::solveTransient(
         if(!solveOperatingPoint(operatingPointOptions)){
             transientStats_.initializationCpuSeconds =
                 double(std::clock() - startClock) / CLOCKS_PER_SEC;
-            transientStats_.cpuSeconds =
-                transientStats_.initializationCpuSeconds;
-            return false;
+            transientStats_.initializationWallSeconds =
+                elapsedWallSeconds(startWall);
+            return finishTransient(
+                false,
+                "transient operating-point initialization failed: " +
+                    operatingPointStats_.failureReason
+            );
         }
         initialSolution = mna_->solution();
     }
@@ -261,6 +421,7 @@ bool Circuit::solveTransient(
 
     transientStats_.initializationCpuSeconds =
         double(std::clock() - startClock) / CLOCKS_PER_SEC;
+    transientStats_.initializationWallSeconds = elapsedWallSeconds(startWall);
 
     double nextOutputTime = config.outputStartTime;
     if(timeReached(time, nextOutputTime)){
@@ -270,19 +431,17 @@ bool Circuit::solveTransient(
             time,
             config.outputInterval
         )){
-            transientStats_.cpuSeconds =
-                double(std::clock() - startClock) / CLOCKS_PER_SEC;
-            return false;
+            return finishTransient(
+                false,
+                "transient output time cannot be advanced"
+            );
         }
     }
 
     double proposedStep = maximumIntegrationStep;
 
-    const auto failTransient = [&] {
-        transientStats_.finalTime = time;
-        transientStats_.cpuSeconds =
-            double(std::clock() - startClock) / CLOCKS_PER_SEC;
-        return false;
+    const auto failTransient = [&finishTransient](const std::string& reason) {
+        return finishTransient(false, reason);
     };
 
     while(!timeReached(time, config.stopTime)){
@@ -304,14 +463,18 @@ bool Circuit::solveTransient(
         }
 
         if(!std::isfinite(hardStepLimit) || hardStepLimit <= 0.0){
-            return failTransient();
+            return failTransient(
+                "transient hard step limit is non-finite or non-positive"
+            );
         }
 
         double candidateStep = std::min(proposedStep, hardStepLimit);
         if(!std::isfinite(candidateStep) ||
            candidateStep <= 0.0 ||
            time + candidateStep <= time){
-            return failTransient();
+            return failTransient(
+                "transient candidate step is invalid or cannot advance time"
+            );
         }
 
         int rejectedAttempts = 0;
@@ -319,7 +482,9 @@ bool Circuit::solveTransient(
         while(true){
             const double nextTime = time + candidateStep;
             if(!std::isfinite(nextTime) || nextTime <= time){
-                return failTransient();
+                return failTransient(
+                    "transient candidate time is invalid or did not advance"
+                );
             }
 
             const Eigen::VectorXd acceptedSolution = mna_->solution();
@@ -334,6 +499,18 @@ bool Circuit::solveTransient(
                         config.solverOptions
                     );
                     ++transientStats_.attemptedSteps;
+                    const double attemptedStep =
+                        trialTime - trialIntegrator.acceptedTime();
+                    updateStepRange(
+                        attemptedStep,
+                        transientStats_.minimumAttemptedStep,
+                        transientStats_.maximumAttemptedStep
+                    );
+                    if(trial.integrationOrder == 1){
+                        ++transientStats_.backwardEulerAttempts;
+                    }else if(trial.integrationOrder == 2){
+                        ++transientStats_.bdf2Attempts;
+                    }
                     addTransientStats(trial.newtonStats);
                     return trial;
                 };
@@ -350,7 +527,10 @@ bool Circuit::solveTransient(
                    halfTime <= time ||
                    nextTime <= halfTime){
                     restoreTransientCheckpoint(acceptedSolution);
-                    return failTransient();
+                    return failTransient(
+                        "Backward Euler step-doubling requires a valid half-step "
+                        "at or above the transient minimum step"
+                    );
                 }
 
                 TransientStepAttempt coarse = runTransientAttempt(
@@ -416,6 +596,21 @@ bool Circuit::solveTransient(
                 attempt = runTransientAttempt(integrator, nextTime);
             }
 
+            transientStats_.lastAttemptedStep = candidateStep;
+            transientStats_.lastAttemptedTime = nextTime;
+            transientStats_.lastIntegrationOrder = attempt.integrationOrder;
+            transientStats_.lastNewton = attempt.newtonStats;
+            if(attempt.errorEstimateValid &&
+               std::isfinite(attempt.normalizedError)){
+                transientStats_.hasNormalizedError = true;
+                transientStats_.lastNormalizedError =
+                    attempt.normalizedError;
+                transientStats_.maximumNormalizedError = std::max(
+                    transientStats_.maximumNormalizedError,
+                    attempt.normalizedError
+                );
+            }
+
             TransientStepControlInput controlInput;
             controlInput.converged = attempt.converged;
             controlInput.requiresBdf2 = hasBdf2History;
@@ -440,6 +635,11 @@ bool Circuit::solveTransient(
                     time = config.stopTime;
                 }
                 ++transientStats_.timeSteps;
+                updateStepRange(
+                    candidateStep,
+                    transientStats_.minimumAcceptedStep,
+                    transientStats_.maximumAcceptedStep
+                );
 
                 proposedStep = std::min(
                     maximumIntegrationStep,
@@ -447,7 +647,9 @@ bool Circuit::solveTransient(
                 );
 
                 if(!std::isfinite(proposedStep) || proposedStep <= 0.0){
-                    return failTransient();
+                    return failTransient(
+                        "transient step controller proposed an invalid next step"
+                    );
                 }
 
                 if(timeReached(time, nextOutputTime)){
@@ -458,7 +660,9 @@ bool Circuit::solveTransient(
                            time,
                            config.outputInterval
                        )){
-                        return failTransient();
+                        return failTransient(
+                            "transient output time cannot be advanced"
+                        );
                     }
                 }
 
@@ -485,7 +689,7 @@ bool Circuit::solveTransient(
                 continue;
             }
 
-            return failTransient();
+            return failTransient(transientFailureReason(decision.action));
         }
     }
 
@@ -494,26 +698,53 @@ bool Circuit::solveTransient(
         recordTransientSample(time);
     }
 
-    transientStats_.converged = true;
-    transientStats_.finalTime = time;
-    transientStats_.cpuSeconds =
-        double(std::clock() - startClock) / CLOCKS_PER_SEC;
-    return true;
+    return finishTransient(true);
 }
 
 bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
-    operatingPointStats_ = {};
+    const bool continuesFailedOrdinarySolve =
+        operatingPointStats_.attempted &&
+        !operatingPointStats_.converged &&
+        !operatingPointStats_.ptaAttempted;
+    if(!continuesFailedOrdinarySolve){
+        operatingPointStats_ = {};
+    }
+    operatingPointStats_.attempted = true;
     operatingPointStats_.ptaAttempted = true;
     operatingPointStats_.maxIterations = config.newtonOptions.maximumIterations;
     operatingPointStats_.tolerance = config.newtonOptions.tolerance;
-    operatingPointStats_.minSourceStep = config.minimumStep;
-    operatingPointStats_.sourceScale = 1.0;
+    operatingPointStats_.ptaAttempts.clear();
 
+    const double priorCpuSeconds = operatingPointStats_.cpuSeconds;
+    const double priorWallSeconds = operatingPointStats_.wallSeconds;
     const std::clock_t startClock = std::clock();
-    const auto finish = [this, startClock](bool converged) {
-        operatingPointStats_.converged = converged;
-        operatingPointStats_.cpuSeconds =
+    const SteadyClock::time_point startWall = SteadyClock::now();
+    const auto finish = [
+        this,
+        startClock,
+        startWall,
+        priorCpuSeconds,
+        priorWallSeconds
+    ](
+        bool converged,
+        const std::string& failureReason = std::string{}
+    ) {
+        operatingPointStats_.ptaCpuSeconds =
             double(std::clock() - startClock) / CLOCKS_PER_SEC;
+        operatingPointStats_.ptaWallSeconds =
+            elapsedWallSeconds(startWall);
+        operatingPointStats_.cpuSeconds =
+            priorCpuSeconds + operatingPointStats_.ptaCpuSeconds;
+        operatingPointStats_.wallSeconds =
+            priorWallSeconds + operatingPointStats_.ptaWallSeconds;
+        operatingPointStats_.converged = converged;
+        if(converged){
+            operatingPointStats_.finalMethod =
+                "pseudo-transient analysis (PTA)";
+            operatingPointStats_.failureReason.clear();
+        }else if(!failureReason.empty()){
+            operatingPointStats_.failureReason = failureReason;
+        }
         return converged;
     };
 
@@ -544,11 +775,30 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
         }
 
         const double nextTime = time + candidateStep;
+        PtaStepAttemptDiagnostics attempt;
+        attempt.attempt = stepCount + 1;
+        attempt.startTime = time;
+        attempt.targetTime = nextTime;
+        attempt.timeStep = candidateStep;
+        operatingPointStats_.ptaFinalStep = candidateStep;
+        updateStepRange(
+            candidateStep,
+            operatingPointStats_.ptaMinimumAttemptedStep,
+            operatingPointStats_.ptaMaximumAttemptedStep
+        );
+
         if(!std::isfinite(candidateStep) ||
            candidateStep < config.minimumStep ||
            !std::isfinite(nextTime) ||
            nextTime <= time){
-            return finish(false);
+            attempt.status = "failed";
+            attempt.failureReason =
+                "PTA time step fell below the minimum or cannot advance pseudo-time";
+            operatingPointStats_.ptaAttempts.push_back(std::move(attempt));
+            return finish(
+                false,
+                "PTA time step fell below the minimum or cannot advance pseudo-time"
+            );
         }
 
         const Eigen::VectorXd acceptedSolution =
@@ -558,8 +808,13 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
             nextTime,
             config.sourceRampTime
         );
+        attempt.sourceScale = sourceScale;
+        operatingPointStats_.ptaFinalSourceScale = sourceScale;
         if(!std::isfinite(sourceScale)){
-            return finish(false);
+            attempt.status = "failed";
+            attempt.failureReason = "PTA source-ramp scale is non-finite";
+            operatingPointStats_.ptaAttempts.push_back(std::move(attempt));
+            return finish(false, "PTA source-ramp scale is non-finite");
         }
         setOperatingPointSourceScale(sourceScale);
 
@@ -568,18 +823,23 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
 
         const TransientStampContext ctx =
             integrator.makeContext(nextTime);
+        attempt.integrationOrder = ctx.derivative.order;
 
         const AssembleCallback assemble = [this, &ctx] {
             assemblePtaSystem(ctx);
         };
 
-        NewtonStats stats;
+        NewtonSolveDiagnostics stats;
         const bool converged = hasNonlinearDevices()
             ? solveNewtonSystem(assemble, stats, config.newtonOptions)
             : solveLinearSystem(assemble, stats);
+        attempt.newton = stats;
         addNewtonStats(stats);
+        operatingPointStats_.ptaIterations += stats.iterations;
+        operatingPointStats_.ptaDampedSteps += stats.dampedSteps;
 
         if(!converged){
+            ++operatingPointStats_.ptaRejectedSteps;
             restoreTransientCheckpoint(acceptedSolution);
 
             const double reducedStep = std::max(
@@ -588,16 +848,34 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
             );
 
             if(reducedStep < candidateStep){
+                attempt.retriedWithSmallerStep = true;
+                attempt.status = "retry with smaller pseudo-time step";
+                attempt.failureReason = stats.failureReason;
+                operatingPointStats_.ptaAttempts.push_back(std::move(attempt));
                 step = reducedStep;
                 continue;
             }
 
             if(!growAllPtaNodeCapacitances(config)){
-                return finish(false);
+                attempt.status = "failed";
+                attempt.failureReason =
+                    "PTA Newton solve failed at the minimum step and node "
+                    "capacitance cannot be increased";
+                operatingPointStats_.ptaAttempts.push_back(std::move(attempt));
+                return finish(
+                    false,
+                    "PTA Newton solve failed at the minimum step and node "
+                    "capacitance cannot be increased"
+                );
             }
 
             ++operatingPointStats_.ptaMinimumStepRecoveries;
             ++operatingPointStats_.ptaCapacitanceGrowths;
+            attempt.restartedAfterCapacitanceGrowth = true;
+            attempt.status = "restart after PTA capacitance growth";
+            attempt.failureReason =
+                "Newton solve failed at the minimum PTA step";
+            operatingPointStats_.ptaAttempts.push_back(std::move(attempt));
             integrator.Initialize(time, acceptedSolution);
             step = reducedStep;
             continue;
@@ -615,7 +893,13 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
                 (*ctx.olderSolution - ctx.previousSolution);
         }
         if(!derivative.allFinite()){
-            return finish(false);
+            attempt.status = "failed";
+            attempt.failureReason = "PTA derivative contains a non-finite value";
+            operatingPointStats_.ptaAttempts.push_back(std::move(attempt));
+            return finish(
+                false,
+                "PTA derivative contains a non-finite value"
+            );
         }
         const PtaDerivativeEstimate derivativeEstimate =
             estimatePtaNormalizedDerivative(
@@ -625,9 +909,15 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
                 nodeMap_->nodeCount(),
                 ctx.timeStep,
                 config
-            );
+        );
         if(!derivativeEstimate.valid){
-            return finish(false);
+            attempt.status = "failed";
+            attempt.failureReason = "PTA normalized derivative estimate is invalid";
+            operatingPointStats_.ptaAttempts.push_back(std::move(attempt));
+            return finish(
+                false,
+                "PTA normalized derivative estimate is invalid"
+            );
         }
 
         // Test the original DC residual F(x), excluding artificial PTA terms
@@ -636,7 +926,13 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
         setOperatingPointSourceScale(1.0);
         assembleOperatingPointSystem();
         if(!mna_->evaluateResidual(matrixProduct, residual)){
-            return finish(false);
+            attempt.status = "failed";
+            attempt.failureReason = "PTA DC residual contains a non-finite value";
+            operatingPointStats_.ptaAttempts.push_back(std::move(attempt));
+            return finish(
+                false,
+                "PTA DC residual contains a non-finite value"
+            );
         }
         const PtaResidualEstimate dcResidualEstimate =
             estimatePtaNormalizedResidual(
@@ -645,11 +941,22 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
                 mna_->rhs(),
                 nodeMap_->nodeCount(),
                 config
-            );
+        );
         if(!dcResidualEstimate.valid){
-            return finish(false);
+            attempt.status = "failed";
+            attempt.failureReason = "PTA normalized DC residual estimate is invalid";
+            operatingPointStats_.ptaAttempts.push_back(std::move(attempt));
+            return finish(
+                false,
+                "PTA normalized DC residual estimate is invalid"
+            );
         }
 
+        attempt.hasConvergenceMetrics = true;
+        attempt.normalizedDerivative =
+            derivativeEstimate.normalizedDerivative;
+        attempt.normalizedDcResidual =
+            dcResidualEstimate.normalizedResidual;
         operatingPointStats_.hasPtaConvergenceMetrics = true;
         operatingPointStats_.ptaNormalizedDerivative =
             derivativeEstimate.normalizedDerivative;
@@ -660,14 +967,30 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
                config.derivativeTolerance &&
            dcResidualEstimate.normalizedResidual <
                config.dcResidualTolerance){
+            attempt.accepted = true;
+            attempt.reachedSteadyState = true;
+            attempt.status = "steady state converged";
+            ++operatingPointStats_.ptaAcceptedSteps;
+            operatingPointStats_.ptaFinalTime = nextTime;
+            operatingPointStats_.sourceScale = 1.0;
+            operatingPointStats_.ptaAttempts.push_back(std::move(attempt));
             return finish(true);
         }
 
+        const int reductionsBefore =
+            operatingPointStats_.ptaCapacitanceReductions;
         updatePtaNodeCapacitancesAfterAcceptedStep(
             currentSolution,
             acceptedSolution,
             config
         );
+        attempt.capacitanceReductions =
+            operatingPointStats_.ptaCapacitanceReductions - reductionsBefore;
+        attempt.accepted = true;
+        attempt.status = "accepted";
+        ++operatingPointStats_.ptaAcceptedSteps;
+        operatingPointStats_.ptaFinalTime = nextTime;
+        operatingPointStats_.ptaAttempts.push_back(std::move(attempt));
 
         integrator.accept(nextTime, std::move(currentSolution));
         time = nextTime;
@@ -677,7 +1000,10 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
         );
     }
 
-    return finish(false);
+    return finish(
+        false,
+        "PTA maximum pseudo-time step count was reached before convergence"
+    );
 }
 
 Circuit::TransientStepAttempt Circuit::tryTransientStep(
@@ -722,7 +1048,7 @@ Circuit::TransientStepAttempt Circuit::tryTransientStep(
     return attempt;
 }
 
-void Circuit::addTransientStats(const NewtonStats& stats){
+void Circuit::addTransientStats(const NewtonSolveDiagnostics& stats){
     transientStats_.iterations += stats.iterations;
     transientStats_.dampedSteps += stats.dampedSteps;
     transientStats_.finalDelta = stats.finalDelta;
@@ -743,20 +1069,32 @@ bool Circuit::solveOperatingPointWithSourceStepping(
 
     while(acceptedScale < kSourceScaleDone){
         const double trialScale = std::min(1.0, acceptedScale + sourceStep);
+        const double actualStep = trialScale - acceptedScale;
+
+        SourceSteppingAttemptDiagnostics attempt;
+        attempt.attempt =
+            static_cast<int>(operatingPointStats_.sourceAttempts.size()) + 1;
+        attempt.acceptedScaleBefore = acceptedScale;
+        attempt.stepSize = actualStep;
+        attempt.targetScale = trialScale;
 
         mna_->setSolution(acceptedSolution);
         saveNonlinearIterationStates();
         setOperatingPointSourceScale(trialScale);
 
-        NewtonStats trialStats;
+        NewtonSolveDiagnostics trialStats;
         const bool converged = solveNewtonSystem(
             assemble,
             trialStats,
             options.newton
         );
+        attempt.newton = trialStats;
         addNewtonStats(trialStats);
 
         if(converged){
+            attempt.accepted = true;
+            attempt.status = "accepted";
+            operatingPointStats_.sourceAttempts.push_back(std::move(attempt));
             acceptedScale = trialScale;
             acceptedSolution = mna_->solution();
             operatingPointStats_.sourceScale = acceptedScale;
@@ -772,9 +1110,14 @@ bool Circuit::solveOperatingPointWithSourceStepping(
         mna_->setSolution(acceptedSolution);
         setOperatingPointSourceScale(acceptedScale);
         ++operatingPointStats_.failedSourceSteps;
+        attempt.status = "rejected";
+        operatingPointStats_.sourceAttempts.push_back(std::move(attempt));
 
         sourceStep *= options.sourceStepping.failureScale;
         if(sourceStep < options.sourceStepping.minimumStep){
+            operatingPointStats_.failureReason =
+                "source stepping failed because the next source step is "
+                "below the configured minimum";
             return false;
         }
     }
@@ -784,23 +1127,67 @@ bool Circuit::solveOperatingPointWithSourceStepping(
 }
 
 bool Circuit::solveLinearSystem(const AssembleCallback& assemble,
-                                NewtonStats& stats){
+                                NewtonSolveDiagnostics& stats){
     stats = {};
+    stats.attempted = true;
+    stats.maximumIterations = 1;
+    const std::clock_t startClock = std::clock();
+    const SteadyClock::time_point startWall = SteadyClock::now();
+    const auto finish = [&stats, startClock, startWall](
+        bool converged,
+        const std::string& failureReason = std::string{}
+    ) {
+        stats.converged = converged;
+        stats.cpuSeconds =
+            double(std::clock() - startClock) / CLOCKS_PER_SEC;
+        stats.wallSeconds = elapsedWallSeconds(startWall);
+        stats.failureReason = converged ? std::string{} : failureReason;
+        return converged;
+    };
+
     assemble();
+    stats.iterations = 1;
 
     if(!mna_->solve()){
-        return false;
+        return finish(
+            false,
+            "sparse linear system factorization or solve failed"
+        );
+    }
+    if(!mna_->solution().allFinite()){
+        return finish(false, "sparse linear solution contains a non-finite value");
     }
 
-    stats.iterations = 1;
     stats.finalDelta = 0.0;
-    return true;
+    return finish(true);
 }
 
 bool Circuit::solveNewtonSystem(const AssembleCallback& assemble,
-                                NewtonStats& stats,
+                                NewtonSolveDiagnostics& stats,
                                 const NewtonSolverOptions& options){
     stats = {};
+    stats.attempted = true;
+    stats.usedNewtonRaphson = true;
+    stats.maximumIterations = options.maximumIterations;
+    stats.tolerance = options.tolerance;
+
+    const std::clock_t startClock = std::clock();
+    const SteadyClock::time_point startWall = SteadyClock::now();
+    const auto finish = [&stats, startClock, startWall](
+        bool converged,
+        const std::string& failureReason = std::string{}
+    ) {
+        stats.converged = converged;
+        stats.cpuSeconds =
+            double(std::clock() - startClock) / CLOCKS_PER_SEC;
+        stats.wallSeconds = elapsedWallSeconds(startWall);
+        stats.failureReason = converged ? std::string{} : failureReason;
+        return converged;
+    };
+
+    if(!options.valid()){
+        return finish(false, "Newton-Raphson configuration is invalid");
+    }
 
     Eigen::VectorXd previous = mna_->solution();
 
@@ -809,7 +1196,11 @@ bool Circuit::solveNewtonSystem(const AssembleCallback& assemble,
         assemble();
 
         if(!mna_->solve()){
-            return false;
+            return finish(
+                false,
+                "sparse linear system factorization or solve failed during "
+                "Newton-Raphson iteration"
+            );
         }
 
         Eigen::VectorXd& current = mna_->solution();
@@ -819,7 +1210,10 @@ bool Circuit::solveNewtonSystem(const AssembleCallback& assemble,
             options.maximumSolutionStep
         );
         if(!std::isfinite(step.delta)){
-            return false;
+            return finish(
+                false,
+                "Newton-Raphson update is non-finite"
+            );
         }
         if(step.limited){
             ++stats.dampedSteps;
@@ -827,16 +1221,19 @@ bool Circuit::solveNewtonSystem(const AssembleCallback& assemble,
 
         stats.finalDelta = step.delta;
         if(step.delta < options.tolerance){
-            return true;
+            return finish(true);
         }
 
         previous = current;
     }
 
-    return false;
+    return finish(
+        false,
+        "Newton-Raphson maximum iteration count was reached"
+    );
 }
 
-void Circuit::addNewtonStats(const NewtonStats& stats){
+void Circuit::addNewtonStats(const NewtonSolveDiagnostics& stats){
     operatingPointStats_.iterations += stats.iterations;
     operatingPointStats_.dampedSteps += stats.dampedSteps;
     operatingPointStats_.finalDelta = stats.finalDelta;

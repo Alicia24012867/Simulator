@@ -152,7 +152,14 @@ def raw_value(variable_indices, values, variable):
 
 
 def validate_against_listing(raw_path, plots, listing_dir, analysis):
-    listing_path = listing_dir / f"{raw_path.stem}.out"
+    # Unified simulator output keeps every artifact beside the matching rawfile
+    # in <output-root>/<netlist-stem>/.  Retain the flat fallback so this
+    # standalone validator can still check hand-built fixtures.
+    listing_path = raw_path.with_suffix(".out")
+    if not listing_path.is_file():
+        nested_path = listing_dir / raw_path.stem / f"{raw_path.stem}.out"
+        flat_path = listing_dir / f"{raw_path.stem}.out"
+        listing_path = nested_path if nested_path.is_file() else flat_path
     if not listing_path.is_file():
         raise ValueError(f"missing matching listing: {listing_path}")
 

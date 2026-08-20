@@ -256,7 +256,8 @@ void testConfigOverrideParsing(){
     const simulator::config::ConfigOverrides missing =
         simulator::config::parseConfigOverrides({});
     expect(
-        !missing.schemaVersion && !missing.pta && !missing.transient,
+        !missing.schemaVersion && !missing.debug && !missing.pta &&
+            !missing.transient,
         "missing configuration produces no overrides"
     );
 
@@ -264,6 +265,7 @@ void testConfigOverrideParsing(){
         loadedConfigFor(nlohmann::json::parse(R"(
             {
                 "schema_version": 1,
+                "debug": false,
                 "op": {
                     "newton": {
                         "maximum_iterations": 41,
@@ -305,6 +307,10 @@ void testConfigOverrideParsing(){
     expect(
         overrides.schemaVersion && *overrides.schemaVersion == 1,
         "schema version is retained"
+    );
+    expect(
+        overrides.debug && !*overrides.debug,
+        "debug report boolean override is retained"
     );
     expect(
         overrides.operatingPoint && overrides.operatingPoint->newton &&
@@ -821,6 +827,10 @@ void testInvalidConfigOverrides(){
     expectInvalid(
         R"({"schema_version": 1, "unknown": true})",
         "unknown top-level configuration field is rejected"
+    );
+    expectInvalid(
+        R"({"schema_version": 1, "debug": "false"})",
+        "non-boolean debug flag is rejected"
     );
     expectInvalid(
         R"({"schema_version": 1, "pta": {"maximum_steps": 1.5}})",

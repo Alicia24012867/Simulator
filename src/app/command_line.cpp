@@ -12,6 +12,7 @@
 #include "analysis/solver_options.h"
 #include "analysis/transient_analysis.h"
 #include "config/overrides.h"
+#include "utils/string_utils.hpp"
 
 namespace simulator::app {
 namespace {
@@ -58,11 +59,24 @@ bool parsePtaMode(const std::string& text, PtaMode& mode){
     return false;
 }
 
+bool parseBoolean(const std::string& text, bool& value){
+    const std::string normalized = to_lower_copy(text);
+    if(normalized == "true" || normalized == "1"){
+        value = true;
+        return true;
+    }
+    if(normalized == "false" || normalized == "0"){
+        value = false;
+        return true;
+    }
+    return false;
+}
+
 }  // namespace
 
 void printUsage(std::ostream& output, const char* program){
     output << "Usage:\n"
-           << "  " << program << " <input.cir> [output.out]\n"
+           << "  " << program << " <input.cir> [listing-copy.out]\n"
            << "  " << program << " --parse-only <input.cir>\n"
            << "  " << program
            << " [-b] [--pta disabled|force|fallback]"
@@ -72,7 +86,15 @@ void printUsage(std::ostream& output, const char* program){
            << " [--tran-option name=value]"
            << " [--config path] [--config-search-depth N]"
            << " [--print-config-path]"
-           << " [-o output.out] [-r output.raw] <input.cir>\n";
+           << " [--debug true|false]"
+           << " [--output-root directory]"
+           << " [-o listing-copy.out] [-r raw-copy.raw] <input.cir>\n";
+    output << "\nOutput options:\n"
+           << "  --output-root directory    Place the <netlist-name>/ result folder here\n"
+           << "  -o, --output path          Also copy the listing to this legacy path\n"
+           << "  -r, --rawfile path         Also copy the rawfile to this legacy path\n"
+           << "  -b, --batch                Write artifacts without echoing the listing\n"
+           << "  --debug true|false         Enable or disable the .solve.txt report\n";
     output << "\nConfiguration options:\n"
            << "  --config path              Read this configuration file only\n"
            << "  --config-search-depth N    Search at most N parent directories\n"
@@ -120,6 +142,20 @@ bool parseCommandLine(int argc,
             return false;
         }
         if(argument == "-b" || argument == "--batch"){
+            if(options.batchMode){
+                error << "Repeated batch option\n";
+                return false;
+            }
+            options.batchMode = true;
+            continue;
+        }
+        if(argument == "--output-root"){
+            if(++i >= argc || options.outputRoot ||
+               std::string(argv[i]).empty() || argv[i][0] == '-'){
+                error << "Invalid or repeated output root option\n";
+                return false;
+            }
+            options.outputRoot = std::filesystem::path(argv[i]);
             continue;
         }
         if(argument == "--config"){
@@ -164,6 +200,17 @@ bool parseCommandLine(int argc,
                 return false;
             }
             options.ptaDiagnostics = true;
+            continue;
+        }
+        if(argument == "--debug"){
+            bool debug = false;
+            if(++i >= argc || options.debug ||
+               !parseBoolean(argv[i], debug)){
+                error
+                    << "Invalid or repeated debug option; expected true or false\n";
+                return false;
+            }
+            options.debug = debug;
             continue;
         }
         if(argument == "--pta"){
@@ -282,7 +329,9 @@ bool parseCommandLine(int argc,
         options.listingPath = positional[1];
     }
     if(options.parseOnly &&
-       (options.listingPath || options.rawPath || options.ptaModeSpecified ||
+       (options.outputRoot || options.listingPath || options.rawPath ||
+        options.debug ||
+        options.ptaModeSpecified ||
         options.ptaDiagnostics || !operatingPointOptionKeys.empty() ||
         !ptaOptionKeys.empty() || !transientOptionKeys.empty())){
         error

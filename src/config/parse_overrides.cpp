@@ -754,6 +754,7 @@ ConfigOverrides parseConfigOverrides(
         "$",
         {
             "schema_version",
+            "debug",
             "op",
             "pta",
             "tran"
@@ -784,6 +785,8 @@ ConfigOverrides parseConfigOverrides(
             "must be 1"
         );
     }
+
+    readOptionalBoolean(root, "debug", loadedConfig, "$", result.debug);
 
     const json* operatingPoint = findField(root, "op");
     if(operatingPoint){

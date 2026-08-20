@@ -76,7 +76,9 @@ void testBasicCommandLine(){
     const CommandLineResult basic = parseCommandLine({"spice", "input.cir"});
     expect(basic.success, "single input netlist is accepted");
     expect(basic.options.inputPath == "input.cir", "input path is retained");
-    expect(!basic.options.listingPath, "listing defaults to stdout");
+    expect(!basic.options.outputRoot, "output root defaults beside the netlist");
+    expect(!basic.options.listingPath, "legacy listing mirror is disabled by default");
+    expect(!basic.options.debug, "debug report setting defaults to the configuration layer");
     expect(basic.options.configSearchDepth == 8, "config search depth defaults to eight");
 
     const CommandLineResult positional = parseCommandLine(
@@ -93,9 +95,11 @@ void testCompleteCommandLine(){
     const CommandLineResult result = parseCommandLine({
         "spice",
         "-b",
+        "--output-root", "artifacts",
         "--config", "settings.json",
         "--config-search-depth", "3",
         "--print-config-path",
+        "--debug", "false",
         "--pta", "fallback",
         "--pta-diagnostics",
         "--op-option", "newton.tolerance=1n",
@@ -107,12 +111,21 @@ void testCompleteCommandLine(){
     });
 
     expect(result.success, "complete command line is accepted");
+    expect(result.options.batchMode, "batch mode is retained");
+    expect(
+        result.options.outputRoot == std::filesystem::path("artifacts"),
+        "structured output root is retained"
+    );
     expect(
         result.options.configPath == std::filesystem::path("settings.json"),
         "explicit config path is retained"
     );
     expect(result.options.configSearchDepth == 3, "explicit search depth is retained");
     expect(result.options.printConfigPath, "config diagnostics flag is retained");
+    expect(
+        result.options.debug == std::optional<bool>(false),
+        "debug report option is retained"
+    );
     expect(
         result.options.ptaModeSpecified &&
             result.options.ptaMode == PtaMode::Fallback,
@@ -146,6 +159,20 @@ void testCommandLineFailures(){
          "negative search depth is rejected"},
         {parseCommandLine({"spice", "--parse-only", "-o", "out", "input.cir"}),
          "parse-only output conflict is rejected"},
+        {parseCommandLine({
+             "spice", "--parse-only", "--output-root", "results", "input.cir"
+         }), "parse-only structured output conflict is rejected"},
+        {parseCommandLine({
+             "spice", "--parse-only", "--debug", "false", "input.cir"
+         }), "parse-only debug output conflict is rejected"},
+        {parseCommandLine({"spice", "--debug", "enabled", "input.cir"}),
+         "invalid debug boolean is rejected"},
+        {parseCommandLine({
+             "spice", "--debug", "true", "--debug", "false", "input.cir"
+         }), "repeated debug option is rejected"},
+        {parseCommandLine({
+             "spice", "--output-root", "one", "--output-root", "two", "input.cir"
+         }), "duplicate output root is rejected"},
         {parseCommandLine({"spice", "-o", "one", "input.cir", "two"}),
          "duplicate positional listing is rejected"},
         {parseCommandLine({
