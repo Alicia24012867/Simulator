@@ -12,8 +12,10 @@ UNIT_TEST_SOURCE ?= tests/unit/transient_analysis_test.cpp
 UNIT_TEST_BUILD_DIR ?= tests/.build
 UNIT_TEST_TARGET ?= $(UNIT_TEST_BUILD_DIR)/transient_analysis_test
 TESTCASE_ROOT ?= tests/cases
+TEST_ROOT ?= tests
 OP_TESTCASE_DIR ?= $(TESTCASE_ROOT)/op
 TRAN_TESTCASE_DIR ?= $(TESTCASE_ROOT)/tran
+PRIVATE_TESTCASE_DIR ?= tests/private
 ACTUAL_DIR ?= tests/output
 OP_ACTUAL_DIR ?= $(ACTUAL_DIR)/op
 TRAN_ACTUAL_DIR ?= $(ACTUAL_DIR)/tran
@@ -34,6 +36,7 @@ TIME_ABS_TOL ?= 1e-15
 OP_COMPARE_FLAGS ?=
 TRAN_COMPARE_FLAGS ?=
 PTA_COMPARE_FLAGS ?= $(OP_COMPARE_FLAGS)
+PRIVATE_TIMEOUT ?= 120
 
 UNAME_S := $(shell uname -s)
 
@@ -70,7 +73,7 @@ else ifneq ($(strip $(EIGEN_PKG_CFLAGS)),)
 EIGEN_FLAGS := $(EIGEN_PKG_CFLAGS)
 endif
 
-.PHONY: all clean test test-unit test-io test-cases test-op test-tran compare compare-op \
+.PHONY: all clean test test-unit test-io test-cases test-op test-tran test-netlists test-private test-pta-hard-op compare compare-op \
 	compare-tran generate-standards check-eigen check-deps pta pta-run pta-accuracy \
 	pta-force-standard pta-force-disabled pta-fallback-standard
 
@@ -122,6 +125,7 @@ test: $(TARGET) $(UNIT_TEST_TARGET)
 	$(MAKE) --no-print-directory test-io || status=1; \
 	$(MAKE) --no-print-directory test-op || status=1; \
 	$(MAKE) --no-print-directory test-tran || status=1; \
+	$(MAKE) --no-print-directory test-netlists || status=1; \
 	exit $$status
 
 test-io: $(TARGET)
@@ -175,6 +179,27 @@ test-tran: $(TARGET)
 		--time-atol "$(TIME_ABS_TOL)" \
 		$(TRAN_COMPARE_FLAGS) || status=1; \
 	exit $$status
+
+test-private: $(TARGET)
+	@$(PYTHON) $(TEST_SCRIPT_DIR)/test_private_netlists.py \
+		./$(TARGET) \
+		$(PRIVATE_TESTCASE_DIR) \
+		--timeout $(PRIVATE_TIMEOUT)
+
+test-netlists: $(TARGET)
+	@$(PYTHON) $(TEST_SCRIPT_DIR)/test_private_netlists.py \
+		./$(TARGET) \
+		$(TEST_ROOT) \
+		--recursive \
+		--timeout $(PRIVATE_TIMEOUT)
+
+# This is a solver-differentiation benchmark, not a permanent release gate:
+# improving ordinary Newton so it converges should prompt updating the fixture.
+test-pta-hard-op: $(TARGET)
+	@$(PYTHON) $(TEST_SCRIPT_DIR)/test_pta_hard_op.py \
+		./$(TARGET) \
+		$(TESTCASE_ROOT)/pta/nr_fail_cross_coupled_cmos_latch.cir \
+		$(STANDARD_ROOT)/pta/nr_fail_cross_coupled_cmos_latch.out
 
 # PTA tests intentionally use only OP decks.  Every mode is compared against
 # the existing ngspice OP references; pta-run prints the end-to-end suite time.

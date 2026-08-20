@@ -27,6 +27,7 @@ struct CommandLineOptions {
     bool ptaModeSpecified = false;
     bool ptaDiagnostics = false;
     std::set<std::string> ptaOptionKeys;
+    bool parseOnly = false;
     bool helpRequested = false;
 };
 
@@ -41,6 +42,7 @@ struct StagedOutput {
 void printUsage(std::ostream& os, const char* program){
     os << "Usage:\n"
        << "  " << program << " <input.cir> [output.out]\n"
+       << "  " << program << " --parse-only <input.cir>\n"
        << "  " << program
        << " [-b] [--pta disabled|force|fallback]"
        << " [--pta-diagnostics]"
@@ -188,6 +190,14 @@ bool parseCommandLine(int argc,
         if(argument == "-b" || argument == "--batch"){
             continue;
         }
+        if(argument == "--parse-only"){
+            if(options.parseOnly){
+                std::cerr << "Repeated parse-only option\n";
+                return false;
+            }
+            options.parseOnly = true;
+            continue;
+        }
         if(argument == "--pta-diagnostics"){
             if(options.ptaDiagnostics){
                 std::cerr << "Repeated PTA diagnostics option\n";
@@ -270,6 +280,13 @@ bool parseCommandLine(int argc,
             return false;
         }
         options.listingPath = positional[1];
+    }
+    if(options.parseOnly &&
+       (options.listingPath || options.rawPath || options.ptaModeSpecified ||
+        options.ptaDiagnostics || !options.ptaOptionKeys.empty())){
+        std::cerr
+            << "--parse-only cannot be combined with output or PTA options\n";
+        return false;
     }
     return true;
 }
@@ -566,6 +583,10 @@ int main(int argc, char* argv[]){
 
     if(!parser.parse(circuit)){
         return 1;
+    }
+
+    if(options.parseOnly){
+        return 0;
     }
 
     const AnalysisPlan& plan = parser.analysisPlan();

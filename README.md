@@ -23,10 +23,10 @@
 
 - Diode：`IS`, `N`, `VT`, `GMIN`
 - BJT：`IS`, `BF` / `BETA`, `BR`, `NF`, `NR`, `VT`, `GMIN`，以及 DC Gummel-Poon 子集 `RB`、`RC`、`RE`、`VA` / `VAF`、`VAR`、`IKF`、`IKR`、`ISE`、`ISC`、`NE`、`NC`
-- MOSFET：`LEVEL=1`, `VTO` / `VT0`, `KP` / `K`, `LAMBDA` / `LAM`, `GMIN`
+- MOSFET：`LEVEL=1`，以及为遗留网表兼容读取的 `LEVEL=3` model card；求解仍使用 `VTO` / `VT0`、`KP` / `K`、`LAMBDA` / `LAM`、`GMIN` 的简化 Level-1 平方律
 - 实例参数：`AREA`, `W`, `L`
 
-读取器还接受 Diode 的 `RS`、BJT 的 `RBE` / `RCE` 和 MOSFET 的 `RDS`，但这些参数尚未写入器件 stamp，因此暂不改变求解结果。未知参数、非数值参数、非物理的负值以及非 `LEVEL=1` 的 MOSFET model 会在读取阶段明确报错，避免网表被静默降级求解。
+读取器还接受 Diode 的 `RS`、BJT 的 `RBE` / `RCE`，以及 MOSFET 的 `RDS` 和常见 Level-3 card 参数（如 `TOX`、`LD`、`UO`、结电容参数）。后者用于读取遗留网表，尚未写入器件 stamp，求解结果仍是上述简化 Level-1 近似。未知参数、非数值参数、非物理的负值以及非 `LEVEL=1` / `LEVEL=3` 的 MOSFET model 会在读取阶段明确报错。
 
 ### Netlist 读取规则
 
@@ -36,12 +36,13 @@
 - 整行注释使用 `*`；行尾注释支持 `;`、`$` 和 `//`。
 - `#` 不是注释符，因为 SPICE branch vector 会使用 `v1#branch` 形式。
 - `+` 开头的逻辑续行会拼接到上一条语句；孤立续行会报告文件名和行号。
+- 支持 `.subckt name pin...` / `.ends [name]` 与 `X` 子电路实例；解析时会递归展平为现有 primitive 元件。当前子电路仅支持位置引脚和 `R`、`C`、`L`、`V`、`I`、`D`、`Q`、`M`、嵌套 `X`，不支持实例参数或子电路体内的控制卡。
 - `.end` 必须存在、不接受参数，并且必须是最后一个非注释语句。
 - 支持数值后缀 `a`, `f`, `p`, `n`, `u`, `m`, `mil`, `k`, `meg`, `g`, `t`；其中 `m` 表示 milli，mega 必须写成 `meg`。
 - 独立源接受 `5`、`DC 5`、`DC=5`、`DC= 5` 和 `DC = 5`；当前不接受任意 `key=value` 代替 DC 值。
 - 数值 token 会完整校验，`1..2`、`1k=2` 等畸形写法不会只读取前缀后继续运行。
 - 网表必须至少包含一个元件和一个非 ground 节点，避免把零维 MNA 系统送入求解器。
-- 当前支持的控制卡为 `.title`、`.model`、`.op`、`.tran`、`.pstran`、`.option` / `.options`、`.print` 和 `.end`。其他 dot command 会明确报错。
+- 当前支持的控制卡为 `.title`、`.model`、`.subckt` / `.ends`、`.op`、`.tran`、`.pstran`、`.option` / `.options`、`.print` 和 `.end`。其他 dot command 会明确报错。
 
 ### 分析与 `.print`
 
@@ -175,6 +176,7 @@ make
 ./spice tests/cases/op/level1_01_resistive_bridge_mesh.cir
 ./spice tests/cases/op/level1_01_resistive_bridge_mesh.cir result.out
 ./spice -b -o result.out tests/cases/op/level1_01_resistive_bridge_mesh.cir
+./spice --parse-only tests/private/UA741PFBx10.sp
 ```
 
 同时生成 listing 与 rawfile：
@@ -223,6 +225,18 @@ make pta-force-standard
 
 当前该套件覆盖 18 个 OP 网表和 76 个输出值。它是 PTA 的基础回归门槛，不替代更大规模的困难非线性电路基准。
 
+另有一条专门的困难 OP 基准：弱偏置交叉耦合 CMOS 锁存器。普通
+Newton（包括自动 source stepping）预期失败；调优后的冷启动 Force PTA 与普通路径
+失败后的 Fallback PTA 均应落到与 ngspice 46 独立参考一致的 `q-high` 稳定支路。
+该锁存器有多个 DC 解，因此参考值用于验证所选稳定支路，而不宣称解唯一：
+
+```sh
+make test-pta-hard-op
+```
+
+这是求解器分流基准，不属于默认 `make test` 的永久发布门槛；如果普通 Newton 日后也能
+求解该电路，应同步更新此基准，而不是把算法改进当作回归。
+
 也可以分别运行或只比较已有结果：
 
 ```sh
@@ -230,6 +244,8 @@ make test-io
 make test-cases
 make test-op
 make test-tran
+make test-netlists  # 递归解析 tests/ 下所有 .cir / .sp，不执行求解
+make test-private   # 仅解析 tests/private/
 make compare
 make compare-op
 make compare-tran
@@ -242,6 +258,7 @@ make compare-tran
 3. 对每个 netlist 同时生成 listing、ASCII rawfile 和 stderr 文件。
 4. 使用 `tests/scripts/validate_raw.py` 校验 rawfile header、变量数量、点数、有限数值和瞬态时间单调性，并把 raw 数据与同次 listing 逐点、逐变量交叉核对。
 5. 使用 `tests/scripts/compare_spice.py` 解析标准与实际 `Index` 表格，并按绝对误差加相对误差比较。
+6. 使用 `--parse-only` 递归读取 `tests/` 下全部 `.cir` / `.sp`，覆盖 `tests/private/` 的遗留 Level-3 MOS 模型卡与层次化子电路；此检查只验证语法、实例、模型和分析参数的读取与校验，不要求求解收敛。
 
 `make test-cases` 是独立的网表复杂度审计：检查两组各 18 个网表的命名、数量、分析类型、物理行数、有效语句以及最大案例规模；它不属于 `make test` 的常规回归流程。
 

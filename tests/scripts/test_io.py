@@ -153,6 +153,35 @@ def main():
             failures.append(str(exc))
 
         try:
+            hierarchical = root / "hierarchical-level3.sp"
+            hierarchical.write_text(
+                "Nested subcircuit with a legacy MOS model card\n"
+                "VDD vdd 0 5\n"
+                "XTOP out vdd STAGE\n"
+                "RLOAD out 0 1k\n"
+                ".subckt STAGE out in\n"
+                "XLEAF out in LEAF\n"
+                ".ends STAGE\n"
+                ".subckt LEAF out in\n"
+                "M1 out in 0 0 NMOD W=1u L=1u\n"
+                ".ends LEAF\n"
+                ".model NMOD NMOS (LEVEL=3 VTO=0.7 KP=1m TOX=1n "
+                "UO=550 CGSO=0 CGDO=0)\n"
+                ".op\n"
+                ".print op v(out)\n"
+                ".end\n"
+            )
+            result = run(simulator, hierarchical)
+            require(
+                result.returncode == 0,
+                f"nested subcircuit netlist failed: {result.stderr}",
+            )
+            require("v(out)" in result.stdout, "nested subcircuit output missing")
+            print("PASS nested .subckt expansion and LEVEL=3 MOS compatibility")
+        except Exception as exc:
+            failures.append(str(exc))
+
+        try:
             pstran = root / "pstran.sp"
             pstran.write_text(
                 "Pseudo-transient control card\n"
@@ -282,6 +311,22 @@ def main():
             require(
                 pstran_result.returncode == 0,
                 f"DELMAX .pstran netlist failed: {pstran_result.stderr}",
+            )
+
+            pstran_delmax.write_text(
+                "DELMAX clamps pseudo-transient initial step\n"
+                "V1 in 0 1\n"
+                "R1 in 0 1k\n"
+                ".options delmax=10n\n"
+                ".pstran convval=1 initstep=1u minstep=1p maxstep=10u\n"
+                ".op\n"
+                ".end\n"
+            )
+            pstran_result = run(simulator, pstran_delmax)
+            require(
+                pstran_result.returncode == 0,
+                "DELMAX did not clamp .pstran initstep to the hard cap: "
+                f"{pstran_result.stderr}",
             )
             print("PASS .options DELMAX parsing and transient cap")
         except Exception as exc:
