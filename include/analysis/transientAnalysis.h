@@ -7,7 +7,11 @@
 
 #include <Eigen/Core>
 
+#include "analysis/solverOptions.h"
+
 struct TransientSolverOptions {
+    NewtonSolverOptions newtonOptions;
+
     double relativeTolerance = 1.0e-4;
     double voltageAbsoluteTolerance = 1.0e-6;
     double currentAbsoluteTolerance = 1.0e-9;
@@ -22,7 +26,8 @@ struct TransientSolverOptions {
     int maximumRejects = 10;
 
     bool validFor(double maximumIntegrationStep) const noexcept {
-        return std::isfinite(maximumIntegrationStep) &&
+        return newtonOptions.valid() &&
+            std::isfinite(maximumIntegrationStep) &&
             maximumIntegrationStep > 0.0 &&
             std::isfinite(relativeTolerance) &&
             relativeTolerance >= 0.0 &&
@@ -63,6 +68,23 @@ struct TransientAnalysisConfig {
     std::optional<double> maximumStep; // TMAX
     bool useInitialConditions = false; // UIC
     TransientSolverOptions solverOptions;
+
+    bool valid() const noexcept {
+        const double maximumIntegrationStep = maximumStep
+            ? *maximumStep
+            : outputInterval;
+
+        return std::isfinite(outputInterval) &&
+            std::isfinite(stopTime) &&
+            std::isfinite(outputStartTime) &&
+            std::isfinite(maximumIntegrationStep) &&
+            outputInterval > 0.0 &&
+            maximumIntegrationStep > 0.0 &&
+            outputStartTime >= 0.0 &&
+            outputStartTime < stopTime &&
+            stopTime > 0.0 &&
+            solverOptions.validFor(maximumIntegrationStep);
+    }
 };
 
 struct TransientDerivativeCoefficients {

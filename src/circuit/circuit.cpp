@@ -8,6 +8,7 @@
 #include <unordered_set>
 
 #include "analysis/analysisPlan.h"
+#include "analysis/solverOptions.h"
 #include "analysis/transientAnalysis.h"
 #include "circuit/nodeMap.h"
 #include "devices/device.hpp"
@@ -18,13 +19,6 @@
 #include "analysis/ptaAnalysis.h"
 
 namespace {
-constexpr int kMaxNewtonIterations = 1000;
-constexpr double kNewtonTolerance = 1.0e-9;
-constexpr double kSolutionMaxStep = 1.0;
-constexpr double kInitialSourceStep = 0.1;
-constexpr double kMaxSourceStep = 0.25;
-constexpr double kMinSourceStep = 1.0e-4;
-constexpr double kSourceStepGrowth = 1.5;
 constexpr double kSourceScaleDone = 1.0 - 1.0e-12;
 constexpr double kTimeRelativeTolerance =
     64.0 * std::numeric_limits<double>::epsilon();
@@ -146,10 +140,20 @@ bool Circuit::solve(){
 }
 
 bool Circuit::solveOperatingPoint(){
+    return solveOperatingPoint({});
+}
+
+bool Circuit::solveOperatingPoint(
+    const OperatingPointSolverOptions& options
+){
     operatingPointStats_ = {};
-    operatingPointStats_.maxIterations = kMaxNewtonIterations;
-    operatingPointStats_.tolerance = kNewtonTolerance;
-    operatingPointStats_.minSourceStep = kMinSourceStep;
+    operatingPointStats_.maxIterations = options.newton.maximumIterations;
+    operatingPointStats_.tolerance = options.newton.tolerance;
+    operatingPointStats_.minSourceStep = options.sourceStepping.minimumStep;
+
+    if(!options.valid()){
+        return false;
+    }
 
     const AssembleCallback assemble = [this] {
         assembleOperatingPointSystem();
@@ -175,7 +179,11 @@ bool Circuit::solveOperatingPoint(){
     setOperatingPointSourceScale(1.0);
 
     NewtonStats directStats;
-    const bool directConverged = solveNewtonSystem(assemble, directStats);
+    const bool directConverged = solveNewtonSystem(
+        assemble,
+        directStats,
+        options.newton
+    );
     addNewtonStats(directStats);
 
     if(directConverged){
@@ -190,7 +198,8 @@ bool Circuit::solveOperatingPoint(){
     mna_->setSolution(initialSolution);
     setOperatingPointSourceScale(0.0);
 
-    if(!solveOperatingPointWithSourceStepping(assemble)){
+    if(!options.sourceStepping.enabled ||
+       !solveOperatingPointWithSourceStepping(assemble, options)){
         operatingPointStats_.cpuSeconds =
             double(std::clock() - startClock) / CLOCKS_PER_SEC;
         return false;
@@ -204,9 +213,17 @@ bool Circuit::solveOperatingPoint(){
 }
 
 bool Circuit::solveTransient(const TransientAnalysisConfig& config){
+    return solveTransient(config, {});
+}
+
+bool Circuit::solveTransient(
+    const TransientAnalysisConfig& config,
+    const OperatingPointSolverOptions& operatingPointOptions
+){
     transientStats_ = {};
-    transientStats_.maxIterations = kMaxNewtonIterations;
-    transientStats_.tolerance = kNewtonTolerance;
+    transientStats_.maxIterations =
+        config.solverOptions.newtonOptions.maximumIterations;
+    transientStats_.tolerance = config.solverOptions.newtonOptions.tolerance;
     transientSamples_.clear();
 
     const std::clock_t startClock = std::clock();
@@ -217,16 +234,7 @@ bool Circuit::solveTransient(const TransientAnalysisConfig& config){
         ? *config.maximumStep
         : config.outputInterval;
 
-    if(!std::isfinite(config.outputInterval) ||
-       !std::isfinite(config.stopTime) ||
-       !std::isfinite(config.outputStartTime) ||
-       !std::isfinite(maximumIntegrationStep) ||
-       config.outputInterval <= 0.0 ||
-       maximumIntegrationStep <= 0.0 ||
-       config.outputStartTime < 0.0 ||
-       config.outputStartTime >= config.stopTime ||
-       config.stopTime <= 0.0 ||
-       !config.solverOptions.validFor(maximumIntegrationStep)){
+    if(!config.valid() || !operatingPointOptions.valid()){
         transientStats_.cpuSeconds =
             double(std::clock() - startClock) / CLOCKS_PER_SEC;
         return false;
@@ -239,7 +247,7 @@ bool Circuit::solveTransient(const TransientAnalysisConfig& config){
         initialSolution = Eigen::VectorXd::Zero(mna_->size());
         mna_->setSolution(initialSolution);
     } else {
-        if(!solveOperatingPoint()){
+        if(!solveOperatingPoint(operatingPointOptions)){
             transientStats_.initializationCpuSeconds =
                 double(std::clock() - startClock) / CLOCKS_PER_SEC;
             transientStats_.cpuSeconds =
@@ -497,8 +505,8 @@ bool Circuit::solveTransient(const TransientAnalysisConfig& config){
 bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
     operatingPointStats_ = {};
     operatingPointStats_.ptaAttempted = true;
-    operatingPointStats_.maxIterations = kMaxNewtonIterations;
-    operatingPointStats_.tolerance = kNewtonTolerance;
+    operatingPointStats_.maxIterations = config.newtonOptions.maximumIterations;
+    operatingPointStats_.tolerance = config.newtonOptions.tolerance;
     operatingPointStats_.minSourceStep = config.minimumStep;
     operatingPointStats_.sourceScale = 1.0;
 
@@ -564,7 +572,7 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
 
         NewtonStats stats;
         const bool converged = hasNonlinearDevices()
-            ? solveNewtonSystem(assemble, stats)
+            ? solveNewtonSystem(assemble, stats, config.newtonOptions)
             : solveLinearSystem(assemble, stats);
         addNewtonStats(stats);
 
@@ -689,7 +697,11 @@ Circuit::TransientStepAttempt Circuit::tryTransientStep(
         assembleTransientSystem(ctx);
     };
     attempt.converged = hasNonlinearDevices()
-        ? solveNewtonSystem(assemble, attempt.newtonStats)
+        ? solveNewtonSystem(
+            assemble,
+            attempt.newtonStats,
+            options.newtonOptions
+        )
         : solveLinearSystem(assemble, attempt.newtonStats);
 
     if(attempt.converged){
@@ -722,11 +734,12 @@ void Circuit::restoreTransientCheckpoint(const Eigen::VectorXd& acceptedSolution
 }
 
 bool Circuit::solveOperatingPointWithSourceStepping(
-    const AssembleCallback& assemble)
-{
+    const AssembleCallback& assemble,
+    const OperatingPointSolverOptions& options
+){
     Eigen::VectorXd acceptedSolution = mna_->solution();
     double acceptedScale = 0.0;
-    double sourceStep = kInitialSourceStep;
+    double sourceStep = options.sourceStepping.initialStep;
 
     while(acceptedScale < kSourceScaleDone){
         const double trialScale = std::min(1.0, acceptedScale + sourceStep);
@@ -736,7 +749,11 @@ bool Circuit::solveOperatingPointWithSourceStepping(
         setOperatingPointSourceScale(trialScale);
 
         NewtonStats trialStats;
-        const bool converged = solveNewtonSystem(assemble, trialStats);
+        const bool converged = solveNewtonSystem(
+            assemble,
+            trialStats,
+            options.newton
+        );
         addNewtonStats(trialStats);
 
         if(converged){
@@ -745,8 +762,8 @@ bool Circuit::solveOperatingPointWithSourceStepping(
             operatingPointStats_.sourceScale = acceptedScale;
             ++operatingPointStats_.sourceSteps;
             sourceStep = std::min(
-                kMaxSourceStep,
-                sourceStep * kSourceStepGrowth
+                options.sourceStepping.maximumStep,
+                sourceStep * options.sourceStepping.growthFactor
             );
             continue;
         }
@@ -756,8 +773,8 @@ bool Circuit::solveOperatingPointWithSourceStepping(
         setOperatingPointSourceScale(acceptedScale);
         ++operatingPointStats_.failedSourceSteps;
 
-        sourceStep *= 0.5;
-        if(sourceStep < kMinSourceStep){
+        sourceStep *= options.sourceStepping.failureScale;
+        if(sourceStep < options.sourceStepping.minimumStep){
             return false;
         }
     }
@@ -781,12 +798,13 @@ bool Circuit::solveLinearSystem(const AssembleCallback& assemble,
 }
 
 bool Circuit::solveNewtonSystem(const AssembleCallback& assemble,
-                                NewtonStats& stats){
+                                NewtonStats& stats,
+                                const NewtonSolverOptions& options){
     stats = {};
 
     Eigen::VectorXd previous = mna_->solution();
 
-    for(int iter = 0; iter < kMaxNewtonIterations; ++iter){
+    for(int iter = 0; iter < options.maximumIterations; ++iter){
         stats.iterations = iter + 1;
         assemble();
 
@@ -798,7 +816,7 @@ bool Circuit::solveNewtonSystem(const AssembleCallback& assemble,
         const NewtonStepResult step = limitNewtonStep(
             current,
             previous,
-            kSolutionMaxStep
+            options.maximumSolutionStep
         );
         if(!std::isfinite(step.delta)){
             return false;
@@ -808,7 +826,7 @@ bool Circuit::solveNewtonSystem(const AssembleCallback& assemble,
         }
 
         stats.finalDelta = step.delta;
-        if(step.delta < kNewtonTolerance){
+        if(step.delta < options.tolerance){
             return true;
         }
 

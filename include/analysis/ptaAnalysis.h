@@ -8,6 +8,8 @@
 
 #include <Eigen/Core>
 
+#include "analysis/solverOptions.h"
+
 enum class PtaMode{
     Disabled,   // normal NR 
     Force,      // pta method is required explicitly
@@ -16,6 +18,7 @@ enum class PtaMode{
 
 struct PtaAnalysisConfig{
     PtaMode mode = PtaMode::Disabled;
+    NewtonSolverOptions newtonOptions;
 
     // time control
     double initialStep = 1.0e-9;
@@ -74,6 +77,12 @@ struct PtaAnalysisConfig{
                 break;
             default:
                 throw std::invalid_argument("PTA mode is invalid");
+        }
+
+        if(!newtonOptions.valid()){
+            throw std::invalid_argument(
+                "PTA Newton solver configuration is invalid"
+            );
         }
 
         const auto isPositiveFinite = [](double value) {

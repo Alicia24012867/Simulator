@@ -24,6 +24,8 @@ struct TransientSolverOptions;
 struct PendingPtaPlacement;
 struct PtaAnalysisConfig;
 struct PtaDiagnostics;
+struct NewtonSolverOptions;
+struct OperatingPointSolverOptions;
 class Circuit{
 public:
     Circuit();
@@ -50,7 +52,16 @@ public:
 
     bool solveOperatingPoint();
 
+    bool solveOperatingPoint(
+        const OperatingPointSolverOptions& options
+    );
+
     bool solveTransient(const TransientAnalysisConfig& config);
+
+    bool solveTransient(
+        const TransientAnalysisConfig& config,
+        const OperatingPointSolverOptions& operatingPointOptions
+    );
 
     bool solveAdaptivePta(const PtaAnalysisConfig& config);
 
@@ -145,13 +156,16 @@ private:
     );
 
     bool solveNewtonSystem(const AssembleCallback& assemble,
-                           NewtonStats& stats);
+                           NewtonStats& stats,
+                           const NewtonSolverOptions& options);
 
     bool solveLinearSystem(const AssembleCallback& assemble,
                            NewtonStats& stats);
 
     bool solveOperatingPointWithSourceStepping(
-        const AssembleCallback& assemble);
+        const AssembleCallback& assemble,
+        const OperatingPointSolverOptions& options
+    );
 
     void addNewtonStats(const NewtonStats& stats);
 

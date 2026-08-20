@@ -1,5 +1,6 @@
 #include "analysis/transientAnalysis.h"
 #include "analysis/ptaAnalysis.h"
+#include "analysis/solverOptions.h"
 #include "circuit/circuit.h"
 #include "devices/device.hpp"
 #include "devices/pseudoDevice.hpp"
@@ -210,6 +211,44 @@ TransientSolverOptions makeAbsoluteOnlyOptions(){
 
 void testSolverOptionsValidation(){
     constexpr double maximumIntegrationStep = 1.0e-6;
+
+    NewtonSolverOptions newton;
+    expect(newton.valid(), "default Newton options are valid");
+    newton.maximumIterations = 0;
+    expect(!newton.valid(), "zero Newton iteration limit is invalid");
+    newton = NewtonSolverOptions{};
+    newton.tolerance = 0.0;
+    expect(!newton.valid(), "zero Newton tolerance is invalid");
+    newton = NewtonSolverOptions{};
+    newton.maximumSolutionStep =
+        std::numeric_limits<double>::quiet_NaN();
+    expect(!newton.valid(), "non-finite Newton step bound is invalid");
+
+    SourceSteppingOptions sourceStepping;
+    expect(sourceStepping.valid(), "default source-stepping options are valid");
+    sourceStepping.minimumStep = sourceStepping.initialStep * 2.0;
+    expect(
+        !sourceStepping.valid(),
+        "source-stepping minimum step above initial step is invalid"
+    );
+    sourceStepping = SourceSteppingOptions{};
+    sourceStepping.failureScale = 1.0;
+    expect(
+        !sourceStepping.valid(),
+        "source-stepping failure scale of one is invalid"
+    );
+
+    OperatingPointSolverOptions operatingPoint;
+    expect(
+        operatingPoint.valid(),
+        "default operating-point solver options are valid"
+    );
+    operatingPoint.newton.maximumIterations = -1;
+    expect(
+        !operatingPoint.valid(),
+        "operating-point solver validates nested Newton options"
+    );
+
     TransientSolverOptions options;
 
     expect(
@@ -278,6 +317,23 @@ void testSolverOptionsValidation(){
     options = TransientSolverOptions{};
     options.maximumRejects = -1;
     expect(!options.validFor(maximumIntegrationStep), "negative reject limit is invalid");
+
+    options = TransientSolverOptions{};
+    options.newtonOptions.maximumIterations = 0;
+    expect(
+        !options.validFor(maximumIntegrationStep),
+        "transient solver validates nested Newton options"
+    );
+
+    TransientAnalysisConfig transient;
+    transient.outputInterval = 1.0e-9;
+    transient.stopTime = 10.0e-9;
+    expect(transient.valid(), "valid transient analysis configuration is accepted");
+    transient.outputStartTime = transient.stopTime;
+    expect(
+        !transient.valid(),
+        "transient output start must precede stop time"
+    );
 }
 
 void testPtaConfigValidation(){
@@ -359,6 +415,13 @@ void testPtaConfigValidation(){
     expectInvalidArgument(
         [&config] { config.validate(); },
         "non-finite PTA BJT initial voltage is invalid"
+    );
+
+    config = PtaAnalysisConfig{};
+    config.newtonOptions.maximumSolutionStep = 0.0;
+    expectInvalidArgument(
+        [&config] { config.validate(); },
+        "invalid PTA Newton options are rejected"
     );
 }
 
