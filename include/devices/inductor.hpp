@@ -2,7 +2,7 @@
 
 #include <cassert>
 
-#include "analysis/transientAnalysis.h"
+#include "analysis/transient_analysis.h"
 #include "circuit/circuit.h"
 #include "devices/device.hpp"
 #include "math/mna.hpp"

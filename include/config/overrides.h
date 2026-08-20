@@ -1,9 +1,43 @@
 #pragma once
 
 #include <optional>
+#include <string>
+
+#include "analysis/analysis_plan.h"
+#include "analysis/pta_analysis.h"
+#include "analysis/solver_options.h"
+#include "analysis/transient_analysis.h"
 
 namespace simulator::config {
 struct LoadedConfig;
+
+// Values explicitly supplied by a netlist remain authoritative over external
+// configuration layers.
+struct PtaParameterLocks {
+    bool mode = false;
+    bool initialStep = false;
+    bool minimumStep = false;
+    bool maximumStep = false;
+    bool derivativeTolerance = false;
+    bool dcResidualTolerance = false;
+    bool compoundTimeConstant = false;
+    bool sourceRampTime = false;
+    bool initialBjtVbe = false;
+};
+
+struct TransientParameterLocks {
+    bool enabled = false;
+    bool outputInterval = false;
+    bool stopTime = false;
+    bool outputStartTime = false;
+    bool maximumStep = false;
+    bool useInitialConditions = false;
+};
+
+struct NetlistAnalysisParameterLocks {
+    PtaParameterLocks pta;
+    TransientParameterLocks transient;
+};
 
 enum class PtaModeOverride {
     Disabled,
@@ -123,6 +157,44 @@ struct ConfigOverrides {
  */
 [[nodiscard]] ConfigOverrides parseConfigOverrides(
     const LoadedConfig& loadedConfig
+);
+
+[[nodiscard]] NetlistAnalysisParameterLocks parameterLocksFor(
+    const AnalysisPlan& plan
+);
+
+void applyConfigOverrides(
+    const ConfigOverrides& overrides,
+    OperatingPointSolverOptions& operatingPoint,
+    PtaAnalysisConfig& pta,
+    std::optional<TransientAnalysisConfig>& transient,
+    bool pstranForcesPtaMode,
+    const NetlistAnalysisParameterLocks& netlistLocks = {}
+);
+
+bool applyOperatingPointOption(
+    const std::string& assignment,
+    OperatingPointSolverOptions& options,
+    std::string& key,
+    std::string& error
+);
+
+bool applyPtaOption(
+    const std::string& assignment,
+    PtaAnalysisConfig& options,
+    std::string& key,
+    std::string& error,
+    const PtaParameterLocks& netlistLocks = {}
+);
+
+bool applyTransientOption(
+    const std::string& assignment,
+    std::optional<TransientAnalysisConfig>& options,
+    std::string& key,
+    std::string& error,
+    const std::optional<TransientAnalysisConfig>& baseOptions = std::nullopt,
+    std::optional<double> hardMaximumStep = std::nullopt,
+    const TransientParameterLocks& netlistLocks = {}
 );
 
 }  // namespace simulator::config

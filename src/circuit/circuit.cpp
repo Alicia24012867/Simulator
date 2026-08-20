@@ -7,16 +7,16 @@
 #include <set>
 #include <unordered_set>
 
-#include "analysis/analysisPlan.h"
-#include "analysis/solverOptions.h"
-#include "analysis/transientAnalysis.h"
-#include "circuit/nodeMap.h"
+#include "analysis/analysis_plan.h"
+#include "analysis/solver_options.h"
+#include "analysis/transient_analysis.h"
+#include "circuit/node_map.h"
 #include "devices/device.hpp"
 #include "math/mna.hpp"
-#include "math/newtonStep.hpp"
+#include "math/newton_step.hpp"
 #include "models/model.hpp"
-#include "devices/pseudoDevice.hpp"
-#include "analysis/ptaAnalysis.h"
+#include "devices/pseudo_device.hpp"
+#include "analysis/pta_analysis.h"
 
 namespace {
 constexpr double kSourceScaleDone = 1.0 - 1.0e-12;
@@ -389,7 +389,6 @@ bool Circuit::solveTransient(
                                 fineIntegrator,
                                 nextTime
                             );
-                        attempt = secondHalf;
 
                         if(secondHalf.converged &&
                            secondHalf.integrationOrder == 1){
@@ -404,13 +403,13 @@ bool Circuit::solveTransient(
 
                             // Commit the fine endpoint, never the coarse
                             // whole-step solution or a Richardson extrapolate.
-                            attempt.solution = secondHalf.solution;
-                            attempt.errorEstimateValid = estimate.valid;
-                            attempt.normalizedError =
+                            secondHalf.errorEstimateValid = estimate.valid;
+                            secondHalf.normalizedError =
                                 estimate.normalizedError;
-                            attempt.suggestedStepScale =
+                            secondHalf.suggestedStepScale =
                                 estimate.suggestedScale;
                         }
+                        attempt = std::move(secondHalf);
                     }
                 }
             } else {
@@ -434,7 +433,7 @@ bool Circuit::solveTransient(
 
             if(decision.action == TransientStepAction::Accept){
                 mna_->setSolution(attempt.solution);
-                integrator.accept(nextTime, attempt.solution);
+                integrator.accept(nextTime, std::move(attempt.solution));
 
                 time = nextTime;
                 if(timeReached(time, config.stopTime)){
@@ -526,6 +525,10 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
 
     integrator.Initialize(time, mna_->solution());
 
+    Eigen::VectorXd derivative(mna_->size());
+    Eigen::VectorXd matrixProduct(mna_->size());
+    Eigen::VectorXd residual(mna_->size());
+
     for(int stepCount = 0;
         stepCount < config.maximumSteps;
         ++stepCount)
@@ -600,14 +603,13 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
             continue;
         }
 
-        const Eigen::VectorXd currentSolution = mna_->solution();
+        Eigen::VectorXd currentSolution = mna_->solution();
 
         // BDF coefficients sum to zero.  Evaluate the derivative from state
         // differences so a settled solution does not lose precision through
         // cancellation among terms of order |x| / h.
-        Eigen::VectorXd derivative =
-            ctx.derivative.alpha0 *
-            (currentSolution - ctx.previousSolution);
+        derivative = currentSolution - ctx.previousSolution;
+        derivative *= ctx.derivative.alpha0;
         if(ctx.olderSolution != nullptr){
             derivative += ctx.derivative.alpha2 *
                 (*ctx.olderSolution - ctx.previousSolution);
@@ -633,8 +635,6 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
         // is a convergence aid and must not redefine the target DC system.
         setOperatingPointSourceScale(1.0);
         assembleOperatingPointSystem();
-        Eigen::VectorXd matrixProduct;
-        Eigen::VectorXd residual;
         if(!mna_->evaluateResidual(matrixProduct, residual)){
             return finish(false);
         }
@@ -669,7 +669,7 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
             config
         );
 
-        integrator.accept(nextTime, currentSolution);
+        integrator.accept(nextTime, std::move(currentSolution));
         time = nextTime;
         step = std::min(
             config.maximumStep,

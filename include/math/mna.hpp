@@ -108,6 +108,9 @@ public:
     }
 
     void setSolution(const Eigen::VectorXd& x){
+        // Keep the existing allocation: devices retain direct pointers into
+        // x_ after bindMatrix(), so replacing its storage would invalidate
+        // every nonlinear-device solution reference.
         x_ = x;
     }
 

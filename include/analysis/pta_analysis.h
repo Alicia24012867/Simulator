@@ -8,7 +8,7 @@
 
 #include <Eigen/Core>
 
-#include "analysis/solverOptions.h"
+#include "analysis/solver_options.h"
 
 enum class PtaMode{
     Disabled,   // normal NR 

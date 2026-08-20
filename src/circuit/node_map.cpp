@@ -1,4 +1,4 @@
-#include "circuit/nodeMap.h"
+#include "circuit/node_map.h"
 #include "devices/device.hpp"
 
 #include "utils/string_utils.hpp"

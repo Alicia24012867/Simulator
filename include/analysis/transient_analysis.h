@@ -4,10 +4,11 @@
 #include <optional>
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 #include <Eigen/Core>
 
-#include "analysis/solverOptions.h"
+#include "analysis/solver_options.h"
 
 struct TransientSolverOptions {
     NewtonSolverOptions newtonOptions;
@@ -439,7 +440,7 @@ public:
 
     void accept(
         double nextAcceptedTime,
-        const Eigen::VectorXd& acceptedSolution
+        Eigen::VectorXd acceptedSolution
     ){
         assert(initialized_);
         assert(nextAcceptedTime > acceptedTime_);
@@ -447,8 +448,8 @@ public:
 
         previousStep_ = nextAcceptedTime - acceptedTime_;
         acceptedTime_ = nextAcceptedTime;
-        solutionNm1_ = solutionN_;
-        solutionN_ = acceptedSolution;
+        std::swap(solutionNm1_, solutionN_);
+        solutionN_ = std::move(acceptedSolution);
         hasOlderSolution_ = true;
     }
 

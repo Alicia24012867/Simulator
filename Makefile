@@ -2,12 +2,11 @@ CXX = g++
 CXX_STD = c++17
 OPT_FLAGS ?= -O3
 CXX_FLAGS = -std=$(CXX_STD) $(OPT_FLAGS) -Wall -Wextra -I./include -I./third_party
-SRC = ./src/main.cpp \
-	  $(wildcard ./src/circuit/*.cpp) \
-	  $(wildcard ./src/config/*.cpp) \
-	  $(wildcard ./src/io/*.cpp) \
-	  $(wildcard ./src/netlist/*.cpp)
+SRC = $(sort $(wildcard ./src/*.cpp) $(wildcard ./src/*/*.cpp))
 HEADERS = $(shell find ./include -type f 2>/dev/null)
+CIRCUIT_TEST_SOURCES = ./src/circuit/circuit.cpp \
+	./src/circuit/node_map.cpp
+CONFIG_SOURCES = $(wildcard ./src/config/*.cpp)
 TARGET = spice
 BUILD_DIR ?= build
 OBJECTS = $(patsubst ./src/%.cpp,$(BUILD_DIR)/%.o,$(SRC))
@@ -120,11 +119,11 @@ $(BUILD_DIR)/%.o: ./src/%.cpp
 
 -include $(DEPENDENCIES)
 
-$(UNIT_TEST_TARGET): $(UNIT_TEST_SOURCE) ./src/circuit/circuit.cpp \
-	./src/circuit/nodeMap.cpp $(HEADERS) | check-eigen
+$(UNIT_TEST_TARGET): $(UNIT_TEST_SOURCE) $(CIRCUIT_TEST_SOURCES) \
+	$(HEADERS) | check-eigen
 	@mkdir -p "$(@D)"
 	$(CXX) $(CXX_FLAGS) $(EIGEN_FLAGS) -o "$@" "$<" \
-		./src/circuit/circuit.cpp ./src/circuit/nodeMap.cpp
+		$(CIRCUIT_TEST_SOURCES)
 
 test-unit: $(UNIT_TEST_TARGET)
 	@"$(UNIT_TEST_TARGET)"
@@ -133,14 +132,11 @@ CONFIG_TEST_SOURCE ?= tests/unit/config_test.cpp
 CONFIG_TEST_TARGET ?= $(UNIT_TEST_BUILD_DIR)/config_test
 CONFIG_CLI_TEST_SCRIPT ?= $(TEST_SCRIPT_DIR)/test_config.py
 
-$(CONFIG_TEST_TARGET): $(CONFIG_TEST_SOURCE) \
-	./src/config/config.cpp ./src/config/overrides.cpp \
-	./src/config/applyOverrides.cpp ./src/config/commandLineOverrides.cpp \
+$(CONFIG_TEST_TARGET): $(CONFIG_TEST_SOURCE) $(CONFIG_SOURCES) \
 	$(HEADERS) | check-eigen
 	@mkdir -p "$(@D)"
 	$(CXX) $(CXX_FLAGS) $(EIGEN_FLAGS) -o "$@" "$<" \
-		./src/config/config.cpp ./src/config/overrides.cpp \
-		./src/config/applyOverrides.cpp ./src/config/commandLineOverrides.cpp
+		$(CONFIG_SOURCES)
 
 test-config: $(CONFIG_TEST_TARGET) $(TARGET)
 	@"$(CONFIG_TEST_TARGET)"

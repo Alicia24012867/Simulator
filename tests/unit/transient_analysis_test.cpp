@@ -1,11 +1,11 @@
-#include "analysis/transientAnalysis.h"
-#include "analysis/ptaAnalysis.h"
-#include "analysis/solverOptions.h"
+#include "analysis/transient_analysis.h"
+#include "analysis/pta_analysis.h"
+#include "analysis/solver_options.h"
 #include "circuit/circuit.h"
 #include "devices/device.hpp"
-#include "devices/pseudoDevice.hpp"
+#include "devices/pseudo_device.hpp"
 #include "math/mna.hpp"
-#include "math/newtonStep.hpp"
+#include "math/newton_step.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -1348,6 +1348,40 @@ void testRestartForcesBackwardEuler(){
     );
 }
 
+void testAcceptedHistoryRotation(){
+    TransientIntegrator integrator;
+    integrator.Initialize(0.0, makeVector({1.0, 2.0}));
+    integrator.accept(1.0, makeVector({3.0, 4.0}));
+
+    expectNear(
+        integrator.currentSolution()[0],
+        3.0,
+        "first accept stores the new current solution"
+    );
+    expect(
+        integrator.olderSolution() != nullptr &&
+            integrator.olderSolution()->size() == 2,
+        "first accept retains a full-sized older solution"
+    );
+    expectNear(
+        (*integrator.olderSolution())[1],
+        2.0,
+        "first accept rotates the initial solution into history"
+    );
+
+    integrator.accept(2.0, makeVector({5.0, 6.0}));
+    expectNear(
+        integrator.currentSolution()[1],
+        6.0,
+        "second accept stores the latest solution"
+    );
+    expectNear(
+        (*integrator.olderSolution())[0],
+        3.0,
+        "second accept rotates the previous solution into history"
+    );
+}
+
 void testNewtonStepLimiting(){
     Eigen::VectorXd previous = makeVector({1.0, -2.0});
     Eigen::VectorXd current = makeVector({4.0, -2.5});
@@ -1408,6 +1442,7 @@ int main(){
     testTransientStepController();
     testStepDoublingDifferenceEstimate();
     testRestartForcesBackwardEuler();
+    testAcceptedHistoryRotation();
     testNewtonStepLimiting();
 
     if(failureCount != 0){

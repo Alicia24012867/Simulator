@@ -6,12 +6,16 @@
 
 ## 代码结构
 
+- `src/main.cpp`：只负责装配配置、解析、求解和输出流程，保持为薄入口。
+- `src/app/command_line.cpp`：命令行语法、重复参数检查和帮助文本。
 - `src/netlist/reader.cpp`：文件读取、注释与续行处理，以及 `.end` 位置校验。
 - `src/netlist/subcircuit.cpp`：`.subckt` 定义收集和 `X` 实例递归展平；不依赖 `Circuit`，只输出原语 token。
 - `src/netlist/parser.cpp`：控制卡、模型和原语器件的语义校验与构造。
-- `src/config/`：`config.json` 的定位、严格 schema 解析及覆盖层应用；与网表解析解耦。
+- `src/config/config_loader.cpp`：`config.json` 的定位与加载。
+- `src/config/parse_overrides.cpp`：严格 schema 校验，并生成类型化覆盖层。
+- `src/config/apply_overrides.cpp`、`option_overrides.cpp`：分别应用配置文件覆盖和命令行 `name=value` 覆盖，同时保护网表中显式指定的参数。
 - `src/circuit/`：节点编号、MNA 构建及 OP/TRAN/PTA 求解调度。
-- `src/io/`：listing 与 ASCII rawfile 写出。
+- `src/io/spice_output.cpp`：listing、ASCII rawfile 格式化，以及多输出文件的事务式写入。
 - `third_party/nlohmann/json.hpp`：随仓库固定版本的 header-only JSON 解析器。
 
 这种分层使网表语法、层次展开和求解模型可以独立演进。大型网表的普通逻辑行不再长期保留原始文本；子电路引脚索引在定义阶段预计算，展开每个实例时无需构造临时绑定表。
@@ -77,7 +81,7 @@
 - 没有分析卡时默认执行 `.op`。同时存在 `.op` 与 `.tran` 时依次输出两个分析块。
 - `.tran` 未指定 `UIC` 时先求 operating point；指定 `UIC` 时当前使用全零 MNA 初值。尚未支持器件 `IC=`。
 - `.option DELMAX=value`（也接受 `.options`）是 HSPICE 兼容的内部时间步长硬上限，数值接受 SPICE 后缀。ngspice 的标准、可移植写法是 `.tran` 的第四个 `TMAX` 参数；两者同时出现时取更小者，确保每个内部积分步都不超过任一上限。该限制也应用于 `.pstran` 的伪时间步，且不改变 `.op`。ngspice 当前可接受 `DELMAX` 这个非标准 option 名称，但不将其列为通用 `.options` 变量；本程序刻意实现其 HSPICE 语义，而非静默忽略。
-- `.pstran` 启用 PTA operating-point 求解，接受不区分大小写的 `convval`、`initstep`、`minstep`、`maxstep`、`tau`、`vbe0`、`kvgs0`、`tauramp` 参数，且可使用 `key=value`、`key = value` 或 `key= value` 写法。`convval` 映射为 PTA 的导数和 DC 残差阈值，三个 step 参数映射为 PTA 步长边界。当前 PTA 伪器件模型尚不使用 `tau`、`vbe0`、`kvgs0` 和 `tauramp`，但会保存、校验并接受它们，以兼容此类网表。`.pstran` 不能与命令行 `--pta` 同时指定。
+- `.pstran` 启用 PTA operating-point 求解，接受不区分大小写的 `convval`、`initstep`、`minstep`、`maxstep`、`tau`、`vbe0`、`kvgs0`、`tauramp` 参数，且可使用 `key=value`、`key = value` 或 `key= value` 写法。`convval` 映射为 PTA 的导数和 DC 残差阈值，三个 step 参数映射为 PTA 步长边界；`tau` 启用复合伪元件，`vbe0` 设置 BJT 初始结电压，`tauramp` 控制独立源斜坡。`kvgs0` 当前仅保存和校验，尚未参与求解。`.pstran` 不能与命令行 `--pta` 同时指定。
 - `TSTEP` 控制输出间隔，`TSTART` 控制开始保存的时间，`TMAX` 限制内部积分步长。当前未指定 `TMAX` 时内部最大步长使用 `TSTEP`；输出时间点也会强制成为积分点，因此与 ngspice 的默认自适应步长策略不同。
 - 每次瞬态分析的首步使用 Backward Euler 的 step-doubling 误差估计；之后在新步长不大于前一步两倍时使用可变步长 BDF2，并以预测—校正差估计误差。超过误差预算或 Newton 未收敛的步会回滚并缩小后重试；内部积分点仍不会越过输出时间点。
 
@@ -426,18 +430,22 @@ make generate-standards  # 需要 ngspice
 ```text
 include/
   analysis/      分析计划、瞬态配置、stamp 上下文与积分器
+  app/           命令行接口
   circuit/       Circuit 求解编排与 NodeMap 拓扑接口
+  config/        配置加载、类型化覆盖及参数优先级接口
   devices/       器件定义及 OP / TRAN stamp
-  io/            SPICE listing / rawfile 输出接口
+  io/            SPICE listing / rawfile 与事务式文件输出接口
   math/          Eigen 稀疏 MNA、Newton 步长控制与数值限制工具
   models/        .model 参数存储
-  netlist/       网表 Parser 接口
+  netlist/       网表读取、层次展开与 Parser 接口
   utils/         跨模块字符串与 SPICE 数值工具
 src/
+  app/           命令行解析
   circuit/       Circuit 与 NodeMap 实现
-  io/            listing / rawfile 输出实现
-  netlist/       网表解析实现
-  main.cpp       命令行入口与事务式输出流程
+  config/        配置加载、schema 解析和覆盖应用
+  io/            listing / rawfile 格式化与文件提交
+  netlist/       网表读取、子电路展开与语义解析
+  main.cpp       应用入口与高层流程编排
 tests/
   cases/         OP / TRAN netlist 与 SOURCES.md
   references/    ngspice 独立参考 listing
@@ -445,7 +453,7 @@ tests/
   output/        测试生成的 listing / rawfile / stderr（不纳入版本控制）
 ```
 
-项目内头文件统一相对于 `include/` 引用。`include/analysis`、`include/devices`、`include/math` 和 `include/models` 当前主要是 header-only 模块；存在独立实现文件的模块则在 `src/` 中使用对应职责目录。默认构建使用 `-O3`；调试时可用 `make OPT_FLAGS=-O0` 覆盖。
+项目内头文件统一相对于 `include/` 引用，文件名统一使用 snake_case。`include/analysis`、`include/devices`、`include/math` 和 `include/models` 当前主要是 header-only 模块；存在独立实现文件的模块则在 `src/` 中使用对应职责目录。Makefile 自动收集 `src/` 及其一级职责目录中的 `.cpp` 文件。默认构建使用 `-O3`；调试时可用 `make OPT_FLAGS=-O0` 覆盖。
 
 ## 当前限制
 
@@ -453,7 +461,7 @@ tests/
 - 瞬态使用首步 Backward Euler 与受步长比限制的可变步长 BDF2；具备基于预测—校正差/step-doubling 的误差控制和步长拒绝重试，但尚未实现严格 LTE 估计、事件断点对齐或高阶积分公式。
 - `UIC` 当前把完整 MNA 解向量初始化为零；尚未支持器件 `IC=`、`.ic` 与一致初值求解。
 - 瞬态 Newton 失败会缩小时间步并在上一个已接受状态重试；非线性收敛判据本身仍未拆分电压/电流的相对与绝对容差。
-- PTA 已具备伪元件 stamp、BE/BDF2 伪时间推进、失败缩步、最小步长后的全局增容，以及成功步后的逐节点振荡降容；默认导数阈值仍需按伪时间步和未知量尺度归一化后再作为可靠收敛判据。
+- PTA 已具备伪元件 stamp、BE/BDF2 伪时间推进、失败缩步、最小步长后的全局增容，以及成功步后的逐节点振荡降容；导数与 DC 残差判据已经归一化，但默认容差仍需通过更广泛的困难非线性电路基准验证。
 - 不支持 `.include`、`.lib`、全局 `.param`、`.temp`、`.nodeset`、`.ic`、`.save`。
 - 不支持受控源 `E/F/G/H`、行为源、AC/noise 分析。
 - 二极管、BJT 和 MOSFET 是简化模型；`RS`、`RBE`、`RCE`、`RDS` 虽可解析但尚未参与 stamp，且瞬态中没有结电容等器件内部动态。

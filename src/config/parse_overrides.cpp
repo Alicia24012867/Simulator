@@ -6,7 +6,7 @@
 #include <stdexcept>
 #include <string>
 
-#include "config/config.h"
+#include "config/config_loader.h"
 #include "utils/string_utils.hpp"
 
 namespace simulator::config {

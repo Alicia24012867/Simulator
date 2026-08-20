@@ -1,8 +1,8 @@
 #pragma once
+#include <cerrno>
 #include <cctype>
 #include <cmath>
-#include <regex>
-#include <sstream>
+#include <cstdlib>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -89,17 +89,79 @@ inline std::vector<std::string> tokenize_spice_line(const std::string& line){
     return tokens;
 }
 
-inline double parse_spice_number(std::string text){
-    static const std::regex spiceNumber(
-        R"(^([+-]?(?:(?:[0-9]+(?:\.[0-9]*)?)|(?:\.[0-9]+))(?:[eE][+-]?[0-9]+)?)([A-Za-z]*)$)"
-    );
-    std::smatch match;
-    if(!std::regex_match(text, match, spiceNumber)){
+inline double parse_spice_number(const std::string& text){
+    std::size_t position = 0;
+    if(position < text.size() &&
+       (text[position] == '+' || text[position] == '-')){
+        ++position;
+    }
+
+    const auto consumeDigits = [&text, &position] {
+        const std::size_t begin = position;
+        while(position < text.size() &&
+              text[position] >= '0' && text[position] <= '9'){
+            ++position;
+        }
+        return position != begin;
+    };
+
+    const bool hasIntegerDigits = consumeDigits();
+    bool hasFractionDigits = false;
+    if(position < text.size() && text[position] == '.'){
+        ++position;
+        hasFractionDigits = consumeDigits();
+    }
+    if(!hasIntegerDigits && !hasFractionDigits){
         throw std::runtime_error("Invalid SPICE number: " + text);
     }
 
-    const double value = std::stod(match[1].str());
-    const std::string suffix = to_lower_copy(match[2].str());
+    if(position < text.size() &&
+       (text[position] == 'e' || text[position] == 'E')){
+        ++position;
+        if(position < text.size() &&
+           (text[position] == '+' || text[position] == '-')){
+            ++position;
+        }
+        if(!consumeDigits()){
+            throw std::runtime_error("Invalid SPICE number: " + text);
+        }
+    }
+
+    const std::size_t suffixStart = position;
+    while(position < text.size() &&
+          ((text[position] >= 'a' && text[position] <= 'z') ||
+           (text[position] >= 'A' && text[position] <= 'Z'))){
+        ++position;
+    }
+    if(position != text.size()){
+        throw std::runtime_error("Invalid SPICE number: " + text);
+    }
+
+    errno = 0;
+    char* parsedEnd = nullptr;
+    const double value = std::strtod(text.c_str(), &parsedEnd);
+    if(parsedEnd != text.c_str() + suffixStart || errno == ERANGE ||
+       !std::isfinite(value)){
+        throw std::runtime_error("SPICE number must be finite");
+    }
+
+    const auto lowerSuffixCharacter = [&text, suffixStart](std::size_t index){
+        return static_cast<char>(std::tolower(
+            static_cast<unsigned char>(text[suffixStart + index])
+        ));
+    };
+    const std::size_t suffixLength = text.size() - suffixStart;
+    const auto suffixStartsWith = [&](const char* prefix){
+        std::size_t index = 0;
+        while(prefix[index] != '\0'){
+            if(index >= suffixLength ||
+               lowerSuffixCharacter(index) != prefix[index]){
+                return false;
+            }
+            ++index;
+        }
+        return true;
+    };
 
     auto scaled = [value](double multiplier){
         const double result = value * multiplier;
@@ -109,12 +171,12 @@ inline double parse_spice_number(std::string text){
         return result;
     };
 
-    if(suffix.empty()) return scaled(1.0);
+    if(suffixLength == 0) return scaled(1.0);
 
-    if(suffix.rfind("meg", 0) == 0) return scaled(1e6);
-    if(suffix.rfind("mil", 0) == 0) return scaled(25.4e-6);
+    if(suffixStartsWith("meg")) return scaled(1e6);
+    if(suffixStartsWith("mil")) return scaled(25.4e-6);
 
-    switch(suffix[0]){
+    switch(lowerSuffixCharacter(0)){
         case 'a': return scaled(1e-18);
         case 'f': return scaled(1e-15);
         case 'p': return scaled(1e-12);

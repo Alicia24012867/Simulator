@@ -1,20 +1,26 @@
-#include "io/spiceOutput.h"
+#include "io/spice_output.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <ctime>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <locale>
 #include <ostream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <system_error>
+#include <utility>
 #include <vector>
 
-#include "analysis/analysisPlan.h"
-#include "analysis/ptaAnalysis.h"
+#include "analysis/analysis_plan.h"
+#include "analysis/pta_analysis.h"
 #include "circuit/circuit.h"
-#include "circuit/nodeMap.h"
+#include "circuit/node_map.h"
 #include "devices/device.hpp"
 #include "math/mna.hpp"
 #include "utils/string_utils.hpp"
@@ -423,4 +429,337 @@ void SpiceRawWriter::writeTransient(std::ostream& os,
             variables
         );
     }
+}
+
+namespace {
+
+struct StagedOutput {
+    std::filesystem::path destination;
+    std::filesystem::path temporary;
+    std::filesystem::path backup;
+    const char* description = nullptr;
+    bool committed = false;
+};
+
+std::filesystem::path normalizedPath(const std::string& path){
+    std::error_code error;
+    std::filesystem::path normalized =
+        std::filesystem::weakly_canonical(path, error);
+    if(!error){
+        return normalized;
+    }
+
+    error.clear();
+    normalized = std::filesystem::absolute(path, error);
+    return error
+        ? std::filesystem::path(path).lexically_normal()
+        : normalized.lexically_normal();
+}
+
+bool pathsReferToSameFile(const std::string& left,
+                          const std::string& right){
+    if(normalizedPath(left) == normalizedPath(right)){
+        return true;
+    }
+
+    std::error_code error;
+    const bool equivalent = std::filesystem::equivalent(left, right, error);
+    return !error && equivalent;
+}
+
+std::filesystem::path temporaryOutputPath(
+    const std::filesystem::path& destination)
+{
+    std::filesystem::path directory = destination.parent_path();
+    if(directory.empty()){
+        directory = ".";
+    }
+
+    static unsigned long long counter = 0;
+    for(int attempt = 0; attempt < 100; ++attempt){
+        const auto ticks = std::chrono::steady_clock::now()
+            .time_since_epoch().count();
+        const auto candidate = directory /
+            (".spice-tmp-" + std::to_string(ticks) +
+             "-" + std::to_string(++counter));
+        std::error_code error;
+        if(!std::filesystem::exists(candidate, error) && !error){
+            return candidate;
+        }
+    }
+    throw std::runtime_error(
+        "Cannot allocate a temporary output beside <" +
+        destination.string() + ">"
+    );
+}
+
+void removeTemporaryOutput(const std::filesystem::path& path){
+    if(path.empty()){
+        return;
+    }
+    std::error_code ignored;
+    std::filesystem::remove(path, ignored);
+}
+
+void discardStagedOutputs(std::vector<StagedOutput>& outputs){
+    for(auto& output: outputs){
+        removeTemporaryOutput(output.temporary);
+        removeTemporaryOutput(output.backup);
+        output.temporary.clear();
+        output.backup.clear();
+    }
+}
+
+bool stageFile(const std::string& path,
+               std::string_view content,
+               const char* description,
+               StagedOutput& staged,
+               std::ostream& error){
+    staged.destination = path;
+    staged.description = description;
+
+    std::error_code statusError;
+    if(std::filesystem::exists(staged.destination, statusError) &&
+       !std::filesystem::is_regular_file(staged.destination, statusError)){
+        error << "Cannot replace non-regular " << description << " <"
+              << path << ">\n";
+        return false;
+    }
+    if(statusError){
+        error << "Cannot inspect " << description << " <" << path
+              << ">: " << statusError.message() << '\n';
+        return false;
+    }
+
+    try {
+        staged.temporary = temporaryOutputPath(staged.destination);
+    } catch(const std::exception& exception){
+        error << exception.what() << '\n';
+        return false;
+    }
+
+    std::ofstream output(
+        staged.temporary,
+        std::ios::out | std::ios::trunc | std::ios::binary
+    );
+    if(!output){
+        error << "Cannot open " << description << " <" << path << ">\n";
+        removeTemporaryOutput(staged.temporary);
+        staged.temporary.clear();
+        return false;
+    }
+
+    output.write(content.data(), static_cast<std::streamsize>(content.size()));
+    output.flush();
+    output.close();
+    if(!output){
+        error << "Failed while writing " << description
+              << " <" << path << ">\n";
+        removeTemporaryOutput(staged.temporary);
+        staged.temporary.clear();
+        return false;
+    }
+    return true;
+}
+
+bool commitStagedOutputs(std::vector<StagedOutput>& outputs,
+                         std::ostream& error){
+    const auto rollback = [&outputs, &error](){
+        bool restored = true;
+        for(auto& output: outputs){
+            if(output.committed){
+                std::error_code removeError;
+                std::filesystem::remove(output.destination, removeError);
+                if(removeError){
+                    error << "Cannot remove partially committed "
+                          << output.description << " <"
+                          << output.destination.string() << ">: "
+                          << removeError.message() << '\n';
+                    restored = false;
+                }
+                output.committed = false;
+            }
+        }
+        for(auto& output: outputs){
+            if(output.backup.empty()){
+                continue;
+            }
+            std::error_code restoreError;
+            std::filesystem::rename(
+                output.backup,
+                output.destination,
+                restoreError
+            );
+            if(restoreError){
+                error << "Cannot restore previous " << output.description
+                      << " <" << output.destination.string() << ">: "
+                      << restoreError.message() << '\n';
+                restored = false;
+            } else {
+                output.backup.clear();
+            }
+        }
+        for(auto& output: outputs){
+            removeTemporaryOutput(output.temporary);
+            output.temporary.clear();
+        }
+        return restored;
+    };
+
+    for(auto& output: outputs){
+        std::error_code existsError;
+        const bool exists = std::filesystem::exists(
+            output.destination,
+            existsError
+        );
+        if(existsError){
+            error << "Cannot inspect " << output.description << " <"
+                  << output.destination.string() << ">: "
+                  << existsError.message() << '\n';
+            rollback();
+            return false;
+        }
+        if(!exists){
+            continue;
+        }
+
+        std::error_code typeError;
+        if(!std::filesystem::is_regular_file(output.destination, typeError) ||
+           typeError){
+            error << "Cannot replace non-regular " << output.description
+                  << " <" << output.destination.string() << ">\n";
+            rollback();
+            return false;
+        }
+
+        try {
+            output.backup = temporaryOutputPath(output.destination);
+        } catch(const std::exception& exception){
+            error << exception.what() << '\n';
+            rollback();
+            return false;
+        }
+
+        std::error_code backupError;
+        std::filesystem::rename(
+            output.destination,
+            output.backup,
+            backupError
+        );
+        if(backupError){
+            error << "Cannot preserve previous " << output.description
+                  << " <" << output.destination.string() << ">: "
+                  << backupError.message() << '\n';
+            output.backup.clear();
+            rollback();
+            return false;
+        }
+    }
+
+    for(auto& output: outputs){
+        std::error_code collisionError;
+        if(std::filesystem::exists(output.destination, collisionError)){
+            error << "Output destination appeared during commit <"
+                  << output.destination.string()
+                  << ">; possible path alias or concurrent writer\n";
+            rollback();
+            return false;
+        }
+        if(collisionError){
+            error << "Cannot inspect output destination <"
+                  << output.destination.string() << ">: "
+                  << collisionError.message() << '\n';
+            rollback();
+            return false;
+        }
+
+        std::error_code commitError;
+        std::filesystem::rename(
+            output.temporary,
+            output.destination,
+            commitError
+        );
+        if(commitError){
+            error << "Cannot replace " << output.description << " <"
+                  << output.destination.string() << ">: "
+                  << commitError.message() << '\n';
+            rollback();
+            return false;
+        }
+        output.temporary.clear();
+        output.committed = true;
+    }
+
+    for(auto& output: outputs){
+        removeTemporaryOutput(output.backup);
+        output.backup.clear();
+        output.committed = false;
+    }
+    return true;
+}
+
+}  // namespace
+
+bool SpiceOutputFiles::validatePaths(
+    const std::string& inputPath,
+    const std::optional<std::string>& listingPath,
+    const std::optional<std::string>& rawPath,
+    std::ostream& error
+){
+    if(listingPath && pathsReferToSameFile(*listingPath, inputPath)){
+        error << "Input netlist and listing output must be different files\n";
+        return false;
+    }
+    if(rawPath && pathsReferToSameFile(*rawPath, inputPath)){
+        error << "Input netlist and raw output must be different files\n";
+        return false;
+    }
+    if(listingPath && rawPath &&
+       pathsReferToSameFile(*listingPath, *rawPath)){
+        error << "Listing output and raw output must be different files\n";
+        return false;
+    }
+    return true;
+}
+
+bool SpiceOutputFiles::writeAtomically(
+    const std::optional<std::string>& listingPath,
+    std::string_view listing,
+    const std::optional<std::string>& rawPath,
+    std::string_view raw,
+    std::ostream& error
+){
+    std::vector<StagedOutput> stagedOutputs;
+    stagedOutputs.reserve(
+        static_cast<std::size_t>(listingPath.has_value()) +
+        static_cast<std::size_t>(rawPath.has_value())
+    );
+
+    if(listingPath){
+        StagedOutput staged;
+        if(!stageFile(
+               *listingPath,
+               listing,
+               "listing output",
+               staged,
+               error)){
+            discardStagedOutputs(stagedOutputs);
+            return false;
+        }
+        stagedOutputs.push_back(std::move(staged));
+    }
+    if(rawPath){
+        StagedOutput staged;
+        if(!stageFile(
+               *rawPath,
+               raw,
+               "raw output",
+               staged,
+               error)){
+            discardStagedOutputs(stagedOutputs);
+            return false;
+        }
+        stagedOutputs.push_back(std::move(staged));
+    }
+    return commitStagedOutputs(stagedOutputs, error);
 }

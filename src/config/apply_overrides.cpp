@@ -1,11 +1,11 @@
-#include "config/applyOverrides.h"
+#include "config/overrides.h"
 
 #include <algorithm>
 #include <stdexcept>
 
-#include "analysis/ptaAnalysis.h"
-#include "analysis/solverOptions.h"
-#include "analysis/transientAnalysis.h"
+#include "analysis/pta_analysis.h"
+#include "analysis/solver_options.h"
+#include "analysis/transient_analysis.h"
 
 namespace simulator::config {
 namespace {
@@ -262,6 +262,43 @@ void applyTransientOverrides(
 }
 
 }  // namespace
+
+NetlistAnalysisParameterLocks parameterLocksFor(const AnalysisPlan& plan){
+    NetlistAnalysisParameterLocks locks;
+
+    if(plan.transient){
+        locks.transient.enabled = true;
+        locks.transient.outputInterval = true;
+        locks.transient.stopTime = true;
+
+        if(plan.transientNetlistParameters){
+            const auto& presence = *plan.transientNetlistParameters;
+            locks.transient.outputStartTime = presence.outputStartTime;
+            locks.transient.maximumStep = presence.maximumStep;
+            locks.transient.useInitialConditions =
+                presence.useInitialConditions;
+        }
+        if(plan.delmax){
+            locks.transient.maximumStep = true;
+        }
+    }
+
+    if(plan.pseudoTransient){
+        const auto& pstran = *plan.pseudoTransient;
+        locks.pta.mode = true;
+        locks.pta.initialStep = pstran.initialStepSpecified;
+        locks.pta.minimumStep = pstran.minimumStepSpecified;
+        locks.pta.maximumStep = pstran.maximumStepSpecified ||
+            plan.delmax.has_value();
+        locks.pta.derivativeTolerance = pstran.convergenceValueSpecified;
+        locks.pta.dcResidualTolerance = pstran.convergenceValueSpecified;
+        locks.pta.compoundTimeConstant = pstran.tauSpecified;
+        locks.pta.sourceRampTime = pstran.tauRampSpecified;
+        locks.pta.initialBjtVbe = pstran.vbe0Specified;
+    }
+
+    return locks;
+}
 
 void applyConfigOverrides(
     const ConfigOverrides& overrides,
