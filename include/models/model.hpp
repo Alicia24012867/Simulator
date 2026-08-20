@@ -70,6 +70,8 @@ public:
         double rb = 0.0;
         double rc = 0.0;
         double re = 0.0;
+        double rbe = 0.0;
+        double rce = 0.0;
         double va = 0.0;
         double var = 0.0;
         double ikf = 0.0;
@@ -85,6 +87,7 @@ public:
         double kp = 20.0e-6;
         double lambda = 0.0;
         double gmin = 1.0e-12;
+        double rds = 0.0;
     };
 
     const DiodeDcParams& diodeDc() const {
@@ -155,6 +158,8 @@ private:
         bjtDc_.rb = nonNegative(param("rb", bjtDc_.rb), 0.0);
         bjtDc_.rc = nonNegative(param("rc", bjtDc_.rc), 0.0);
         bjtDc_.re = nonNegative(param("re", bjtDc_.re), 0.0);
+        bjtDc_.rbe = nonNegative(param("rbe", bjtDc_.rbe), 0.0);
+        bjtDc_.rce = nonNegative(param("rce", bjtDc_.rce), 0.0);
         bjtDc_.va = nonNegative(
             param("vaf", param("va", bjtDc_.va)),
             0.0
@@ -172,6 +177,7 @@ private:
         mosDc_.kp = positive(param("kp", param("k", mosDc_.kp)), 20.0e-6);
         mosDc_.lambda = positive(param("lambda", param("lam", mosDc_.lambda)), 0.0);
         mosDc_.gmin = positive(param("gmin", mosDc_.gmin), 1.0e-12);
+        mosDc_.rds = nonNegative(param("rds", mosDc_.rds), 0.0);
 
         const double is = positive(param("is", 0.0), 0.0);
         if(is > 0.0 && params_.find("rs") == params_.end()){

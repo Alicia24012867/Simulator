@@ -116,6 +116,18 @@ public:
         j[2][1] -= gm;
         j[2][2] += gdTotal + gm;
 
+        if(dc.rds > 0.0){
+            const double conductance =
+                model_->mosDrainSourceConductance(w_, l_);
+            const double rdsCurrent = conductance * (vd - vs);
+            f[0] += rdsCurrent;
+            f[2] -= rdsCurrent;
+            j[0][0] += conductance;
+            j[0][2] -= conductance;
+            j[2][0] -= conductance;
+            j[2][2] += conductance;
+        }
+
         for(int r: {0, 2}){
             double b = -f[r];
             for(int c: {0, 1, 2}){

@@ -485,6 +485,138 @@ def main():
             failures.append(str(exc))
 
         try:
+            def operating_point_value(netlist, column):
+                listing = netlist.with_suffix(".out")
+                result = run(simulator, "-b", "-o", listing, netlist)
+                require(
+                    result.returncode == 0,
+                    f"{netlist.name} failed: {result.stderr}",
+                )
+
+                lines = listing.read_text().splitlines()
+                for index, line in enumerate(lines):
+                    header = line.split()
+                    if not header or header[0] != "Index" or column not in header:
+                        continue
+                    for data_line in lines[index + 1 :]:
+                        values = data_line.split()
+                        if values and values[0].isdigit():
+                            return float(values[header.index(column)])
+                raise RuntimeError(
+                    f"{netlist.name} listing has no OP value for {column}"
+                )
+
+            diode_without_rs = root / "diode-without-rs.cir"
+            diode_without_rs.write_text(
+                "Diode model without series resistance\n"
+                ".model DMOD D IS=1e-12 N=1\n"
+                "V1 in 0 1\n"
+                "D1 in out DMOD\n"
+                "R1 out 0 1k\n"
+                ".op\n"
+                ".print op i(v1)\n"
+                ".end\n"
+            )
+            diode_with_rs = root / "diode-with-rs.cir"
+            diode_with_rs.write_text(
+                "Diode model with series resistance\n"
+                ".model DMOD D IS=1e-12 N=1 RS=1k\n"
+                "V1 in 0 1\n"
+                "D1 in out DMOD\n"
+                "R1 out 0 1k\n"
+                ".op\n"
+                ".print op i(v1)\n"
+                ".end\n"
+            )
+            diode_current_without_rs = abs(
+                operating_point_value(diode_without_rs, "v1#branch")
+            )
+            diode_current_with_rs = abs(
+                operating_point_value(diode_with_rs, "v1#branch")
+            )
+            require(
+                diode_current_with_rs < 0.9 * diode_current_without_rs,
+                "diode RS did not reduce the DC branch current",
+            )
+
+            bjt_without_shunts = root / "bjt-without-shunts.cir"
+            bjt_without_shunts.write_text(
+                "BJT model without leakage shunts\n"
+                ".model QMOD NPN IS=1e-20 BF=100\n"
+                "V1 b 0 1\n"
+                "V2 c 0 1\n"
+                "Q1 c b 0 QMOD\n"
+                ".op\n"
+                ".print op i(v1) i(v2)\n"
+                ".end\n"
+            )
+            bjt_with_shunts = root / "bjt-with-shunts.cir"
+            bjt_with_shunts.write_text(
+                "BJT model with base-emitter and collector-emitter shunts\n"
+                ".model QMOD NPN IS=1e-20 BF=100 RBE=1k RCE=2k\n"
+                "V1 b 0 1\n"
+                "V2 c 0 1\n"
+                "Q1 c b 0 QMOD\n"
+                ".op\n"
+                ".print op i(v1) i(v2)\n"
+                ".end\n"
+            )
+            bjt_base_without = abs(
+                operating_point_value(bjt_without_shunts, "v1#branch")
+            )
+            bjt_base_with = abs(
+                operating_point_value(bjt_with_shunts, "v1#branch")
+            )
+            bjt_collector_without = abs(
+                operating_point_value(bjt_without_shunts, "v2#branch")
+            )
+            bjt_collector_with = abs(
+                operating_point_value(bjt_with_shunts, "v2#branch")
+            )
+            require(
+                bjt_base_with > bjt_base_without + 5e-4,
+                "BJT RBE did not add a base-emitter shunt current",
+            )
+            require(
+                bjt_collector_with > bjt_collector_without + 2e-4,
+                "BJT RCE did not add a collector-emitter shunt current",
+            )
+
+            mos_without_rds = root / "mos-without-rds.cir"
+            mos_without_rds.write_text(
+                "MOS model without drain-source shunt\n"
+                ".model MMOD NMOS VTO=5 KP=1m\n"
+                "V1 d 0 1\n"
+                "M1 d 0 0 0 MMOD W=1u L=1u\n"
+                ".op\n"
+                ".print op i(v1)\n"
+                ".end\n"
+            )
+            mos_with_rds = root / "mos-with-rds.cir"
+            mos_with_rds.write_text(
+                "MOS model with drain-source shunt\n"
+                ".model MMOD NMOS VTO=5 KP=1m RDS=1k\n"
+                "V1 d 0 1\n"
+                "M1 d 0 0 0 MMOD W=1u L=1u\n"
+                ".op\n"
+                ".print op i(v1)\n"
+                ".end\n"
+            )
+            mos_current_without = abs(
+                operating_point_value(mos_without_rds, "v1#branch")
+            )
+            mos_current_with = abs(
+                operating_point_value(mos_with_rds, "v1#branch")
+            )
+            require(
+                mos_current_with > mos_current_without + 5e-4,
+                "MOS RDS did not add a drain-source shunt current",
+            )
+            print("PASS diode RS, BJT RBE/RCE, and MOS RDS model stamps")
+        except Exception as exc:
+            failures.append(str(exc))
+
+        try:
             gummel_poon = root / "bjt-gummel-poon-dc.cir"
             gummel_poon.write_text(
                 "BJT DC Gummel-Poon subset\n"

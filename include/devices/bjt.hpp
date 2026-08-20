@@ -144,6 +144,16 @@ public:
         Mat3 j = {};
         stampBranch(f, j, 1, 2, beCurrent + dc.gmin * (vb - ve), beConductance);
         stampBranch(f, j, 1, 0, bcCurrent + dc.gmin * (vb - vc), bcConductance);
+        if(dc.rbe > 0.0){
+            const double conductance =
+                model_->bjtBaseEmitterConductance(area_);
+            stampBranch(f, j, 1, 2, conductance * (vb - ve), conductance);
+        }
+        if(dc.rce > 0.0){
+            const double conductance =
+                model_->bjtCollectorEmitterConductance(area_);
+            stampBranch(f, j, 0, 2, conductance * (vc - ve), conductance);
+        }
 
         const double collectorCurrent = polarity * transport;
         const double dIcDb = dTransportBe + dTransportBc;

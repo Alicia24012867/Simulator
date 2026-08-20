@@ -39,12 +39,12 @@
 
 `.model` 支持 `D`、`NPN`、`PNP`、`NMOS`、`PMOS`、`NCH`、`PCH`。当前求解方程使用的模型参数包括：
 
-- Diode：`IS`, `N`, `VT`, `GMIN`
-- BJT：`IS`, `BF` / `BETA`, `BR`, `NF`, `NR`, `VT`, `GMIN`，以及 DC Gummel-Poon 子集 `RB`、`RC`、`RE`、`VA` / `VAF`、`VAR`、`IKF`、`IKR`、`ISE`、`ISC`、`NE`、`NC`
-- MOSFET：`LEVEL=1`，以及为遗留网表兼容读取的 `LEVEL=3` model card；求解仍使用 `VTO` / `VT0`、`KP` / `K`、`LAMBDA` / `LAM`、`GMIN` 的简化 Level-1 平方律
+- Diode：`IS`, `N`, `VT`, `GMIN`、`RS`
+- BJT：`IS`, `BF` / `BETA`, `BR`, `NF`, `NR`, `VT`, `GMIN`，以及 DC Gummel-Poon 子集 `RB`、`RC`、`RE`、`RBE`、`RCE`、`VA` / `VAF`、`VAR`、`IKF`、`IKR`、`ISE`、`ISC`、`NE`、`NC`
+- MOSFET：`LEVEL=1`，以及为遗留网表兼容读取的 `LEVEL=3` model card；求解使用 `VTO` / `VT0`、`KP` / `K`、`LAMBDA` / `LAM`、`GMIN` 的简化 Level-1 平方律，另支持 `RDS` 的 D-S 线性并联电导
 - 实例参数：`AREA`, `W`, `L`
 
-读取器还接受 Diode 的 `RS`、BJT 的 `RBE` / `RCE`，以及 MOSFET 的 `RDS` 和常见 Level-3 card 参数（如 `TOX`、`LD`、`UO`、结电容参数）。后者用于读取遗留网表，尚未写入器件 stamp，求解结果仍是上述简化 Level-1 近似。未知参数、非数值参数、非物理的负值以及非 `LEVEL=1` / `LEVEL=3` 的 MOSFET model 会在读取阶段明确报错。
+`RS`、`RBE`、`RCE` 与 `RDS` 已落实到 DC / transient 的器件 stamp：Diode `RS` 是由外部阳极到本征二极管阳极的串联电阻（按 `AREA` 缩放）；BJT `RBE` / `RCE` 分别是本征 B-E / C-E 并联电阻（按 `AREA` 缩放）；当前 MOS 模型把 `RDS` 实现为按 `W/L` 缩放的 D-S 线性并联电导。常见的 Level-3 card 参数（如 `TOX`、`LD`、`UO`、结电容参数）仍仅为遗留网表读取兼容，尚未写入器件 stamp，求解结果仍是上述简化 Level-1 近似。未知参数、非数值参数、非物理的负值以及非 `LEVEL=1` / `LEVEL=3` 的 MOSFET model 会在读取阶段明确报错。
 
 ### Netlist 读取规则
 
@@ -83,7 +83,7 @@
 - 没有分析卡时默认执行 `.op`。同时存在 `.op` 与 `.tran` 时依次输出两个分析块。
 - `.tran` 未指定 `UIC` 时先求 operating point；指定 `UIC` 时当前使用全零 MNA 初值。尚未支持器件 `IC=`。
 - `.option DELMAX=value`（也接受 `.options`）是 HSPICE 兼容的内部时间步长硬上限，数值接受 SPICE 后缀。ngspice 的标准、可移植写法是 `.tran` 的第四个 `TMAX` 参数；两者同时出现时取更小者，确保每个内部积分步都不超过任一上限。该限制也应用于 `.pstran` 的伪时间步，且不改变 `.op`。ngspice 当前可接受 `DELMAX` 这个非标准 option 名称，但不将其列为通用 `.options` 变量；本程序刻意实现其 HSPICE 语义，而非静默忽略。
-- `.pstran` 启用 PTA operating-point 求解，接受不区分大小写的 `convval`、`initstep`、`minstep`、`maxstep`、`tau`、`vbe0`、`kvgs0`、`tauramp` 参数，且可使用 `key=value`、`key = value` 或 `key= value` 写法。`convval` 映射为 PTA 的导数和 DC 残差阈值，三个 step 参数映射为 PTA 步长边界；`tau` 启用复合伪元件，`vbe0` 设置 BJT 初始结电压，`tauramp` 控制独立源斜坡。`kvgs0` 当前仅保存和校验，尚未参与求解。`.pstran` 不能与命令行 `--pta` 同时指定。
+- `.pstran` 启用 PTA operating-point 求解，接受不区分大小写的 `convval`、`initstep`、`minstep`、`maxstep`、`tau`、`vbe0`、`kvgs0`、`tauramp` 参数，且可使用 `key=value`、`key = value` 或 `key= value` 写法。`convval` 映射为 PTA 的导数和 DC 残差阈值，三个 step 参数映射为 PTA 步长边界；`tau` 启用复合伪元件，`vbe0` 设置 BJT 初始结电压，`tauramp` 控制独立源斜坡。`kvgs0` 当前仅保存和校验，尚未参与求解。`.pstran` 与 `--pta` 或 `pta.mode` 同时指定时会静默保留网表的 `force` 模式。
 - `TSTEP` 控制输出间隔，`TSTART` 控制开始保存的时间，`TMAX` 限制内部积分步长。当前未指定 `TMAX` 时内部最大步长使用 `TSTEP`；输出时间点也会强制成为积分点，因此与 ngspice 的默认自适应步长策略不同。
 - 每次瞬态分析的首步使用 Backward Euler 的 step-doubling 误差估计；之后在新步长不大于前一步两倍时使用可变步长 BDF2，并以预测—校正差估计误差。超过误差预算或 Newton 未收敛的步会回滚并缩小后重试；内部积分点仍不会越过输出时间点。
 
@@ -496,7 +496,8 @@ tests/
 - PTA 已具备伪元件 stamp、BE/BDF2 伪时间推进、失败缩步、最小步长后的全局增容，以及成功步后的逐节点振荡降容；导数与 DC 残差判据已经归一化，但默认容差仍需通过更广泛的困难非线性电路基准验证。
 - 不支持 `.include`、`.lib`、全局 `.param`、`.temp`、`.nodeset`、`.ic`、`.save`。
 - 不支持受控源 `E/F/G/H`、行为源、AC/noise 分析。
-- 二极管、BJT 和 MOSFET 是简化模型；`RS`、`RBE`、`RCE`、`RDS` 虽可解析但尚未参与 stamp，且瞬态中没有结电容等器件内部动态。
+- 二极管、BJT 和 MOSFET 仍是简化模型。Diode `RS`、BJT `RBE` / `RCE` 和 MOS `RDS` 已参与 stamp；但 MOS 的 `LEVEL=3` card 仍按 Level-1 近似求解，`TOX`、`XJ`、`LD`、`PB`、`RS`、`NSUB`、`UO` / `U0`、`NSS`、`CGSO`、`CGDO`、`CGBO`、`CBD`、`CBS`、`CJ`、`CJSW`、`MJ`、`MJSW`、`RSH` 目前只读取和校验，不参与器件方程。瞬态中也没有结电容等器件内部动态。
+- `.pstran` 的 `kvgs0` 目前只读取、保存和校验，尚未映射到 PTA 方程或步长控制。
 - 电阻、电容、二极管、BJT、MOSFET 的器件电流尚不能通过 `.print i(...)` 输出。
 
 ## SPICE 格式参考

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "circuit/circuit.h"
 #include "devices/device.hpp"
 #include "math/limiting.hpp"
 #include "math/mna.hpp"
@@ -19,8 +20,14 @@ public:
         return true;
     }
 
+    void allocateUnknown(Circuit& circuit) override{
+        if(model_ && model_->diodeDc().rs > 0.0){
+            internalAnode_ = circuit.allocateUnknown();
+        }
+    }
+
     void pattern(MNA& mna) override{
-        const int p = nodeIds[0];
+        const int p = intrinsicAnode();
         const int n = nodeIds[1];
 
         if(p >= 0) mna.addPattern(p, p);
@@ -29,10 +36,22 @@ public:
             mna.addPattern(p, n);
             mna.addPattern(n, p);
         }
+
+        if(internalAnode_ >= 0){
+            const int externalAnode = nodeIds[0];
+            if(externalAnode >= 0){
+                mna.addPattern(externalAnode, externalAnode);
+            }
+            mna.addPattern(internalAnode_, internalAnode_);
+            if(externalAnode >= 0){
+                mna.addPattern(externalAnode, internalAnode_);
+                mna.addPattern(internalAnode_, externalAnode);
+            }
+        }
     }
 
     void bindMatrix(MNA& mna) override{
-        const int p = nodeIds[0];
+        const int p = intrinsicAnode();
         const int n = nodeIds[1];
 
         if(p >= 0) A11 = mna.ptr(p, p);
@@ -49,6 +68,16 @@ public:
         if(n >= 0){
             rhsN_ = &mna.rhs(n);
             solN_ = mna.solutionPtr(n);
+        }
+
+        if(internalAnode_ >= 0){
+            const int externalAnode = nodeIds[0];
+            if(externalAnode >= 0){
+                seriesA11_ = mna.ptr(externalAnode, externalAnode);
+                seriesA12_ = mna.ptr(externalAnode, internalAnode_);
+                seriesA21_ = mna.ptr(internalAnode_, externalAnode);
+            }
+            seriesA22_ = mna.ptr(internalAnode_, internalAnode_);
         }
     }
 
@@ -82,6 +111,8 @@ public:
         if(A22) *A22 += gd;
         if(rhsP_) *rhsP_ += bp;
         if(rhsN_) *rhsN_ -= bp;
+
+        stampSeriesResistance();
     }
 
     void saveIterationState() override{
@@ -99,13 +130,34 @@ private:
         return ptr ? *ptr : 0.0;
     }
 
+    int intrinsicAnode() const{
+        return internalAnode_ >= 0 ? internalAnode_ : nodeIds[0];
+    }
+
+    void stampSeriesResistance(){
+        if(internalAnode_ < 0 || !model_){
+            return;
+        }
+
+        const double conductance = model_->diodeConductance(area_);
+        if(seriesA11_) *seriesA11_ += conductance;
+        if(seriesA12_) *seriesA12_ -= conductance;
+        if(seriesA21_) *seriesA21_ -= conductance;
+        if(seriesA22_) *seriesA22_ += conductance;
+    }
+
     const Model* model_;
     double area_;
+    int internalAnode_ = -1;
 
     double* A11 = nullptr;
     double* A12 = nullptr;
     double* A21 = nullptr;
     double* A22 = nullptr;
+    double* seriesA11_ = nullptr;
+    double* seriesA12_ = nullptr;
+    double* seriesA21_ = nullptr;
+    double* seriesA22_ = nullptr;
     double* rhsP_ = nullptr;
     double* rhsN_ = nullptr;
     const double* solP_ = nullptr;
