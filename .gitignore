@@ -10,3 +10,5 @@ tests/private
 **/__pycache__/
 
 tmp/
+
+/config.json

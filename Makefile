@@ -1,9 +1,10 @@
 CXX = g++
 CXX_STD = c++17
 OPT_FLAGS ?= -O3
-CXX_FLAGS = -std=$(CXX_STD) $(OPT_FLAGS) -Wall -Wextra -I./include
+CXX_FLAGS = -std=$(CXX_STD) $(OPT_FLAGS) -Wall -Wextra -I./include -I./third_party
 SRC = ./src/main.cpp \
 	  $(wildcard ./src/circuit/*.cpp) \
+	  $(wildcard ./src/config/*.cpp) \
 	  $(wildcard ./src/io/*.cpp) \
 	  $(wildcard ./src/netlist/*.cpp)
 HEADERS = $(shell find ./include -type f 2>/dev/null)
@@ -76,7 +77,7 @@ else ifneq ($(strip $(EIGEN_PKG_CFLAGS)),)
 EIGEN_FLAGS := $(EIGEN_PKG_CFLAGS)
 endif
 
-.PHONY: all clean test test-unit test-io test-cases test-op test-tran test-netlists test-private test-pta-hard-op compare compare-op \
+.PHONY: all clean test test-unit test-config test-io test-cases test-op test-tran test-netlists test-private test-pta-hard-op compare compare-op \
 	compare-tran generate-standards check-eigen check-deps pta pta-run pta-accuracy \
 	pta-force-standard pta-force-disabled pta-fallback-standard
 
@@ -128,9 +129,22 @@ $(UNIT_TEST_TARGET): $(UNIT_TEST_SOURCE) ./src/circuit/circuit.cpp \
 test-unit: $(UNIT_TEST_TARGET)
 	@"$(UNIT_TEST_TARGET)"
 
-test: $(TARGET) $(UNIT_TEST_TARGET)
+CONFIG_TEST_SOURCE ?= tests/unit/config_test.cpp
+CONFIG_TEST_TARGET ?= $(UNIT_TEST_BUILD_DIR)/config_test
+CONFIG_CLI_TEST_SCRIPT ?= $(TEST_SCRIPT_DIR)/test_config.py
+
+$(CONFIG_TEST_TARGET): $(CONFIG_TEST_SOURCE) ./src/config/config.cpp $(HEADERS)
+	@mkdir -p "$(@D)"
+	$(CXX) $(CXX_FLAGS) -o "$@" "$<" ./src/config/config.cpp
+
+test-config: $(CONFIG_TEST_TARGET) $(TARGET)
+	@"$(CONFIG_TEST_TARGET)"
+	@$(PYTHON) "$(CONFIG_CLI_TEST_SCRIPT)" ./$(TARGET)
+
+test: $(TARGET) $(UNIT_TEST_TARGET) $(CONFIG_TEST_TARGET)
 	@status=0; \
 	"$(UNIT_TEST_TARGET)" || status=1; \
+	$(MAKE) --no-print-directory test-config || status=1; \
 	$(MAKE) --no-print-directory test-io || status=1; \
 	$(MAKE) --no-print-directory test-op || status=1; \
 	$(MAKE) --no-print-directory test-tran || status=1; \

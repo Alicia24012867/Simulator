@@ -1,3 +1,4 @@
+#include <cctype>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -12,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "config/config.h"
 #include "circuit/circuit.h"
 #include "io/spiceOutput.h"
 #include "netlist/parser.h"
@@ -23,6 +25,10 @@ struct CommandLineOptions {
     std::string inputPath;
     std::optional<std::string> listingPath;
     std::optional<std::string> rawPath;
+    std::optional<std::filesystem::path> configPath;
+    std::size_t configSearchDepth = 8;
+    bool configSearchDepthSpecified = false;
+    bool printConfigPath = false;
     PtaAnalysisConfig ptaConfig;
     bool ptaModeSpecified = false;
     bool ptaDiagnostics = false;
@@ -47,7 +53,13 @@ void printUsage(std::ostream& os, const char* program){
        << " [-b] [--pta disabled|force|fallback]"
        << " [--pta-diagnostics]"
        << " [--pta-option name=value]"
+       << " [--config path] [--config-search-depth N]"
+       << " [--print-config-path]"
        << " [-o output.out] [-r output.raw] <input.cir>\n";
+    os << "\nConfiguration options:\n"
+       << "  --config path              Read this configuration file only\n"
+       << "  --config-search-depth N    Search at most N parent directories\n"
+       << "  --print-config-path         Report the selected configuration file\n";
     os << "\nPTA options (repeat --pta-option as needed):\n"
        << "  initial-step, minimum-step, maximum-step, maximum-steps\n"
        << "  derivative-tolerance, derivative-relative-tolerance,\n"
@@ -64,6 +76,32 @@ void printUsage(std::ostream& os, const char* program){
        << "  heavy-oscillation-scale, medium-oscillation-ratio,\n"
        << "  heavy-oscillation-ratio\n"
        << "  include-mos-bulk, include-diodes (true or false)\n";
+}
+
+bool parseNonNegativeSize(const std::string& text, std::size_t& value){
+    if(text.empty()){
+        return false;
+    }
+
+    for(unsigned char character: text){
+        if(!std::isdigit(character)){
+            return false;
+        }
+    }
+
+    try {
+        std::size_t parsedLength = 0;
+        const unsigned long long parsed =
+            std::stoull(text, &parsedLength, 10);
+        if(parsedLength != text.size() ||
+           parsed > std::numeric_limits<std::size_t>::max()){
+            return false;
+        }
+        value = static_cast<std::size_t>(parsed);
+        return true;
+    } catch(const std::exception&) {
+        return false;
+    }
 }
 
 bool parsePtaMode(const std::string& text, PtaMode& mode){
@@ -188,6 +226,34 @@ bool parseCommandLine(int argc,
             return false;
         }
         if(argument == "-b" || argument == "--batch"){
+            continue;
+        }
+        if(argument == "--config"){
+            if(++i >= argc || options.configPath ||
+               std::string(argv[i]).empty() || argv[i][0] == '-'){
+                std::cerr << "Invalid or repeated configuration file option\n";
+                return false;
+            }
+            options.configPath = std::filesystem::path(argv[i]);
+            continue;
+        }
+        if(argument == "--config-search-depth"){
+            if(++i >= argc || options.configSearchDepthSpecified ||
+               !parseNonNegativeSize(argv[i], options.configSearchDepth)){
+                std::cerr
+                    << "Invalid or repeated configuration search depth; "
+                    << "expected a non-negative integer\n";
+                return false;
+            }
+            options.configSearchDepthSpecified = true;
+            continue;
+        }
+        if(argument == "--print-config-path"){
+            if(options.printConfigPath){
+                std::cerr << "Repeated print-config-path option\n";
+                return false;
+            }
+            options.printConfigPath = true;
             continue;
         }
         if(argument == "--parse-only"){
@@ -576,6 +642,28 @@ int main(int argc, char* argv[]){
     }
     if(!validateOutputPaths(options)){
         return 2;
+    }
+
+    simulator::config::ConfigSearchOptions configOptions;
+    configOptions.explicitPath = options.configPath;
+    configOptions.parentSearchLimit = options.configSearchDepth;
+
+    simulator::config::LoadedConfig loadedConfig;
+    try {
+        loadedConfig = simulator::config::loadConfig(configOptions);
+    } catch(const std::runtime_error& error) {
+        std::cerr << "Invalid configuration: " << error.what() << '\n';
+        return 2;
+    }
+
+    if(options.printConfigPath){
+        if(loadedConfig.found){
+            std::cerr << "Configuration file: <"
+                      << loadedConfig.path.string() << ">\n";
+        } else {
+            std::cerr
+                << "Configuration file: none (using built-in defaults)\n";
+        }
     }
 
     Parser parser(options.inputPath);

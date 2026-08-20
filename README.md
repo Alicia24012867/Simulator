@@ -9,8 +9,10 @@
 - `src/netlist/reader.cpp`：文件读取、注释与续行处理，以及 `.end` 位置校验。
 - `src/netlist/subcircuit.cpp`：`.subckt` 定义收集和 `X` 实例递归展平；不依赖 `Circuit`，只输出原语 token。
 - `src/netlist/parser.cpp`：控制卡、模型和原语器件的语义校验与构造。
+- `src/config/config.cpp`：`config.json` 的定位、读取与 JSON 结构校验；与网表解析和求解器实现解耦。
 - `src/circuit/`：节点编号、MNA 构建及 OP/TRAN/PTA 求解调度。
 - `src/io/`：listing 与 ASCII rawfile 写出。
+- `third_party/nlohmann/json.hpp`：随仓库固定版本的 header-only JSON 解析器。
 
 这种分层使网表语法、层次展开和求解模型可以独立演进。大型网表的普通逻辑行不再长期保留原始文本；子电路引脚索引在定义阶段预计算，展开每个实例时无需构造临时绑定表。
 
@@ -195,6 +197,42 @@ make
 ./spice -b -o result.out -r result.raw tests/cases/tran/level1_01_rc_step_ladder.cir
 ```
 
+### 配置文件发现与校验
+
+程序可读取名为 `config.json` 的 JSON 配置文件。当前阶段已经实现配置文件的定位、读取和 JSON 校验；**配置字段尚未覆盖 PTA、TRAN 或其他求解参数**，因此不存在配置文件时的仿真行为与此前完全一致。
+
+默认会从进程的当前工作目录开始查找 `config.json`，再逐级查找父目录；默认最多向上查找 8 个父目录。找到最近的文件后停止搜索。注意搜索起点是启动 `spice` 时的工作目录，而不是网表文件所在的目录。
+
+```sh
+# 自动搜索，并打印实际使用的配置文件（写到 stderr）
+./spice --print-config-path tests/cases/op/level1_01_resistive_bridge_mesh.cir
+
+# 只读取指定配置文件；指定路径不存在或不可读会以参数错误退出
+./spice --config ./config.json \
+  --print-config-path \
+  tests/cases/op/level1_01_resistive_bridge_mesh.cir
+
+# 只检查当前工作目录，不查询父目录
+./spice --config-search-depth 0 \
+  --print-config-path \
+  --parse-only tests/private/UA741PFBx10.sp
+```
+
+- `--config <path>`：只读取该路径，不再自动搜索。相对路径相对于当前工作目录。
+- `--config-search-depth <N>`：自动搜索时最多向父目录移动 `N` 次；`0` 表示只检查当前工作目录。
+- `--print-config-path`：向 stderr 输出实际选中的配置文件；未找到时输出内建默认值正在生效。
+- 自动搜索未找到配置文件不是错误；显式路径不存在、路径不是普通文件、JSON 非法或 JSON 根节点不是对象时，程序以退出码 2 失败。
+
+当前可用的最小配置为一个 JSON 对象，例如：
+
+```json
+{
+  "schema_version": 1
+}
+```
+
+后续阶段会在此文件中加入 `pta`、`tran` 及其 solver 参数，并定义它们与网表控制卡、显式命令行参数之间的覆盖优先级。
+
 查看命令行帮助：
 
 ```sh
@@ -223,6 +261,8 @@ tests/
 ```sh
 make test
 ```
+
+`make test-config` 可单独运行配置模块单元测试和配置 CLI 端到端测试。
 
 `make test-op` 与 `make test-tran` 会在每个网表执行后输出一条
 `TIME <analysis> <case> <milliseconds> PASS/FAIL`，并输出该分析组的总墙钟时间。单例时间覆盖 simulator 子进程启动、解析、建模、求解以及 `.out` / `.raw` 写出；rawfile 校验和 ngspice 对照时间不包含在其中，便于 PTA 前后比较求解端到端开销。
