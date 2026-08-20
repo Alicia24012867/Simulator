@@ -9,7 +9,7 @@
 - `src/netlist/reader.cpp`：文件读取、注释与续行处理，以及 `.end` 位置校验。
 - `src/netlist/subcircuit.cpp`：`.subckt` 定义收集和 `X` 实例递归展平；不依赖 `Circuit`，只输出原语 token。
 - `src/netlist/parser.cpp`：控制卡、模型和原语器件的语义校验与构造。
-- `src/config/config.cpp`：`config.json` 的定位、读取与 JSON 结构校验；与网表解析和求解器实现解耦。
+- `src/config/`：`config.json` 的定位、严格 schema 解析及覆盖层应用；与网表解析解耦。
 - `src/circuit/`：节点编号、MNA 构建及 OP/TRAN/PTA 求解调度。
 - `src/io/`：listing 与 ASCII rawfile 写出。
 - `third_party/nlohmann/json.hpp`：随仓库固定版本的 header-only JSON 解析器。
@@ -199,7 +199,7 @@ make
 
 ### 配置文件发现与校验
 
-程序可读取名为 `config.json` 的 JSON 配置文件。当前阶段已经实现配置文件的定位、读取和 JSON 校验；**配置字段尚未覆盖 PTA、TRAN 或其他求解参数**，因此不存在配置文件时的仿真行为与此前完全一致。
+程序可读取名为 `config.json` 的 JSON 配置文件，用于覆盖 OP、PTA 和 TRAN 的求解参数。不存在配置文件时，全部默认值与此前保持一致。
 
 默认会从进程的当前工作目录开始查找 `config.json`，再逐级查找父目录；默认最多向上查找 8 个父目录。找到最近的文件后停止搜索。注意搜索起点是启动 `spice` 时的工作目录，而不是网表文件所在的目录。
 
@@ -223,15 +223,52 @@ make
 - `--print-config-path`：向 stderr 输出实际选中的配置文件；未找到时输出内建默认值正在生效。
 - 自动搜索未找到配置文件不是错误；显式路径不存在、路径不是普通文件、JSON 非法或 JSON 根节点不是对象时，程序以退出码 2 失败。
 
-当前可用的最小配置为一个 JSON 对象，例如：
+配置根节点必须包含 `schema_version: 1`。物理量既可以写 JSON 数值，也可以写 SPICE 数值字符串（如 `"2n"`、`"100u"`）。例如：
 
 ```json
 {
-  "schema_version": 1
+  "schema_version": 1,
+  "op": {
+    "newton": {
+      "maximum_iterations": 1000,
+      "tolerance": "1n",
+      "maximum_solution_step": 1.0
+    },
+    "source_stepping": {
+      "enabled": true,
+      "initial_step": 0.1,
+      "maximum_step": 0.25,
+      "minimum_step": "100u",
+      "growth_factor": 1.5,
+      "failure_scale": 0.5
+    }
+  },
+  "pta": {
+    "mode": "fallback",
+    "newton": {"maximum_iterations": 1000},
+    "initial_step": "1n",
+    "maximum_steps": 10000
+  },
+  "tran": {
+    "output_interval": "1n",
+    "stop_time": "100n",
+    "solver": {
+      "newton": {"tolerance": "1n"},
+      "relative_tolerance": 0.0001
+    }
+  }
 }
 ```
 
-后续阶段会在此文件中加入 `pta`、`tran` 及其 solver 参数，并定义它们与网表控制卡、显式命令行参数之间的覆盖优先级。
+允许的字段如下；未知字段、错误类型、无穷数和非法 SPICE 数值都会以配置错误退出。
+
+- `op.newton`：`maximum_iterations`、`tolerance`、`maximum_solution_step`。
+- `op.source_stepping`：`enabled`、`initial_step`、`maximum_step`、`minimum_step`、`growth_factor`、`failure_scale`。
+- `pta.newton`：与 `op.newton` 相同。`pta` 还支持 `mode`、`initial_step`、`minimum_step`、`maximum_step`、`maximum_steps`、所有 `derivative_*` 与 `dc_*` 容差、`initial_node_capacitance`、`minimum_node_capacitance`、`maximum_node_capacitance`、`current_source_capacitance`、`voltage_source_inductance`、`compound_time_constant`、`compound_initial_resistance`、`compound_initial_conductance`、`source_ramp_time`、`initial_bjt_vbe`、所有振荡/电容缩放字段，以及 `include_mos_bulk`、`include_diodes`。
+- `tran`：`enabled`、`output_interval`、`stop_time`、`output_start_time`、`maximum_step`、`use_initial_conditions`。
+- `tran.solver.newton`：与 `op.newton` 相同。`tran.solver` 还支持 `relative_tolerance`、`voltage_absolute_tolerance`、`current_absolute_tolerance`、`minimum_step`、`safety_factor`、`minimum_scale`、`maximum_scale`、`convergence_failure_scale` 和 `maximum_rejects`。
+
+覆盖优先级为“内建默认值 < 网表控制卡 < `config.json` < 显式 CLI PTA 参数”。`.pstran` 始终强制 PTA 模式；配置文件不能将其改为 `disabled` 或 `fallback`。网表的 `TMAX` / `DELMAX` 是硬上限，因此 `tran.maximum_step` 只能进一步缩小该上限。`tran` 节点会启用瞬态分析；`enabled: false` 可显式禁用网表中的瞬态分析。
 
 查看命令行帮助：
 

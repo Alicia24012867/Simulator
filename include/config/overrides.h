@@ -17,8 +17,29 @@ struct NullableOverride {
     std::optional<T> value;
 };
 
+struct NewtonOverrides {
+    std::optional<int> maximumIterations;
+    std::optional<double> tolerance;
+    std::optional<double> maximumSolutionStep;
+};
+
+struct SourceSteppingOverrides {
+    std::optional<bool> enabled;
+    std::optional<double> initialStep;
+    std::optional<double> maximumStep;
+    std::optional<double> minimumStep;
+    std::optional<double> growthFactor;
+    std::optional<double> failureScale;
+};
+
+struct OperatingPointOverrides {
+    std::optional<NewtonOverrides> newton;
+    std::optional<SourceSteppingOverrides> sourceStepping;
+};
+
 struct PtaOverrides {
     std::optional<PtaModeOverride> mode;
+    std::optional<NewtonOverrides> newton;
 
     std::optional<double> initialStep;
     std::optional<double> minimumStep;
@@ -61,6 +82,8 @@ struct PtaOverrides {
 };
 
 struct TransientSolverOverrides {
+    std::optional<NewtonOverrides> newton;
+
     std::optional<double> relativeTolerance;
     std::optional<double> voltageAbsoluteTolerance;
     std::optional<double> currentAbsoluteTolerance;
@@ -85,6 +108,7 @@ struct TransientOverrides {
 
 struct ConfigOverrides {
     std::optional<int> schemaVersion;
+    std::optional<OperatingPointOverrides> operatingPoint;
     std::optional<PtaOverrides> pta;
     std::optional<TransientOverrides> transient;
 };
@@ -92,7 +116,7 @@ struct ConfigOverrides {
 /**
  * 将已加载的 json 文档严格解析为覆盖层。
  *
- * 该函数不修改 PtaAnalysisConfig、TransientAnalysisConfig 或 AnalysisPlan。
+ * 该函数不修改求解器运行期配置或 AnalysisPlan。
  * 找不到配置文件时，返回完全为空的 ConfigOverrides。
  *
  * json schema、字段类型、未知字段和数值格式错误时 throw std::runtime_error。

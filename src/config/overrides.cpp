@@ -256,6 +256,154 @@ void readOptionalBoolean(
     );
 }
 
+NewtonOverrides parseNewtonOverrides(
+    const json& object,
+    const LoadedConfig& loadedConfig,
+    const std::string& jsonPath
+){
+    rejectUnknownFields(
+        object,
+        loadedConfig,
+        jsonPath,
+        {
+            "maximum_iterations",
+            "tolerance",
+            "maximum_solution_step"
+        }
+    );
+
+    NewtonOverrides result;
+    readOptionalInteger(
+        object,
+        "maximum_iterations",
+        loadedConfig,
+        jsonPath,
+        1,
+        result.maximumIterations
+    );
+    readOptionalNumber(
+        object,
+        "tolerance",
+        loadedConfig,
+        jsonPath,
+        result.tolerance
+    );
+    readOptionalNumber(
+        object,
+        "maximum_solution_step",
+        loadedConfig,
+        jsonPath,
+        result.maximumSolutionStep
+    );
+    return result;
+}
+
+SourceSteppingOverrides parseSourceSteppingOverrides(
+    const json& object,
+    const LoadedConfig& loadedConfig,
+    const std::string& jsonPath
+){
+    rejectUnknownFields(
+        object,
+        loadedConfig,
+        jsonPath,
+        {
+            "enabled",
+            "initial_step",
+            "maximum_step",
+            "minimum_step",
+            "growth_factor",
+            "failure_scale"
+        }
+    );
+
+    SourceSteppingOverrides result;
+    readOptionalBoolean(
+        object,
+        "enabled",
+        loadedConfig,
+        jsonPath,
+        result.enabled
+    );
+    readOptionalNumber(
+        object,
+        "initial_step",
+        loadedConfig,
+        jsonPath,
+        result.initialStep
+    );
+    readOptionalNumber(
+        object,
+        "maximum_step",
+        loadedConfig,
+        jsonPath,
+        result.maximumStep
+    );
+    readOptionalNumber(
+        object,
+        "minimum_step",
+        loadedConfig,
+        jsonPath,
+        result.minimumStep
+    );
+    readOptionalNumber(
+        object,
+        "growth_factor",
+        loadedConfig,
+        jsonPath,
+        result.growthFactor
+    );
+    readOptionalNumber(
+        object,
+        "failure_scale",
+        loadedConfig,
+        jsonPath,
+        result.failureScale
+    );
+    return result;
+}
+
+OperatingPointOverrides parseOperatingPointOverrides(
+    const json& object,
+    const LoadedConfig& loadedConfig
+){
+    rejectUnknownFields(
+        object,
+        loadedConfig,
+        "$.op",
+        {
+            "newton",
+            "source_stepping"
+        }
+    );
+
+    OperatingPointOverrides result;
+
+    const json* newton = findField(object, "newton");
+    if(newton){
+        result.newton = parseNewtonOverrides(
+            requireObject(*newton, loadedConfig, "$.op.newton"),
+            loadedConfig,
+            "$.op.newton"
+        );
+    }
+
+    const json* sourceStepping = findField(object, "source_stepping");
+    if(sourceStepping){
+        result.sourceStepping = parseSourceSteppingOverrides(
+            requireObject(
+                *sourceStepping,
+                loadedConfig,
+                "$.op.source_stepping"
+            ),
+            loadedConfig,
+            "$.op.source_stepping"
+        );
+    }
+
+    return result;
+}
+
 void readOptionalPtaMode(
     const json& object,
     const LoadedConfig& loadedConfig,
@@ -324,6 +472,7 @@ PtaOverrides parsePtaOverrides(
         "$.pta",
         {
             "mode",
+            "newton",
             "initial_step",
             "minimum_step",
             "maximum_step",
@@ -361,6 +510,15 @@ PtaOverrides parsePtaOverrides(
 
     PtaOverrides result;
     readOptionalPtaMode(object, loadedConfig, result);
+
+    const json* newton = findField(object, "newton");
+    if(newton){
+        result.newton = parseNewtonOverrides(
+            requireObject(*newton, loadedConfig, "$.pta.newton"),
+            loadedConfig,
+            "$.pta.newton"
+        );
+    }
 
     readOptionalNumber(object, "initial_step", loadedConfig,
                        "$.pta", result.initialStep);
@@ -468,6 +626,7 @@ TransientSolverOverrides parseTransientSolverOverrides(
         loadedConfig,
         "$.tran.solver",
         {
+            "newton",
             "relative_tolerance",
             "voltage_absolute_tolerance",
             "current_absolute_tolerance",
@@ -481,6 +640,15 @@ TransientSolverOverrides parseTransientSolverOverrides(
     );
 
     TransientSolverOverrides result;
+
+    const json* newton = findField(object, "newton");
+    if(newton){
+        result.newton = parseNewtonOverrides(
+            requireObject(*newton, loadedConfig, "$.tran.solver.newton"),
+            loadedConfig,
+            "$.tran.solver.newton"
+        );
+    }
 
     readOptionalNumber(object, "relative_tolerance",
                        loadedConfig, "$.tran.solver",
@@ -586,6 +754,7 @@ ConfigOverrides parseConfigOverrides(
         "$",
         {
             "schema_version",
+            "op",
             "pta",
             "tran"
         }
@@ -613,6 +782,14 @@ ConfigOverrides parseConfigOverrides(
             loadedConfig,
             "$.schema_version",
             "must be 1"
+        );
+    }
+
+    const json* operatingPoint = findField(root, "op");
+    if(operatingPoint){
+        result.operatingPoint = parseOperatingPointOverrides(
+            requireObject(*operatingPoint, loadedConfig, "$.op"),
+            loadedConfig
         );
     }
 

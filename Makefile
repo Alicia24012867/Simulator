@@ -134,10 +134,12 @@ CONFIG_TEST_TARGET ?= $(UNIT_TEST_BUILD_DIR)/config_test
 CONFIG_CLI_TEST_SCRIPT ?= $(TEST_SCRIPT_DIR)/test_config.py
 
 $(CONFIG_TEST_TARGET): $(CONFIG_TEST_SOURCE) \
-	./src/config/config.cpp ./src/config/overrides.cpp $(HEADERS)
+	./src/config/config.cpp ./src/config/overrides.cpp \
+	./src/config/applyOverrides.cpp $(HEADERS) | check-eigen
 	@mkdir -p "$(@D)"
-	$(CXX) $(CXX_FLAGS) -o "$@" "$<" \
-		./src/config/config.cpp ./src/config/overrides.cpp
+	$(CXX) $(CXX_FLAGS) $(EIGEN_FLAGS) -o "$@" "$<" \
+		./src/config/config.cpp ./src/config/overrides.cpp \
+		./src/config/applyOverrides.cpp
 
 test-config: $(CONFIG_TEST_TARGET) $(TARGET)
 	@"$(CONFIG_TEST_TARGET)"

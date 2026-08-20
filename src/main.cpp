@@ -13,12 +13,14 @@
 #include <utility>
 #include <vector>
 
+#include "analysis/ptaAnalysis.h"
+#include "analysis/solverOptions.h"
+#include "config/applyOverrides.h"
 #include "config/config.h"
 #include "config/overrides.h"
 #include "circuit/circuit.h"
 #include "io/spiceOutput.h"
 #include "netlist/parser.h"
-#include "analysis/ptaAnalysis.h"
 #include "utils/string_utils.hpp"
 
 namespace {
@@ -34,6 +36,7 @@ struct CommandLineOptions {
     bool ptaModeSpecified = false;
     bool ptaDiagnostics = false;
     std::set<std::string> ptaOptionKeys;
+    std::vector<std::string> ptaOptionAssignments;
     bool parseOnly = false;
     bool helpRequested = false;
 };
@@ -301,6 +304,7 @@ bool parseCommandLine(int argc,
                 std::cerr << "Repeated PTA option: " << key << '\n';
                 return false;
             }
+            options.ptaOptionAssignments.emplace_back(argv[i]);
             continue;
         }
         if(argument == "-o" || argument == "--output"){
@@ -330,13 +334,6 @@ bool parseCommandLine(int argc,
 
     if(positional.empty() || positional.size() > 2){
         std::cerr << "Exactly one input netlist is required\n";
-        return false;
-    }
-
-    if((!options.ptaOptionKeys.empty() || options.ptaDiagnostics) &&
-       options.ptaConfig.mode == PtaMode::Disabled){
-        std::cerr
-            << "PTA options and diagnostics require --pta force or --pta fallback\n";
         return false;
     }
 
@@ -650,7 +647,7 @@ int main(int argc, char* argv[]){
     configOptions.parentSearchLimit = options.configSearchDepth;
 
     simulator::config::LoadedConfig loadedConfig;
-    [[maybe_unused]] simulator::config::ConfigOverrides configOverrides;
+    simulator::config::ConfigOverrides configOverrides;
 
     try {
         loadedConfig = simulator::config::loadConfig(configOptions);
@@ -678,25 +675,71 @@ int main(int argc, char* argv[]){
         return 1;
     }
 
-    if(options.parseOnly){
-        return 0;
-    }
-
-    const AnalysisPlan& plan = parser.analysisPlan();
+    AnalysisPlan plan = parser.analysisPlan();
     if(plan.pseudoTransient && options.ptaModeSpecified){
         std::cerr << ".pstran cannot be combined with command-line --pta mode\n";
         return 2;
     }
 
-    const PtaAnalysisConfig ptaConfig = plan.pseudoTransient
+    PtaAnalysisConfig ptaConfig = plan.pseudoTransient
         ? plan.pseudoTransient->makePtaConfig()
-        : options.ptaConfig;
+        : PtaAnalysisConfig{};
+    OperatingPointSolverOptions operatingPointConfig;
+
+    try {
+        simulator::config::applyConfigOverrides(
+            configOverrides,
+            operatingPointConfig,
+            ptaConfig,
+            plan.transient,
+            plan.pseudoTransient.has_value()
+        );
+
+        if(options.ptaModeSpecified){
+            ptaConfig.mode = options.ptaConfig.mode;
+        }
+        for(const std::string& assignment: options.ptaOptionAssignments){
+            std::string key;
+            std::string error;
+            if(!applyPtaOption(assignment, ptaConfig, key, error)){
+                throw std::invalid_argument(
+                    "invalid command-line PTA option <" + assignment +
+                    ">: " + error
+                );
+            }
+        }
+
+        if((!options.ptaOptionKeys.empty() || options.ptaDiagnostics) &&
+           ptaConfig.mode == PtaMode::Disabled){
+            throw std::invalid_argument(
+                "PTA options and diagnostics require force or fallback mode"
+            );
+        }
+
+        if(!operatingPointConfig.valid()){
+            throw std::invalid_argument(
+                "operating-point solver configuration is invalid"
+            );
+        }
+        if(plan.transient && !plan.transient->valid()){
+            throw std::invalid_argument(
+                "transient solver configuration is invalid"
+            );
+        }
+    } catch(const std::invalid_argument& error) {
+        std::cerr << "Invalid analysis configuration: " << error.what() << '\n';
+        return 2;
+    }
 
     try {
         ptaConfig.validate();
     } catch(const std::invalid_argument& error) {
         std::cerr << "Invalid PTA configuration: " << error.what() << '\n';
         return 2;
+    }
+
+    if(options.parseOnly){
+        return 0;
     }
 
     if(!circuit.build(ptaConfig)){
@@ -715,13 +758,13 @@ int main(int argc, char* argv[]){
 
             switch (ptaConfig.mode){
                 case PtaMode::Disabled:
-                    solved = circuit.solveOperatingPoint();
+                    solved = circuit.solveOperatingPoint(operatingPointConfig);
                     break;
                 case PtaMode::Force:
                     solved = circuit.solveAdaptivePta(ptaConfig);
                     break;
                 case PtaMode::Fallback:
-                    solved = circuit.solveOperatingPoint();
+                    solved = circuit.solveOperatingPoint(operatingPointConfig);
                     if(!solved){
                         solved = circuit.solveAdaptivePta(ptaConfig);
                     }
@@ -756,7 +799,7 @@ int main(int argc, char* argv[]){
         }
 
         if(plan.transient){
-            if(!circuit.solveTransient(*plan.transient)){
+            if(!circuit.solveTransient(*plan.transient, operatingPointConfig)){
                 std::cerr << "Transient analysis failed <"
                           << options.inputPath << ">\n";
                 return 1;

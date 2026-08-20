@@ -167,6 +167,47 @@ def main():
                 "unsupported configuration field diagnostic is absent",
             )
 
+            analysis_config = root / "analysis.json"
+            analysis_config.write_text(
+                "{\n"
+                '  "schema_version": 1,\n'
+                '  "op": {"newton": {"maximum_iterations": 5}},\n'
+                '  "tran": {"output_interval": "1n", "stop_time": "2n"}\n'
+                "}\n"
+            )
+            result = run(
+                simulator,
+                "--config",
+                analysis_config,
+                "--parse-only",
+                deck,
+            )
+            require(
+                result.returncode == 0,
+                f"valid analysis configuration failed: {result.stderr}",
+            )
+
+            invalid_range = root / "invalid-range.json"
+            invalid_range.write_text(
+                '{"schema_version": 1, '
+                '"op": {"newton": {"tolerance": 0}}}\n'
+            )
+            result = run(
+                simulator,
+                "--config",
+                invalid_range,
+                "--parse-only",
+                deck,
+            )
+            require(
+                result.returncode == 2,
+                "invalid analysis configuration range was accepted",
+            )
+            require(
+                "Invalid analysis configuration" in result.stderr,
+                "invalid analysis configuration diagnostic is absent",
+            )
+
             result = run(
                 simulator,
                 "--config-search-depth",

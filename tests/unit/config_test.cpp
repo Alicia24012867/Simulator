@@ -1,7 +1,9 @@
+#include "config/applyOverrides.h"
 #include "config/config.h"
 #include "config/overrides.h"
 
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -29,6 +31,19 @@ void expectRuntimeError(Callback&& callback, const std::string& description){
     try {
         callback();
     } catch(const std::runtime_error&) {
+        threw = true;
+    } catch(...) {
+    }
+    expect(threw, description);
+}
+
+template<class Callback>
+void expectInvalidArgument(Callback&& callback,
+                           const std::string& description){
+    bool threw = false;
+    try {
+        callback();
+    } catch(const std::invalid_argument&) {
         threw = true;
     } catch(...) {
     }
@@ -263,8 +278,24 @@ void testConfigOverrideParsing(){
         loadedConfigFor(nlohmann::json::parse(R"(
             {
                 "schema_version": 1,
+                "op": {
+                    "newton": {
+                        "maximum_iterations": 41,
+                        "tolerance": "2n",
+                        "maximum_solution_step": 0.25
+                    },
+                    "source_stepping": {
+                        "enabled": false,
+                        "initial_step": 0.05,
+                        "maximum_step": 0.2,
+                        "minimum_step": "10u",
+                        "growth_factor": 1.25,
+                        "failure_scale": 0.4
+                    }
+                },
                 "pta": {
                     "mode": "FoRcE",
+                    "newton": {"maximum_iterations": 53},
                     "initial_step": "2.5n",
                     "maximum_steps": 7,
                     "initial_bjt_vbe": 0.72,
@@ -276,6 +307,7 @@ void testConfigOverrideParsing(){
                     "stop_time": "10n",
                     "use_initial_conditions": false,
                     "solver": {
+                        "newton": {"tolerance": "3n"},
                         "relative_tolerance": 0.001,
                         "maximum_rejects": 0
                     }
@@ -287,6 +319,19 @@ void testConfigOverrideParsing(){
     expect(
         overrides.schemaVersion && *overrides.schemaVersion == 1,
         "schema version is retained"
+    );
+    expect(
+        overrides.operatingPoint && overrides.operatingPoint->newton &&
+            overrides.operatingPoint->newton->maximumIterations &&
+            *overrides.operatingPoint->newton->maximumIterations == 41,
+        "OP Newton integer override is retained"
+    );
+    expect(
+        overrides.operatingPoint &&
+            overrides.operatingPoint->sourceStepping &&
+            overrides.operatingPoint->sourceStepping->enabled &&
+            !*overrides.operatingPoint->sourceStepping->enabled,
+        "OP source-stepping boolean override is retained"
     );
     expect(
         overrides.pta && overrides.pta->mode &&
@@ -302,6 +347,12 @@ void testConfigOverrideParsing(){
         overrides.pta && overrides.pta->maximumSteps &&
             *overrides.pta->maximumSteps == 7,
         "PTA integer override is retained"
+    );
+    expect(
+        overrides.pta && overrides.pta->newton &&
+            overrides.pta->newton->maximumIterations &&
+            *overrides.pta->newton->maximumIterations == 53,
+        "PTA Newton override is retained"
     );
     expect(
         overrides.pta && overrides.pta->initialBjtVbe.specified &&
@@ -327,6 +378,15 @@ void testConfigOverrideParsing(){
             *overrides.transient->solver->maximumRejects == 0,
         "transient solver integer override is retained"
     );
+    expect(
+        overrides.transient && overrides.transient->solver &&
+            overrides.transient->solver->newton &&
+            overrides.transient->solver->newton->tolerance &&
+            std::abs(
+                *overrides.transient->solver->newton->tolerance - 3e-9
+            ) < 1e-20,
+        "transient Newton override is retained"
+    );
 
     const auto nullBjtVbe = simulator::config::parseConfigOverrides(
         loadedConfigFor(nlohmann::json::parse(R"(
@@ -337,6 +397,129 @@ void testConfigOverrideParsing(){
         nullBjtVbe.pta && nullBjtVbe.pta->initialBjtVbe.specified &&
             !nullBjtVbe.pta->initialBjtVbe.value,
         "null BJT voltage explicitly clears the override"
+    );
+}
+
+void testConfigOverrideApplication(){
+    const auto overrides = simulator::config::parseConfigOverrides(
+        loadedConfigFor(nlohmann::json::parse(R"(
+            {
+                "schema_version": 1,
+                "op": {
+                    "newton": {
+                        "maximum_iterations": 31,
+                        "tolerance": "4n",
+                        "maximum_solution_step": 0.5
+                    },
+                    "source_stepping": {
+                        "enabled": false,
+                        "failure_scale": 0.4
+                    }
+                },
+                "pta": {
+                    "mode": "fallback",
+                    "newton": {"maximum_iterations": 47},
+                    "initial_bjt_vbe": null
+                },
+                "tran": {
+                    "enabled": true,
+                    "output_interval": "2n",
+                    "stop_time": "20n",
+                    "maximum_step": "5n",
+                    "solver": {
+                        "newton": {"maximum_solution_step": 0.2},
+                        "maximum_rejects": 4
+                    }
+                }
+            }
+        )"))
+    );
+
+    OperatingPointSolverOptions operatingPoint;
+    PtaAnalysisConfig pta;
+    pta.initialBjtVbe = 0.65;
+    std::optional<TransientAnalysisConfig> transient;
+    transient.emplace();
+    transient->outputInterval = 1e-9;
+    transient->stopTime = 10e-9;
+    transient->maximumStep = 1e-9;
+
+    simulator::config::applyConfigOverrides(
+        overrides,
+        operatingPoint,
+        pta,
+        transient,
+        false
+    );
+
+    expect(
+        operatingPoint.newton.maximumIterations == 31 &&
+            operatingPoint.newton.tolerance == 4e-9 &&
+            operatingPoint.newton.maximumSolutionStep == 0.5,
+        "OP Newton overrides are applied"
+    );
+    expect(
+        !operatingPoint.sourceStepping.enabled &&
+            operatingPoint.sourceStepping.failureScale == 0.4,
+        "OP source-stepping overrides are applied"
+    );
+    expect(
+        pta.mode == PtaMode::Fallback &&
+            pta.newtonOptions.maximumIterations == 47 &&
+            !pta.initialBjtVbe,
+        "PTA overrides are applied"
+    );
+    expect(
+        transient && transient->outputInterval == 2e-9 &&
+            transient->stopTime == 20e-9 &&
+            transient->maximumStep && *transient->maximumStep == 1e-9,
+        "transient settings apply without relaxing netlist step caps"
+    );
+    expect(
+        transient && transient->solverOptions.maximumRejects == 4 &&
+            transient->solverOptions.newtonOptions.maximumSolutionStep == 0.2,
+        "transient solver overrides are applied"
+    );
+
+    const auto invalidPstranMode = simulator::config::parseConfigOverrides(
+        loadedConfigFor(nlohmann::json::parse(R"(
+            {"schema_version": 1, "pta": {"mode": "disabled"}}
+        )"))
+    );
+    expectInvalidArgument(
+        [&] {
+            simulator::config::applyConfigOverrides(
+                invalidPstranMode,
+                operatingPoint,
+                pta,
+                transient,
+                true
+            );
+        },
+        ".pstran mode cannot be disabled by configuration"
+    );
+
+    const auto invalidOperatingPoint = simulator::config::parseConfigOverrides(
+        loadedConfigFor(nlohmann::json::parse(R"(
+            {
+                "schema_version": 1,
+                "op": {"newton": {"tolerance": 0}}
+            }
+        )"))
+    );
+    OperatingPointSolverOptions invalidOptions;
+    PtaAnalysisConfig defaultPta;
+    std::optional<TransientAnalysisConfig> noTransient;
+    simulator::config::applyConfigOverrides(
+        invalidOperatingPoint,
+        invalidOptions,
+        defaultPta,
+        noTransient,
+        false
+    );
+    expect(
+        !invalidOptions.valid(),
+        "invalid OP numeric range is deferred to runtime validation"
     );
 }
 
@@ -380,6 +563,14 @@ void testInvalidConfigOverrides(){
         R"({"schema_version": 1, "tran": {"maximum_step": "abc"}})",
         "invalid SPICE numeric string is rejected"
     );
+    expectInvalid(
+        R"({"schema_version": 1, "op": {"newton": {"typo": 1}}})",
+        "unknown OP Newton field is rejected"
+    );
+    expectInvalid(
+        R"({"schema_version": 1, "op": {"source_stepping": true}})",
+        "non-object OP source-stepping section is rejected"
+    );
 }
 
 }  // namespace
@@ -391,6 +582,7 @@ int main(){
         testExplicitConfiguration();
         testInvalidConfigurationFiles();
         testConfigOverrideParsing();
+        testConfigOverrideApplication();
         testInvalidConfigOverrides();
     } catch(const std::exception& error) {
         std::cerr << "Unexpected test error: " << error.what() << '\n';
