@@ -405,7 +405,7 @@ make test-unit
 make test-cases
 make test-op
 make test-tran
-make test-netlists  # 递归解析 tests/ 下所有 .cir / .sp，不执行求解
+make test-netlists  # 递归解析 tests/ 下已实现器件的 .cir / .sp，不执行求解
 make test-private   # 求解 tests/private/ 并写入 tests/output/private/；复杂网表可能耗时较长
 make compare
 make compare-op
@@ -456,6 +456,8 @@ make generate-standards  # 需要 ngspice
 ```
 
 `tests/references/` 不使用本项目求解结果自我生成。OP 参考值直接来自 ngspice 46；生成 TRAN 参考时，脚本会向临时网表注入固定的高精度 ngspice 设置：`reltol=1e-8`、`vntol=1e-10`、`abstol=1e-12`、`trtol=1`，并将内部最大步长限制为 `TSTEP / 2000`。随后将 ngspice 结果线性重采样到网表要求的输出时间网格，原始测试网表不会被修改。对于 `UIC` 网表，仅显式 `t=0` 行按本项目当前的全零采样约定处理，所有 `t>0` 数据均来自 ngspice。
+
+MOS Level-3 的实现契约和独立回归资产位于 [`docs/mos3_acceptance.md`](docs/mos3_acceptance.md) 与 [`tests/cases/mos3/`](tests/cases/mos3/)。这些 fixture 直接适配自 ngspice 官方 SourceForge 仓库和 bug #481；使用 `make generate-mos3-standards` 以 ngspice 46 重建参考输出。`make test-mos3` 已准备好，但在 MOS3 器件方程实现完成前不并入默认 `make test`。
 
 ## 目录结构
 

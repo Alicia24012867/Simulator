@@ -19,6 +19,13 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         help="parse netlists in descendant directories as well",
     )
+    parser.add_argument(
+        "--exclude-dir",
+        action="append",
+        type=Path,
+        default=[],
+        help="exclude this directory and all its descendants (repeatable)",
+    )
     return parser.parse_args()
 
 
@@ -35,6 +42,12 @@ def main() -> int:
     require(simulator.is_file(), f"simulator not found: {simulator}")
     require(netlist_directory.is_dir(), f"netlist directory not found: {netlist_directory}")
     require(arguments.timeout > 0.0, "timeout must be positive")
+    excluded_directories = {
+        (netlist_directory / path).resolve()
+        if not path.is_absolute()
+        else path.resolve()
+        for path in arguments.exclude_dir
+    }
 
     candidates = (
         netlist_directory.rglob("*")
@@ -43,7 +56,12 @@ def main() -> int:
     )
     netlists = sorted(
         path for path in candidates
-        if path.is_file() and path.suffix.lower() in {".cir", ".sp"}
+        if path.is_file()
+        and path.suffix.lower() in {".cir", ".sp"}
+        and not any(
+            path == excluded or excluded in path.parents
+            for excluded in excluded_directories
+        )
     )
     require(netlists, f"no netlists found in {netlist_directory}")
 

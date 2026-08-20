@@ -46,6 +46,19 @@ OP_COMPARE_FLAGS ?=
 TRAN_COMPARE_FLAGS ?=
 PTA_COMPARE_FLAGS ?= $(OP_COMPARE_FLAGS)
 PRIVATE_TIMEOUT ?= 120
+MOS3_CASE_ROOT ?= $(TESTCASE_ROOT)/mos3
+MOS3_REFERENCE_ROOT ?= $(STANDARD_ROOT)/mos3
+MOS3_ACTUAL_ROOT ?= $(ACTUAL_DIR)/mos3
+MOS3_OP_CASE_DIR ?= $(MOS3_CASE_ROOT)/op
+MOS3_TRAN_CASE_DIR ?= $(MOS3_CASE_ROOT)/tran
+MOS3_OP_STANDARD_DIR ?= $(MOS3_REFERENCE_ROOT)/op
+MOS3_TRAN_STANDARD_DIR ?= $(MOS3_REFERENCE_ROOT)/tran
+MOS3_OP_ACTUAL_DIR ?= $(MOS3_ACTUAL_ROOT)/op
+MOS3_TRAN_ACTUAL_DIR ?= $(MOS3_ACTUAL_ROOT)/tran
+MOS3_OP_ABS_TOL ?= 1e-7
+MOS3_OP_REL_TOL ?= 2e-3
+MOS3_TRAN_ABS_TOL ?= 1e-7
+MOS3_TRAN_REL_TOL ?= 2e-3
 
 UNAME_S := $(shell uname -s)
 
@@ -82,8 +95,8 @@ else ifneq ($(strip $(EIGEN_PKG_CFLAGS)),)
 EIGEN_FLAGS := $(EIGEN_PKG_CFLAGS)
 endif
 
-.PHONY: all clean test test-unit test-core test-config test-io test-cases test-op test-tran test-netlists test-private test-pta-hard-op compare compare-op \
-	compare-tran generate-standards check-eigen check-deps pta pta-run pta-accuracy \
+.PHONY: all clean test test-unit test-core test-config test-io test-cases test-op test-tran test-netlists test-private test-pta-hard-op test-mos3 test-mos3-op test-mos3-tran compare compare-op \
+	compare-tran compare-mos3-op compare-mos3-tran generate-standards generate-mos3-standards check-eigen check-deps pta pta-run pta-accuracy \
 	pta-force-standard pta-force-disabled pta-fallback-standard
 
 all: $(TARGET)
@@ -220,6 +233,47 @@ test-tran: $(TARGET)
 		$(TRAN_COMPARE_FLAGS) || status=1; \
 	exit $$status
 
+# This suite intentionally is not folded into `make test` until MOS3 is
+# implemented. Its current failure proves that LEVEL=3 cards are not being
+# mistaken for the legacy Level-1 approximation.
+test-mos3: test-mos3-op test-mos3-tran
+
+test-mos3-op: $(TARGET)
+	@rm -rf "$(MOS3_OP_ACTUAL_DIR)"; \
+	mkdir -p "$(MOS3_OP_ACTUAL_DIR)"; \
+	status=0; \
+	$(PYTHON) "$(CASE_RUNNER)" \
+		--analysis op \
+		--simulator "./$(TARGET)" \
+		--case-dir "$(MOS3_OP_CASE_DIR)" \
+		--output-dir "$(MOS3_OP_ACTUAL_DIR)" || status=1; \
+	$(PYTHON) $(TEST_SCRIPT_DIR)/compare_spice.py \
+		--analysis op \
+		--standard "$(MOS3_OP_STANDARD_DIR)" \
+		--actual "$(MOS3_OP_ACTUAL_DIR)" \
+		--atol "$(MOS3_OP_ABS_TOL)" \
+		--rtol "$(MOS3_OP_REL_TOL)" \
+		--time-atol "$(TIME_ABS_TOL)" || status=1; \
+	exit $$status
+
+test-mos3-tran: $(TARGET)
+	@rm -rf "$(MOS3_TRAN_ACTUAL_DIR)"; \
+	mkdir -p "$(MOS3_TRAN_ACTUAL_DIR)"; \
+	status=0; \
+	$(PYTHON) "$(CASE_RUNNER)" \
+		--analysis tran \
+		--simulator "./$(TARGET)" \
+		--case-dir "$(MOS3_TRAN_CASE_DIR)" \
+		--output-dir "$(MOS3_TRAN_ACTUAL_DIR)" || status=1; \
+	$(PYTHON) $(TEST_SCRIPT_DIR)/compare_spice.py \
+		--analysis tran \
+		--standard "$(MOS3_TRAN_STANDARD_DIR)" \
+		--actual "$(MOS3_TRAN_ACTUAL_DIR)" \
+		--atol "$(MOS3_TRAN_ABS_TOL)" \
+		--rtol "$(MOS3_TRAN_REL_TOL)" \
+		--time-atol "$(TIME_ABS_TOL)" || status=1; \
+	exit $$status
+
 test-private: $(TARGET)
 	@rm -rf "$(PRIVATE_ACTUAL_DIR)"; \
 	mkdir -p "$(PRIVATE_ACTUAL_DIR)"; \
@@ -234,6 +288,7 @@ test-netlists: $(TARGET)
 		./$(TARGET) \
 		$(TEST_ROOT) \
 		--recursive \
+		--exclude-dir cases/mos3 \
 		--timeout $(PRIVATE_TIMEOUT)
 
 # This is a solver-differentiation benchmark, not a permanent release gate:
@@ -323,6 +378,9 @@ compare: compare-op compare-tran
 generate-standards: test-cases
 	@$(PYTHON) $(TEST_SCRIPT_DIR)/generate_ngspice_standards.py
 
+generate-mos3-standards:
+	@$(PYTHON) $(TEST_SCRIPT_DIR)/generate_ngspice_standards.py --suite mos3
+
 compare-op:
 	@$(PYTHON) $(TEST_SCRIPT_DIR)/compare_spice.py \
 		--analysis op \
@@ -342,6 +400,24 @@ compare-tran:
 		--rtol "$(TRAN_REL_TOL)" \
 		--time-atol "$(TIME_ABS_TOL)" \
 		$(TRAN_COMPARE_FLAGS)
+
+compare-mos3-op:
+	@$(PYTHON) $(TEST_SCRIPT_DIR)/compare_spice.py \
+		--analysis op \
+		--standard "$(MOS3_OP_STANDARD_DIR)" \
+		--actual "$(MOS3_OP_ACTUAL_DIR)" \
+		--atol "$(MOS3_OP_ABS_TOL)" \
+		--rtol "$(MOS3_OP_REL_TOL)" \
+		--time-atol "$(TIME_ABS_TOL)"
+
+compare-mos3-tran:
+	@$(PYTHON) $(TEST_SCRIPT_DIR)/compare_spice.py \
+		--analysis tran \
+		--standard "$(MOS3_TRAN_STANDARD_DIR)" \
+		--actual "$(MOS3_TRAN_ACTUAL_DIR)" \
+		--atol "$(MOS3_TRAN_ABS_TOL)" \
+		--rtol "$(MOS3_TRAN_REL_TOL)" \
+		--time-atol "$(TIME_ABS_TOL)"
 
 clean:
 	rm -f $(TARGET)

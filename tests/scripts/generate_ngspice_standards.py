@@ -39,6 +39,7 @@ EPSILON = sys.float_info.epsilon
 # Keep this configuration in the generator so the committed baselines are
 # reproducible without modifying the source netlists.
 TRAN_REFERENCE_MAX_STEP_DIVISOR = 2000
+MOS3_TRAN_REFERENCE_MAX_STEP_DIVISOR = 20
 TRAN_REFERENCE_OPTIONS = (
     ".options reltol=1e-8 vntol=1e-10 abstol=1e-12 trtol=1"
 )
@@ -152,11 +153,11 @@ def tran_config(lines):
     return output_interval, stop_time, output_start, use_initial_conditions
 
 
-def high_accuracy_tran_netlist(netlist, work_root):
+def high_accuracy_tran_netlist(netlist, work_root, max_step_divisor):
     """Return a temporary TRAN deck with the reference accuracy policy."""
     title, lines = logical_lines(netlist)
     interval, stop_time, output_start, use_initial_conditions = tran_config(lines)
-    maximum_step = interval / TRAN_REFERENCE_MAX_STEP_DIVISOR
+    maximum_step = interval / max_step_divisor
 
     if not math.isfinite(maximum_step) or maximum_step <= 0.0:
         raise ValueError(f"invalid high-accuracy maximum step for {netlist}")
@@ -304,13 +305,24 @@ def run_ngspice(ngspice, netlist, raw_path, log_path):
     return parse_rawfile(raw_path)
 
 
-def generate_case(ngspice, netlist, analysis, staging_root, work_root):
+def generate_case(
+    ngspice,
+    netlist,
+    analysis,
+    staging_root,
+    work_root,
+    tran_reference_max_step_divisor,
+):
     title, lines = logical_lines(netlist)
     variables = print_variables(lines, analysis)
     raw_path = work_root / f"{analysis}-{netlist.stem}.raw"
     log_path = work_root / f"{analysis}-{netlist.stem}.log"
     simulation_netlist = (
-        high_accuracy_tran_netlist(netlist, work_root)
+        high_accuracy_tran_netlist(
+            netlist,
+            work_root,
+            tran_reference_max_step_divisor,
+        )
         if analysis == "tran"
         else netlist
     )
@@ -384,25 +396,61 @@ def locate_ngspice(argument):
     raise FileNotFoundError("ngspice was not found in PATH or /opt/homebrew/bin")
 
 
+def suite_configuration(root, suite):
+    if suite == "core":
+        return {
+            "case_root": root / "tests" / "cases",
+            "reference_root": root / "tests" / "references",
+            "expected_counts": {"op": 18, "tran": 18},
+            "tran_reference_max_step_divisor": TRAN_REFERENCE_MAX_STEP_DIVISOR,
+        }
+    if suite == "mos3":
+        return {
+            "case_root": root / "tests" / "cases" / "mos3",
+            "reference_root": root / "tests" / "references" / "mos3",
+            "expected_counts": {"op": 4, "tran": 1},
+            "tran_reference_max_step_divisor": MOS3_TRAN_REFERENCE_MAX_STEP_DIVISOR,
+        }
+    raise ValueError(f"unknown reference suite: {suite}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate independent compact reference listings with ngspice."
     )
     parser.add_argument("--root", type=Path, default=SCRIPT_DIR.parents[1])
     parser.add_argument("--ngspice")
+    parser.add_argument(
+        "--suite",
+        choices=("core", "mos3", "all"),
+        default="core",
+        help="reference suite to generate (default: core)",
+    )
     args = parser.parse_args()
 
     root = args.root.resolve()
     ngspice = locate_ngspice(args.ngspice)
-    cases = {
-        analysis: sorted((root / "tests" / "cases" / analysis).glob("*.cir"))
-        for analysis in ("op", "tran")
+    suites = ("core", "mos3") if args.suite == "all" else (args.suite,)
+    configurations = {
+        suite: suite_configuration(root, suite)
+        for suite in suites
     }
-    for analysis, netlists in cases.items():
-        if len(netlists) != 18:
-            raise RuntimeError(
-                f"expected 18 {analysis.upper()} netlists, found {len(netlists)}"
+    all_cases = {}
+    for suite, configuration in configurations.items():
+        cases = {
+            analysis: sorted(
+                (configuration["case_root"] / analysis).glob("*.cir")
             )
+            for analysis in ("op", "tran")
+        }
+        for analysis, netlists in cases.items():
+            expected = configuration["expected_counts"][analysis]
+            if len(netlists) != expected:
+                raise RuntimeError(
+                    f"{suite}: expected {expected} {analysis.upper()} netlists, "
+                    f"found {len(netlists)}"
+                )
+        all_cases[suite] = cases
 
     with tempfile.TemporaryDirectory(prefix="ngspice-reference-", dir=root) as temp:
         temporary = Path(temp)
@@ -410,21 +458,33 @@ def main():
         work = temporary / "work"
         work.mkdir()
         completed = 0
-        for analysis in ("op", "tran"):
-            for netlist in cases[analysis]:
-                generate_case(ngspice, netlist, analysis, staging, work)
-                completed += 1
-                print(f"REFERENCE {analysis.upper()} {netlist.stem}")
+        for suite, configuration in configurations.items():
+            suite_staging = staging / suite
+            for analysis in ("op", "tran"):
+                for netlist in all_cases[suite][analysis]:
+                    generate_case(
+                        ngspice,
+                        netlist,
+                        analysis,
+                        suite_staging,
+                        work,
+                        configuration["tran_reference_max_step_divisor"],
+                    )
+                    completed += 1
+                    print(f"REFERENCE {suite.upper()} {analysis.upper()} {netlist.stem}")
 
-        for analysis in ("op", "tran"):
-            destination = root / "tests" / "references" / analysis
-            destination.mkdir(parents=True, exist_ok=True)
-            for old in destination.glob("*.out"):
-                old.unlink()
-            for generated in sorted((staging / analysis).glob("*.out")):
-                shutil.copy2(generated, destination / generated.name)
+            for analysis in ("op", "tran"):
+                destination = configuration["reference_root"] / analysis
+                destination.mkdir(parents=True, exist_ok=True)
+                for old in destination.glob("*.out"):
+                    old.unlink()
+                for generated in sorted((suite_staging / analysis).glob("*.out")):
+                    shutil.copy2(generated, destination / generated.name)
 
-    print(f"Generated {completed} independent ngspice reference listings")
+    print(
+        f"Generated {completed} independent ngspice reference listings "
+        f"for {', '.join(suites)}"
+    )
     return 0
 
 
