@@ -288,7 +288,6 @@ test-netlists: $(TARGET)
 		./$(TARGET) \
 		$(TEST_ROOT) \
 		--recursive \
-		--exclude-dir cases/mos3 \
 		--timeout $(PRIVATE_TIMEOUT)
 
 # This is a solver-differentiation benchmark, not a permanent release gate:

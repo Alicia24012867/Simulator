@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <optional>
+#include <stdexcept>
+#include <utility>
 
 #include "devices/device.hpp"
 #include "math/limiting.hpp"
@@ -11,10 +14,53 @@
 
 class MOSFET: public Device{
 public:
-    MOSFET(std::string name, std::vector<std::string> nodes, const Model* model, double w = 1.0, double l = 1.0):
-            Device(name, nodes, DeviceType::MOSFET), model_(model), w_(w), l_(l) {}
+    struct MosInstanceParams {
+        double w = 1.0;
+        double l = 1.0;
+        double ad = 0.0;
+        double as = 0.0;
+        double pd = 0.0;
+        double ps = 0.0;
+        double nrd = 0.0;
+        double nrs = 0.0;
+        double m = 1.0;
+        bool off = false;
+        std::optional<std::array<double, 3>> ic;
+        std::optional<double> temp;
+    };
+
+    MOSFET(std::string name,
+           std::vector<std::string> nodes,
+           const Model* model):
+            MOSFET(
+                std::move(name),
+                std::move(nodes),
+                model,
+                MosInstanceParams()
+            ) {}
+
+    MOSFET(std::string name,
+           std::vector<std::string> nodes,
+           const Model* model,
+           MosInstanceParams instance):
+            Device(name, nodes, DeviceType::MOSFET),
+            model_(model),
+            instance_(std::move(instance)) {}
+
+    MOSFET(std::string name,
+           std::vector<std::string> nodes,
+           const Model* model,
+           double w,
+           double l):
+            Device(name, nodes, DeviceType::MOSFET),
+            model_(model) {
+        instance_.w = w;
+        instance_.l = l;
+    }
 
     const Model* model() const { return model_; }
+
+    const MosInstanceParams& instanceParams() const { return instance_; }
 
     bool isNonlinear() const override{
         return true;
@@ -55,14 +101,19 @@ public:
 
     void stampOperatingPoint() override{
         if(!model_) return;
+        if(model_->isMos3()){
+            throw std::runtime_error(
+                "MOSFET LEVEL=3 evaluation is not implemented; use --parse-only"
+            );
+        }
 
         const auto& dc = model_->mosDc();
         const double polarity = model_->type() == ModelType::PMOS ? -1.0 : 1.0;
         const double vd = voltage(sol_[0]);
         const double vg = voltage(sol_[1]);
         const double vs = voltage(sol_[2]);
-        const double width = w_ > 0.0 ? w_ : 1.0;
-        const double length = l_ > 0.0 ? l_ : 1.0;
+        const double width = instance_.w > 0.0 ? instance_.w : 1.0;
+        const double length = instance_.l > 0.0 ? instance_.l : 1.0;
         const double beta = dc.kp * width / length;
         const double vto = std::abs(dc.vto);
         double vgs = polarity * (vg - vs);
@@ -118,7 +169,7 @@ public:
 
         if(dc.rds > 0.0){
             const double conductance =
-                model_->mosDrainSourceConductance(w_, l_);
+                model_->mosDrainSourceConductance(instance_.w, instance_.l);
             const double rdsCurrent = conductance * (vd - vs);
             f[0] += rdsCurrent;
             f[2] -= rdsCurrent;
@@ -164,8 +215,7 @@ private:
     }
 
     const Model* model_;
-    double w_;
-    double l_;
+    MosInstanceParams instance_;
 
     std::array<std::array<double*, 4>, 4> A_ = {};
     std::array<double*, 4> rhs_ = {};

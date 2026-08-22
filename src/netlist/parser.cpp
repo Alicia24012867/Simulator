@@ -1,3 +1,4 @@
+#include <array>
 #include <cctype>
 #include <iostream>
 #include <memory>
@@ -52,13 +53,19 @@ bool supportsModelParameter(ModelType type, const std::string& key){
         return key == "level" || key == "vto" || key == "vt0" ||
                key == "kp" || key == "k" || key == "lambda" ||
                key == "lam" || key == "gmin" || key == "rds" ||
-               key == "tox" || key == "xj" || key == "ld" ||
-               key == "pb" || key == "rs" || key == "nsub" ||
-               key == "uo" || key == "u0" || key == "nss" ||
+               key == "gamma" || key == "phi" || key == "rd" ||
+               key == "rs" || key == "rsh" || key == "cbd" ||
+               key == "cbs" || key == "is" || key == "js" ||
+               key == "pb" || key == "fc" || key == "cj" ||
+               key == "mj" || key == "cjsw" || key == "mjsw" ||
                key == "cgso" || key == "cgdo" || key == "cgbo" ||
-               key == "cbd" || key == "cbs" || key == "cj" ||
-               key == "cjsw" || key == "mj" || key == "mjsw" ||
-               key == "rsh";
+               key == "tox" || key == "ld" || key == "xl" ||
+               key == "xw" || key == "wd" || key == "xj" ||
+               key == "nsub" || key == "uo" || key == "u0" ||
+               key == "tpg" || key == "nss" || key == "vmax" ||
+               key == "nfs" || key == "eta" || key == "delta" ||
+               key == "theta" || key == "kappa" || key == "tnom" ||
+               key == "kf" || key == "af";
     }
     return false;
 }
@@ -83,7 +90,8 @@ void validateModelParameter(ModelType type,
             }
             return;
         }
-        if(key == "vto" || key == "vt0"){
+        if(key == "vto" || key == "vt0" || key == "tpg" ||
+           key == "xl" || key == "xw" || key == "wd"){
             return;
         }
         if(key == "kp" || key == "k"){
@@ -117,6 +125,14 @@ void validateModelParameter(ModelType type,
             "Model parameter " + key + " must be positive"
         );
     }
+}
+
+std::string canonicalMosModelParameter(std::string key){
+    if(key == "vt0") return "vto";
+    if(key == "k") return "kp";
+    if(key == "u0") return "uo";
+    if(key == "lam") return "lambda";
+    return key;
 }
 
 void skipPrintSeparators(const std::string& text, std::size_t& pos){
@@ -311,6 +327,98 @@ InstanceValues parseInstanceValues(const std::vector<std::string>& tokens,
         } else {
             throw std::runtime_error(
                 "Unsupported or repeated instance parameter: " + key
+            );
+        }
+    }
+    return values;
+}
+
+MOSFET::MosInstanceParams parseMosInstanceParams(
+    const std::vector<std::string>& tokens,
+    std::size_t first
+){
+    MOSFET::MosInstanceParams values;
+    std::unordered_set<std::string> seen;
+
+    const auto requireFinite = [](double value, const std::string& key){
+        if(!std::isfinite(value)){
+            throw std::runtime_error(
+                "MOSFET instance parameter " + key + " must be finite"
+            );
+        }
+        return value;
+    };
+
+    for(std::size_t i = first; i < tokens.size(); ++i){
+        if(equal_ignore_case(tokens[i], "off")){
+            if(!seen.insert("off").second){
+                throw std::runtime_error("Repeated MOSFET instance parameter: off");
+            }
+            values.off = true;
+            continue;
+        }
+
+        std::string key;
+        std::string value;
+        if(!read_spice_assignment(tokens, i, key, value)){
+            throw std::runtime_error(
+                "Unsupported or malformed MOSFET instance parameter: " +
+                tokens[i]
+            );
+        }
+        if(!seen.insert(key).second){
+            throw std::runtime_error(
+                "Repeated MOSFET instance parameter: " + key
+            );
+        }
+
+        if(key == "ic"){
+            if(i + 2 >= tokens.size()){
+                throw std::runtime_error(
+                    "MOSFET IC requires VDS, VGS, and VBS values"
+                );
+            }
+            values.ic = std::array<double, 3>{
+                requireFinite(parse_spice_number(value), key),
+                requireFinite(parse_spice_number(tokens[++i]), key),
+                requireFinite(parse_spice_number(tokens[++i]), key)
+            };
+            continue;
+        }
+
+        const double parsed = requireFinite(parse_spice_number(value), key);
+        if(key == "w"){
+            if(parsed <= 0.0) throw std::runtime_error("MOSFET W must be positive");
+            values.w = parsed;
+        } else if(key == "l"){
+            if(parsed <= 0.0) throw std::runtime_error("MOSFET L must be positive");
+            values.l = parsed;
+        } else if(key == "m"){
+            if(parsed <= 0.0) throw std::runtime_error("MOSFET M must be positive");
+            values.m = parsed;
+        } else if(key == "ad"){
+            if(parsed < 0.0) throw std::runtime_error("MOSFET AD must be non-negative");
+            values.ad = parsed;
+        } else if(key == "as"){
+            if(parsed < 0.0) throw std::runtime_error("MOSFET AS must be non-negative");
+            values.as = parsed;
+        } else if(key == "pd"){
+            if(parsed < 0.0) throw std::runtime_error("MOSFET PD must be non-negative");
+            values.pd = parsed;
+        } else if(key == "ps"){
+            if(parsed < 0.0) throw std::runtime_error("MOSFET PS must be non-negative");
+            values.ps = parsed;
+        } else if(key == "nrd"){
+            if(parsed < 0.0) throw std::runtime_error("MOSFET NRD must be non-negative");
+            values.nrd = parsed;
+        } else if(key == "nrs"){
+            if(parsed < 0.0) throw std::runtime_error("MOSFET NRS must be non-negative");
+            values.nrs = parsed;
+        } else if(key == "temp"){
+            values.temp = parsed;
+        } else {
+            throw std::runtime_error(
+                "Unsupported MOSFET instance parameter: " + key
             );
         }
     }
@@ -778,8 +886,24 @@ bool Parser::parseModel(Circuit& circuit, const std::vector<std::string>& tokens
             );
         }
         const double parsed = parse_spice_number(value);
-        validateModelParameter(type, key, parsed);
+        if(type == ModelType::NMOS || type == ModelType::PMOS){
+            key = canonicalMosModelParameter(std::move(key));
+        }
         parameters.insert_or_assign(std::move(key), parsed);
+    }
+
+    for(const auto& parameter: parameters){
+        validateModelParameter(type, parameter.first, parameter.second);
+    }
+
+    if((type == ModelType::NMOS || type == ModelType::PMOS) &&
+       parameters.find("level") != parameters.end() &&
+       parameters.at("level") == 3.0 &&
+       (parameters.find("gmin") != parameters.end() ||
+        parameters.find("rds") != parameters.end())){
+        throw std::runtime_error(
+            "LEVEL=3 MOSFET models do not accept simulator-specific GMIN or RDS"
+        );
     }
 
     auto model = std::make_unique<Model>(
@@ -855,19 +979,12 @@ bool Parser::parseLine(Circuit& circuit, const std::vector<std::string>& tokens)
             const Model* model = circuit.findModel(to_lower_copy(tokens[5]));
             if(!model) throw std::runtime_error("Unknown MOSFET model: " + tokens[5]);
             if(!model->isMosfet()) throw std::runtime_error("Model is not MOSFET type: " + tokens[5]);
-            const InstanceValues values = parseInstanceValues(
-                tokens,
-                6,
-                false,
-                true,
-                false
-            );
+            const MOSFET::MosInstanceParams values = parseMosInstanceParams(tokens, 6);
             circuit.addDevice<MOSFET>(
                 tokens[0],
                 elementNodes(tokens, 1, 4),
                 model,
-                values.width,
-                values.length
+                values
             );
             return true;
         }

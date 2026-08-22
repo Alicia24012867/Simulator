@@ -375,7 +375,7 @@ def main():
         try:
             hierarchical = root / "hierarchical-level3.sp"
             hierarchical.write_text(
-                "Nested subcircuit with a legacy MOS model card\n"
+                "Nested subcircuit with a Level-1 MOS model card\n"
                 "VDD vdd 0 5\n"
                 "XTOP out vdd STAGE\n"
                 "RLOAD out 0 1k\n"
@@ -385,7 +385,7 @@ def main():
                 ".subckt LEAF out in\n"
                 "M1 out in 0 0 NMOD W=1u L=1u\n"
                 ".ends LEAF\n"
-                ".model NMOD NMOS (LEVEL=3 VTO=0.7 KP=1m TOX=1n "
+                ".model NMOD NMOS (LEVEL=1 VTO=0.7 KP=1m TOX=1n "
                 "UO=550 CGSO=0 CGDO=0)\n"
                 ".op\n"
                 ".print op v(out)\n"
@@ -397,7 +397,42 @@ def main():
                 f"nested subcircuit netlist failed: {result.stderr}",
             )
             require("v(out)" in result.stdout, "nested subcircuit output missing")
-            print("PASS nested .subckt expansion and LEVEL=3 MOS compatibility")
+            print("PASS nested .subckt expansion and Level-1 MOS evaluation")
+        except Exception as exc:
+            failures.append(str(exc))
+
+        try:
+            mos3_instance = root / "mos3-instance-parameters.cir"
+            mos3_instance.write_text(
+                "MOS3 parser coverage\n"
+                "VDD d 0 5\n"
+                "VG g 0 0\n"
+                "M1 d g 0 0 PMOD W=2u L=1u AD=2p AS=3p PD=4u PS=5u "
+                "NRD=2 NRS=3 M=1.5 OFF IC=0,0,0 TEMP=27\n"
+                ".model PMOD PMOS LEVEL=3 VTO=-0.8 K=20u GAMMA=0.6 PHI=0.7 "
+                "RD=1 RS=2 RSH=10 CBD=1p CBS=2p IS=1e-14 JS=1e-8 PB=0.8 FC=0.5 "
+                "CJ=2e-4 MJ=0.5 CJSW=1e-10 MJSW=0.3 CGSO=1p CGDO=2p CGBO=3p "
+                "TOX=20n LD=0 XL=-0.1u XW=-0.2u WD=0 U0=250 NSUB=1e16 TPG=-1 "
+                "NSS=0 VMAX=1e5 XJ=0.2u NFS=1e11 ETA=0 DELTA=0 THETA=0.1 "
+                "KAPPA=0.3 TNOM=27 KF=0 AF=1\n"
+                ".op\n"
+                ".end\n"
+            )
+            result = run(simulator, "--parse-only", mos3_instance)
+            require(
+                result.returncode == 0,
+                f"MOS3 model or instance parsing failed: {result.stderr}",
+            )
+            result = run(simulator, mos3_instance)
+            require(
+                result.returncode != 0,
+                "MOS3 evaluation was silently accepted before implementation",
+            )
+            require(
+                "MOSFET LEVEL=3 evaluation is not implemented" in result.stderr,
+                f"MOS3 evaluation diagnostic missing: {result.stderr}",
+            )
+            print("PASS MOS3 model and instance parameter parsing")
         except Exception as exc:
             failures.append(str(exc))
 
@@ -1162,6 +1197,20 @@ def main():
                     "Bad model domain\n.model DMOD D N=-1\n"
                     "D1 in 0 DMOD\nR1 in 0 1k\n.op\n.end\n",
                     "must be positive",
+                ),
+                (
+                    "invalid-mos-ic",
+                    "Bad MOS IC\n.model NMOD NMOS LEVEL=3\n"
+                    "M1 out out 0 0 NMOD W=1u L=1u IC=0,0\n"
+                    "R1 out 0 1k\n.op\n.end\n",
+                    "MOSFET IC requires VDS, VGS, and VBS values",
+                ),
+                (
+                    "invalid-mos-multiplier",
+                    "Bad MOS multiplier\n.model NMOD NMOS LEVEL=3\n"
+                    "M1 out out 0 0 NMOD W=1u L=1u M=0\n"
+                    "R1 out 0 1k\n.op\n.end\n",
+                    "MOSFET M must be positive",
                 ),
                 (
                     "invalid-area",
