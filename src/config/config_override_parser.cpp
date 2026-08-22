@@ -270,6 +270,11 @@ NewtonOverrides parseNewtonOverrides(
         {
             "maximum_iterations",
             "tolerance",
+            "relative_tolerance",
+            "voltage_absolute_tolerance",
+            "current_absolute_tolerance",
+            "normalized_update_tolerance",
+            "normalized_residual_tolerance",
             "maximum_solution_step"
         }
     );
@@ -289,6 +294,41 @@ NewtonOverrides parseNewtonOverrides(
         loadedConfig,
         jsonPath,
         result.tolerance
+    );
+    readOptionalNumber(
+        object,
+        "relative_tolerance",
+        loadedConfig,
+        jsonPath,
+        result.relativeTolerance
+    );
+    readOptionalNumber(
+        object,
+        "voltage_absolute_tolerance",
+        loadedConfig,
+        jsonPath,
+        result.voltageAbsoluteTolerance
+    );
+    readOptionalNumber(
+        object,
+        "current_absolute_tolerance",
+        loadedConfig,
+        jsonPath,
+        result.currentAbsoluteTolerance
+    );
+    readOptionalNumber(
+        object,
+        "normalized_update_tolerance",
+        loadedConfig,
+        jsonPath,
+        result.normalizedUpdateTolerance
+    );
+    readOptionalNumber(
+        object,
+        "normalized_residual_tolerance",
+        loadedConfig,
+        jsonPath,
+        result.normalizedResidualTolerance
     );
     readOptionalNumber(
         object,

@@ -109,8 +109,16 @@ void writeNewton(std::ostream& output,
         output << indent << "Damped updates: " << diagnostics.dampedSteps << '\n'
                << indent << "Final update infinity norm: "
                << diagnostics.finalDelta << '\n'
-               << indent << "Convergence tolerance: "
+               << indent << "Legacy absolute tolerance: "
                << diagnostics.tolerance << '\n';
+        if(diagnostics.hasNormalizedUpdate){
+            output << indent << "Final normalized update: "
+                   << diagnostics.normalizedUpdate << '\n';
+        }
+        if(diagnostics.hasNormalizedResidual){
+            output << indent << "Final normalized residual: "
+                   << diagnostics.normalizedResidual << '\n';
+        }
     }
     output << indent << "CPU time: " << diagnostics.cpuSeconds << " s\n"
            << indent << "Wall time: " << diagnostics.wallSeconds << " s\n";
@@ -173,6 +181,14 @@ void writeOperatingPointAttempt(
                    << " iterations=" << source.newton.iterations
                    << " damped=" << source.newton.dampedSteps
                    << " final_delta=" << source.newton.finalDelta;
+            if(source.newton.hasNormalizedUpdate){
+                output << " normalized_update="
+                       << source.newton.normalizedUpdate;
+            }
+            if(source.newton.hasNormalizedResidual){
+                output << " normalized_residual="
+                       << source.newton.normalizedResidual;
+            }
             if(!source.status.empty()){
                 output << " status=\"" << source.status << '"';
             }
@@ -230,7 +246,20 @@ void writeOperatingPointAttempt(
                    << " source_scale=" << pta.sourceScale
                    << " newton=" << succeededFailed(pta.newton.converged)
                    << " iterations=" << pta.newton.iterations
-                   << " damped=" << pta.newton.dampedSteps
+                   << " damped=" << pta.newton.dampedSteps;
+            if(pta.newton.hasNormalizedUpdate){
+                output << " newton_normalized_update="
+                       << pta.newton.normalizedUpdate;
+            } else {
+                output << " newton_normalized_update=n/a";
+            }
+            if(pta.newton.hasNormalizedResidual){
+                output << " newton_normalized_residual="
+                       << pta.newton.normalizedResidual;
+            } else {
+                output << " newton_normalized_residual=n/a";
+            }
+            output
                    << " result=" << ptaAttemptDecision(pta);
             if(pta.hasConvergenceMetrics){
                 output << " derivative=" << pta.normalizedDerivative
@@ -331,7 +360,18 @@ void writeNewtonConfiguration(std::ostream& output,
                               const NewtonSolverOptions& options){
     output << "  " << prefix << ".maximum_iterations: "
            << options.maximumIterations << '\n'
-           << "  " << prefix << ".tolerance: " << options.tolerance << '\n'
+           << "  " << prefix << ".tolerance (legacy): "
+           << options.tolerance << '\n'
+           << "  " << prefix << ".relative_tolerance: "
+           << options.relativeTolerance << '\n'
+           << "  " << prefix << ".voltage_absolute_tolerance: "
+           << options.voltageAbsoluteTolerance << '\n'
+           << "  " << prefix << ".current_absolute_tolerance: "
+           << options.currentAbsoluteTolerance << '\n'
+           << "  " << prefix << ".normalized_update_tolerance: "
+           << options.normalizedUpdateTolerance << '\n'
+           << "  " << prefix << ".normalized_residual_tolerance: "
+           << options.normalizedResidualTolerance << '\n'
            << "  " << prefix << ".maximum_solution_step: "
            << options.maximumSolutionStep << '\n';
 }

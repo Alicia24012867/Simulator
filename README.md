@@ -260,6 +260,11 @@ make
     "newton": {
       "maximum_iterations": 1000,
       "tolerance": "1n",
+      "relative_tolerance": 0.0,
+      "voltage_absolute_tolerance": "1n",
+      "current_absolute_tolerance": "1n",
+      "normalized_update_tolerance": 1.0,
+      "normalized_residual_tolerance": 1.0,
       "maximum_solution_step": 1.0
     },
     "source_stepping": {
@@ -291,7 +296,7 @@ make
 允许的字段如下；未知字段、错误类型、无穷数和非法 SPICE 数值都会以配置错误退出。
 
 - `debug`：布尔值，默认 `true`。控制是否写出同名 `.solve.txt` 报告；命令行 `--debug true|false` 的优先级更高。
-- `op.newton`：`maximum_iterations`、`tolerance`、`maximum_solution_step`。
+- `op.newton`：`maximum_iterations`、`relative_tolerance`、`voltage_absolute_tolerance`、`current_absolute_tolerance`、`normalized_update_tolerance`、`normalized_residual_tolerance`、`maximum_solution_step`。`tolerance` 保留为兼容字段；若设置且未分别设置电压/电流绝对容差，它会同时设定二者。
 - `op.source_stepping`：`enabled`、`initial_step`、`maximum_step`、`minimum_step`、`growth_factor`、`failure_scale`。
 - `pta.newton`：与 `op.newton` 相同。`pta` 还支持 `mode`、`initial_step`、`minimum_step`、`maximum_step`、`maximum_steps`、所有 `derivative_*` 与 `dc_*` 容差、`initial_node_capacitance`、`minimum_node_capacitance`、`maximum_node_capacitance`、`current_source_capacitance`、`voltage_source_inductance`、`compound_time_constant`、`compound_initial_resistance`、`compound_initial_conductance`、`source_ramp_time`、`initial_mos_vgs`、`initial_bjt_vbe`、所有振荡/电容缩放字段，以及 `include_mos_bulk`、`include_diodes`。
 - `tran`：`enabled`、`output_interval`、`stop_time`、`output_start_time`、`maximum_step`、`use_initial_conditions`。
@@ -496,7 +501,7 @@ tests/
 - 不支持 `PULSE`、`SIN`、`PWL` 等时变独立源，因此瞬态阶跃测试使用 `UIC` 和固定 DC 源构造 t=0 激励。
 - 瞬态使用首步 Backward Euler 与受步长比限制的可变步长 BDF2；BDF2 使用基于三阶差商、动态器件导数残差和 MNA Jacobian 投影的严格 LTE 估计，启动阶段仍使用 BE step-doubling。严格残差目前覆盖独立 `C`、`L` 以及当前 MOS3 companion charge 模型的端点切线电容；尚未实现事件断点对齐、高于 BDF2 的积分公式，或完整半导体电荷模型的 LTE 残差。
 - `UIC` 当前把完整 MNA 解向量初始化为零；尚未支持器件 `IC=`、`.ic` 与一致初值求解。
-- 瞬态 Newton 失败会缩小时间步并在上一个已接受状态重试；非线性收敛判据本身仍未拆分电压/电流的相对与绝对容差。
+- Newton 同时检查按未知量量纲归一化的更新量和在候选解重新 stamp 后得到的非线性残差；节点电压使用电压绝对容差，branch current 使用电流绝对容差，而 KCL 残差行的量纲相反。瞬态 Newton 失败会缩小时间步并在上一个已接受状态重试。
 - PTA 已具备伪元件 stamp、BE/BDF2 伪时间推进、失败缩步、最小步长后的全局增容，以及成功步后的逐节点振荡降容；导数与 DC 残差判据已经归一化。当前 18 个 OP / 76 个输出值的 Force 与 Fallback 回归及一个多稳态困难锁存器构成研究测试基线，但默认容差、跨模型鲁棒性和性能结论仍需通过更广泛的困难非线性电路基准验证。因此它适合作为 PTA 算法研究的可追溯测试版，而不作为生产级 SPICE 求解保证。
 - 不支持 `.include`、`.lib`、全局 `.param`、`.temp`、`.nodeset`、`.ic`、`.save`。
 - 不支持受控源 `E/F/G/H`、行为源、AC/noise 分析。

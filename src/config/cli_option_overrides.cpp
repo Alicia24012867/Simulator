@@ -89,6 +89,21 @@ bool readBoolean(
     return false;
 }
 
+bool readLegacyNewtonTolerance(
+    const std::string& value,
+    NewtonSolverOptions& options,
+    std::string& error
+){
+    double tolerance = 0.0;
+    if(!readDouble(value, tolerance, error)){
+        return false;
+    }
+    options.tolerance = tolerance;
+    options.voltageAbsoluteTolerance = tolerance;
+    options.currentAbsoluteTolerance = tolerance;
+    return true;
+}
+
 TransientAnalysisConfig& requireTransientConfig(
     std::optional<TransientAnalysisConfig>& options,
     const std::optional<TransientAnalysisConfig>& baseOptions
@@ -147,7 +162,38 @@ bool applyOperatingPointOption(
         return readInteger(value, 1, options.newton.maximumIterations, error);
     }
     if(key == "newton.tolerance"){
-        return readDouble(value, options.newton.tolerance, error);
+        return readLegacyNewtonTolerance(value, options.newton, error);
+    }
+    if(key == "newton.relative-tolerance"){
+        return readDouble(value, options.newton.relativeTolerance, error);
+    }
+    if(key == "newton.voltage-absolute-tolerance"){
+        return readDouble(
+            value,
+            options.newton.voltageAbsoluteTolerance,
+            error
+        );
+    }
+    if(key == "newton.current-absolute-tolerance"){
+        return readDouble(
+            value,
+            options.newton.currentAbsoluteTolerance,
+            error
+        );
+    }
+    if(key == "newton.normalized-update-tolerance"){
+        return readDouble(
+            value,
+            options.newton.normalizedUpdateTolerance,
+            error
+        );
+    }
+    if(key == "newton.normalized-residual-tolerance"){
+        return readDouble(
+            value,
+            options.newton.normalizedResidualTolerance,
+            error
+        );
     }
     if(key == "newton.maximum-solution-step"){
         return readDouble(value, options.newton.maximumSolutionStep, error);
@@ -195,7 +241,42 @@ bool applyPtaOption(
                            error);
     }
     if(key == "newton.tolerance"){
-        return readDouble(value, options.newtonOptions.tolerance, error);
+        return readLegacyNewtonTolerance(value, options.newtonOptions, error);
+    }
+    if(key == "newton.relative-tolerance"){
+        return readDouble(
+            value,
+            options.newtonOptions.relativeTolerance,
+            error
+        );
+    }
+    if(key == "newton.voltage-absolute-tolerance"){
+        return readDouble(
+            value,
+            options.newtonOptions.voltageAbsoluteTolerance,
+            error
+        );
+    }
+    if(key == "newton.current-absolute-tolerance"){
+        return readDouble(
+            value,
+            options.newtonOptions.currentAbsoluteTolerance,
+            error
+        );
+    }
+    if(key == "newton.normalized-update-tolerance"){
+        return readDouble(
+            value,
+            options.newtonOptions.normalizedUpdateTolerance,
+            error
+        );
+    }
+    if(key == "newton.normalized-residual-tolerance"){
+        return readDouble(
+            value,
+            options.newtonOptions.normalizedResidualTolerance,
+            error
+        );
     }
     if(key == "newton.maximum-solution-step"){
         return readDouble(value, options.newtonOptions.maximumSolutionStep,
@@ -378,9 +459,44 @@ bool applyTransientOption(
         );
     }
     if(key == "solver.newton.tolerance"){
+        return readLegacyNewtonTolerance(
+            value,
+            config.solverOptions.newtonOptions,
+            error
+        );
+    }
+    if(key == "solver.newton.relative-tolerance"){
         return readDouble(
             value,
-            config.solverOptions.newtonOptions.tolerance,
+            config.solverOptions.newtonOptions.relativeTolerance,
+            error
+        );
+    }
+    if(key == "solver.newton.voltage-absolute-tolerance"){
+        return readDouble(
+            value,
+            config.solverOptions.newtonOptions.voltageAbsoluteTolerance,
+            error
+        );
+    }
+    if(key == "solver.newton.current-absolute-tolerance"){
+        return readDouble(
+            value,
+            config.solverOptions.newtonOptions.currentAbsoluteTolerance,
+            error
+        );
+    }
+    if(key == "solver.newton.normalized-update-tolerance"){
+        return readDouble(
+            value,
+            config.solverOptions.newtonOptions.normalizedUpdateTolerance,
+            error
+        );
+    }
+    if(key == "solver.newton.normalized-residual-tolerance"){
+        return readDouble(
+            value,
+            config.solverOptions.newtonOptions.normalizedResidualTolerance,
             error
         );
     }

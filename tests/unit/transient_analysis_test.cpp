@@ -9,6 +9,7 @@
 #include "devices/resistor.hpp"
 #include "devices/voltage_source.hpp"
 #include "solver/mna.hpp"
+#include "solver/newton_convergence.hpp"
 #include "solver/newton_step.hpp"
 
 #include <algorithm>
@@ -60,6 +61,41 @@ public:
 private:
     double conductance_;
     double current_;
+    double* diagonal_ = nullptr;
+    double* rhs_ = nullptr;
+};
+
+// A regression fixture for Newton convergence: its first linearized update is
+// intentionally tiny, but restamping at that candidate reveals a large
+// nonlinear defect.  A raw update-only criterion would stop after one pass.
+class NewtonResidualTrapDevice: public Device {
+public:
+    NewtonResidualTrapDevice(std::string name, std::vector<std::string> nodes):
+        Device(std::move(name), std::move(nodes), DeviceType::BJT) {}
+
+    bool isNonlinear() const override{
+        return true;
+    }
+
+    void pattern(MNA& mna) override{
+        mna.addPattern(nodeIds[0], nodeIds[0]);
+    }
+
+    void bindMatrix(MNA& mna) override{
+        mna_ = &mna;
+        diagonal_ = mna.ptr(nodeIds[0], nodeIds[0]);
+        rhs_ = &mna.rhs(nodeIds[0]);
+    }
+
+    void stampOperatingPoint() override{
+        *diagonal_ += 1.0;
+        *rhs_ += std::abs(mna_->solution()[nodeIds[0]]) < 1.0e-15
+            ? 5.0e-10
+            : 1.0;
+    }
+
+private:
+    MNA* mna_ = nullptr;
     double* diagonal_ = nullptr;
     double* rhs_ = nullptr;
 };
@@ -237,6 +273,12 @@ void testSolverOptionsValidation(){
     newton = NewtonSolverOptions{};
     newton.tolerance = 0.0;
     expect(!newton.valid(), "zero Newton tolerance is invalid");
+    newton = NewtonSolverOptions{};
+    newton.currentAbsoluteTolerance = 0.0;
+    expect(!newton.valid(), "zero Newton current tolerance is invalid");
+    newton = NewtonSolverOptions{};
+    newton.normalizedResidualTolerance = 0.0;
+    expect(!newton.valid(), "zero normalized residual tolerance is invalid");
     newton = NewtonSolverOptions{};
     newton.maximumSolutionStep =
         std::numeric_limits<double>::quiet_NaN();
@@ -1035,6 +1077,35 @@ void testLinearFailureDiagnostics(){
     );
 }
 
+void testNewtonRequiresReassembledResidual(){
+    Circuit circuit;
+    circuit.addDevice<NewtonResidualTrapDevice>(
+        "XNEWTON",
+        std::vector<std::string>{"node", "0", "0"}
+    );
+
+    expect(circuit.build(PtaAnalysisConfig{}), "Newton residual fixture builds");
+    OperatingPointSolverOptions options;
+    options.sourceStepping.enabled = false;
+    expect(
+        circuit.solveOperatingPoint(options),
+        "Newton residual fixture converges after restamping"
+    );
+
+    const NewtonSolveDiagnostics& diagnostics =
+        circuit.operatingPointDiagnostics().directNewton;
+    expect(
+        diagnostics.converged && diagnostics.iterations == 3,
+        "Newton does not accept a tiny update before checking its residual"
+    );
+    expect(
+        diagnostics.hasNormalizedUpdate && diagnostics.hasNormalizedResidual &&
+            diagnostics.normalizedUpdate < 1.0e-12 &&
+            diagnostics.normalizedResidual < 1.0e-12,
+        "Newton diagnostics retain the final normalized convergence metrics"
+    );
+}
+
 void testRequiresBdf2History(){
     TransientIntegrator integrator;
     integrator.initialize(0.0, makeVector({0.0}));
@@ -1782,6 +1853,49 @@ void testNewtonStepLimiting(){
     expect(!std::isfinite(invalid.delta), "non-finite Newton step is rejected");
 }
 
+void testNormalizedNewtonConvergence(){
+    const NewtonUpdateEstimate update = estimateNormalizedNewtonUpdate(
+        makeVector({2.0002, 2.0e-9}),
+        makeVector({2.0, 0.0}),
+        1,
+        0.0,
+        1.0e-3,
+        1.0e-9
+    );
+    expect(update.valid, "normalized Newton update is valid");
+    expectNear(
+        update.normalizedUpdate,
+        2.0,
+        "Newton update distinguishes voltage and current absolute tolerances"
+    );
+
+    const NewtonResidualEstimate residual = estimateNormalizedNewtonResidual(
+        makeVector({1.0e-3, 2.0e-1}),
+        makeVector({2.0, 1.0}),
+        makeVector({2.0, 0.0}),
+        1,
+        0.1,
+        1.0e-3,
+        1.0e-9
+    );
+    expect(residual.valid, "normalized Newton residual is valid");
+    expectNear(
+        residual.normalizedResidual,
+        2.0e-1 / 1.01e-1,
+        "Newton residual applies current tolerance to KCL rows"
+    );
+
+    const NewtonUpdateEstimate invalid = estimateNormalizedNewtonUpdate(
+        makeVector({1.0}),
+        makeVector({1.0, 2.0}),
+        1,
+        0.0,
+        1.0e-6,
+        1.0e-9
+    );
+    expect(!invalid.valid, "Newton update rejects mismatched dimensions");
+}
+
 } // namespace
 
 int main(){
@@ -1797,6 +1911,7 @@ int main(){
     testPtaMinimumStepCapacitanceRecovery();
     testLinearSolverDiagnostics();
     testLinearFailureDiagnostics();
+    testNewtonRequiresReassembledResidual();
     testRequiresBdf2History();
     testZeroErrorUsesMaximumScale();
     testVoltageAndCurrentAbsoluteTolerances();
@@ -1816,6 +1931,7 @@ int main(){
     testRestartForcesBackwardEuler();
     testAcceptedHistoryRotation();
     testNewtonStepLimiting();
+    testNormalizedNewtonConvergence();
 
     if(failureCount != 0){
         std::cerr << failureCount << " of " << checkCount

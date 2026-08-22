@@ -21,6 +21,34 @@ void applyNewtonOverrides(
     }
     if(overrides.tolerance){
         options.tolerance = *overrides.tolerance;
+        // Keep the pre-normalization configuration key useful: when the
+        // dedicated physical tolerances are absent, its value becomes the
+        // absolute tolerance for both unknown dimensions.
+        if(!overrides.voltageAbsoluteTolerance){
+            options.voltageAbsoluteTolerance = *overrides.tolerance;
+        }
+        if(!overrides.currentAbsoluteTolerance){
+            options.currentAbsoluteTolerance = *overrides.tolerance;
+        }
+    }
+    if(overrides.relativeTolerance){
+        options.relativeTolerance = *overrides.relativeTolerance;
+    }
+    if(overrides.voltageAbsoluteTolerance){
+        options.voltageAbsoluteTolerance =
+            *overrides.voltageAbsoluteTolerance;
+    }
+    if(overrides.currentAbsoluteTolerance){
+        options.currentAbsoluteTolerance =
+            *overrides.currentAbsoluteTolerance;
+    }
+    if(overrides.normalizedUpdateTolerance){
+        options.normalizedUpdateTolerance =
+            *overrides.normalizedUpdateTolerance;
+    }
+    if(overrides.normalizedResidualTolerance){
+        options.normalizedResidualTolerance =
+            *overrides.normalizedResidualTolerance;
     }
     if(overrides.maximumSolutionStep){
         options.maximumSolutionStep = *overrides.maximumSolutionStep;

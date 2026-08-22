@@ -138,6 +138,8 @@ def check_pta_diagnostics(stderr: str) -> None:
         "step=",
         "order=",
         "newton_iterations=",
+        "newton_normalized_update=",
+        "newton_normalized_residual=",
         "normalized_derivative=",
         "normalized_dc_residual=",
         "decision=",

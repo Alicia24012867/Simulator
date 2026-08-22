@@ -103,6 +103,11 @@ void printUsage(std::ostream& output, const char* program){
            << "  --op-option name=value    OP fields: newton.* or source-stepping.*\n"
            << "  --tran-option name=value  TRAN fields: top-level or solver.*\n"
            << "  --pta-option name=value   PTA fields below; --pta selects its mode\n";
+    output << "\nNewton option fields (under newton.*):\n"
+           << "  maximum-iterations, relative-tolerance,\n"
+           << "  voltage-absolute-tolerance, current-absolute-tolerance,\n"
+           << "  normalized-update-tolerance, normalized-residual-tolerance,\n"
+           << "  maximum-solution-step (tolerance is a legacy absolute alias)\n";
     output << "\nPTA option fields:\n"
            << "  initial-step, minimum-step, maximum-step, maximum-steps\n"
            << "  derivative-tolerance, derivative-relative-tolerance,\n"

@@ -7,8 +7,10 @@
 
 #include "analysis/solver_options.hpp"
 #include "analysis/transient_analysis.hpp"
+#include "circuit/node_map.hpp"
 #include "devices/device.hpp"
 #include "devices/pseudo_device.hpp"
+#include "solver/newton_convergence.hpp"
 #include "solver/mna.hpp"
 #include "solver/newton_step.hpp"
 
@@ -84,6 +86,9 @@ bool Circuit::solveNewtonSystem(const AssembleCallback& assemble,
     }
 
     Eigen::VectorXd previous = mna_->solution();
+    Eigen::VectorXd matrixProduct;
+    Eigen::VectorXd residual;
+    const int voltageUnknownCount = nodeMap_->nodeCount();
 
     for(int iter = 0; iter < options.maximumIterations; ++iter){
         stats.iterations = iter + 1;
@@ -114,8 +119,59 @@ bool Circuit::solveNewtonSystem(const AssembleCallback& assemble,
         }
 
         stats.finalDelta = step.delta;
-        if(step.delta < options.tolerance){
-            return finish(true);
+        const NewtonUpdateEstimate updateEstimate =
+            estimateNormalizedNewtonUpdate(
+                current,
+                previous,
+                voltageUnknownCount,
+                options.relativeTolerance,
+                options.voltageAbsoluteTolerance,
+                options.currentAbsoluteTolerance
+            );
+        if(!updateEstimate.valid){
+            return finish(
+                false,
+                "Newton-Raphson normalized update estimate is invalid"
+            );
+        }
+        stats.hasNormalizedUpdate = true;
+        stats.normalizedUpdate = updateEstimate.normalizedUpdate;
+
+        // Reassemble at the candidate solution.  The resulting A*x-b is the
+        // nonlinear defect F(x), unlike the zero residual of the just-solved
+        // linearization.  Avoid this extra stamp until the update is close
+        // enough to be a possible convergence candidate.
+        if(updateEstimate.normalizedUpdate <
+           options.normalizedUpdateTolerance){
+            assemble();
+            if(!mna_->evaluateResidual(matrixProduct, residual)){
+                return finish(
+                    false,
+                    "Newton-Raphson nonlinear residual contains a non-finite value"
+                );
+            }
+            const NewtonResidualEstimate residualEstimate =
+                estimateNormalizedNewtonResidual(
+                    residual,
+                    matrixProduct,
+                    mna_->rhs(),
+                    voltageUnknownCount,
+                    options.relativeTolerance,
+                    options.voltageAbsoluteTolerance,
+                    options.currentAbsoluteTolerance
+                );
+            if(!residualEstimate.valid){
+                return finish(
+                    false,
+                    "Newton-Raphson normalized residual estimate is invalid"
+                );
+            }
+            stats.hasNormalizedResidual = true;
+            stats.normalizedResidual = residualEstimate.normalizedResidual;
+            if(residualEstimate.normalizedResidual <
+               options.normalizedResidualTolerance){
+                return finish(true);
+            }
         }
 
         previous = current;

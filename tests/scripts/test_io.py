@@ -124,8 +124,9 @@ def main():
             ):
                 require(expected in report_text, f"solve report missing {expected}")
             require(
-                "Final Newton update infinity norm:" not in report_text
-                and "Convergence tolerance:" not in report_text,
+                "Final update infinity norm:" not in report_text
+                and "Final normalized update:" not in report_text
+                and "Final normalized residual:" not in report_text,
                 "linear OP/TRAN report included inapplicable Newton metrics",
             )
 

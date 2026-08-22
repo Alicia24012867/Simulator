@@ -270,6 +270,11 @@ void testConfigOverrideParsing(){
                     "newton": {
                         "maximum_iterations": 41,
                         "tolerance": "2n",
+                        "relative_tolerance": 0.002,
+                        "voltage_absolute_tolerance": "3u",
+                        "current_absolute_tolerance": "4n",
+                        "normalized_update_tolerance": 0.8,
+                        "normalized_residual_tolerance": 0.9,
                         "maximum_solution_step": 0.25
                     },
                     "source_stepping": {
@@ -318,6 +323,24 @@ void testConfigOverrideParsing(){
             overrides.operatingPoint->newton->maximumIterations &&
             *overrides.operatingPoint->newton->maximumIterations == 41,
         "OP Newton integer override is retained"
+    );
+    expect(
+        overrides.operatingPoint && overrides.operatingPoint->newton &&
+            overrides.operatingPoint->newton->relativeTolerance &&
+            *overrides.operatingPoint->newton->relativeTolerance == 0.002 &&
+            overrides.operatingPoint->newton->voltageAbsoluteTolerance &&
+            *overrides.operatingPoint->newton->voltageAbsoluteTolerance ==
+                3.0e-6 &&
+            overrides.operatingPoint->newton->currentAbsoluteTolerance &&
+            *overrides.operatingPoint->newton->currentAbsoluteTolerance ==
+                4.0e-9 &&
+            overrides.operatingPoint->newton->normalizedUpdateTolerance &&
+            *overrides.operatingPoint->newton->normalizedUpdateTolerance ==
+                0.8 &&
+            overrides.operatingPoint->newton->normalizedResidualTolerance &&
+            *overrides.operatingPoint->newton->normalizedResidualTolerance ==
+                0.9,
+        "OP normalized Newton convergence fields are retained"
     );
     expect(
         overrides.operatingPoint &&
@@ -419,6 +442,9 @@ void testConfigOverrideApplication(){
                     "newton": {
                         "maximum_iterations": 31,
                         "tolerance": "4n",
+                        "relative_tolerance": 0.002,
+                        "voltage_absolute_tolerance": "3u",
+                        "normalized_residual_tolerance": 0.75,
                         "maximum_solution_step": 0.5
                     },
                     "source_stepping": {
@@ -467,8 +493,12 @@ void testConfigOverrideApplication(){
     expect(
         operatingPoint.newton.maximumIterations == 31 &&
             operatingPoint.newton.tolerance == 4e-9 &&
+            operatingPoint.newton.relativeTolerance == 0.002 &&
+            operatingPoint.newton.voltageAbsoluteTolerance == 3e-6 &&
+            operatingPoint.newton.currentAbsoluteTolerance == 4e-9 &&
+            operatingPoint.newton.normalizedResidualTolerance == 0.75 &&
             operatingPoint.newton.maximumSolutionStep == 0.5,
-        "OP Newton overrides are applied"
+        "OP mixed-unit Newton overrides are applied"
     );
     expect(
         !operatingPoint.sourceStepping.enabled &&
@@ -564,6 +594,16 @@ void testCommandLineOverrideApplication(){
             error
         ) && !operatingPoint.sourceStepping.enabled,
         "OP command-line source-stepping override is applied"
+    );
+    expect(
+        simulator::config::applyOperatingPointOption(
+            "newton.current_absolute_tolerance=5n",
+            operatingPoint,
+            key,
+            error
+        ) && key == "newton.current-absolute-tolerance" &&
+            operatingPoint.newton.currentAbsoluteTolerance == 5e-9,
+        "OP command-line normalized Newton tolerance is applied"
     );
     expect(
         simulator::config::applyPtaOption(

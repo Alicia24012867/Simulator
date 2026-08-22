@@ -4,12 +4,37 @@
 
 struct NewtonSolverOptions {
     int maximumIterations = 1000;
+    // Legacy unified absolute tolerance.  New configuration should prefer the
+    // voltage/current tolerances below; configuration and CLI users that set
+    // this field still update both of them for backward compatibility.
     double tolerance = 1.0e-9;
+    // The Newton update is normalized per unknown: node voltages use the
+    // voltage absolute tolerance and branch currents use the current one.
+    // Defaults reproduce the former strict 1 n raw-update gate.  Relative
+    // tolerance is opt-in so existing OP/PTA behavior remains stable while
+    // experiments can select physically scaled mixed-unit tolerances.
+    double relativeTolerance = 0.0;
+    double voltageAbsoluteTolerance = 1.0e-9;
+    double currentAbsoluteTolerance = 1.0e-9;
+    // Both normalized metrics must be below their respective limits before a
+    // nonlinear solve is accepted.  A value of one corresponds to the usual
+    // absolute-plus-relative tolerance test.
+    double normalizedUpdateTolerance = 1.0;
+    double normalizedResidualTolerance = 1.0;
     double maximumSolutionStep = 1.0;
 
     bool valid() const noexcept {
         return maximumIterations > 0 &&
             std::isfinite(tolerance) && tolerance > 0.0 &&
+            std::isfinite(relativeTolerance) && relativeTolerance >= 0.0 &&
+            std::isfinite(voltageAbsoluteTolerance) &&
+            voltageAbsoluteTolerance > 0.0 &&
+            std::isfinite(currentAbsoluteTolerance) &&
+            currentAbsoluteTolerance > 0.0 &&
+            std::isfinite(normalizedUpdateTolerance) &&
+            normalizedUpdateTolerance > 0.0 &&
+            std::isfinite(normalizedResidualTolerance) &&
+            normalizedResidualTolerance > 0.0 &&
             std::isfinite(maximumSolutionStep) &&
             maximumSolutionStep > 0.0;
     }

@@ -410,7 +410,19 @@ void SpiceOutputWriter::writePtaDiagnostics(std::ostream& os,
            << " newton="
            << (attempt.newton.converged ? "converged" : "failed")
            << " newton_iterations=" << attempt.newton.iterations
-           << " damped_steps=" << attempt.newton.dampedSteps;
+           << " damped_steps=" << attempt.newton.dampedSteps
+           << " newton_normalized_update=";
+        if(attempt.newton.hasNormalizedUpdate){
+            os << attempt.newton.normalizedUpdate;
+        } else {
+            os << "n/a";
+        }
+        os << " newton_normalized_residual=";
+        if(attempt.newton.hasNormalizedResidual){
+            os << attempt.newton.normalizedResidual;
+        } else {
+            os << "n/a";
+        }
         if(attempt.hasConvergenceMetrics){
             os << " normalized_derivative="
                << attempt.normalizedDerivative

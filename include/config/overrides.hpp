@@ -55,6 +55,11 @@ struct NullableOverride {
 struct NewtonOverrides {
     std::optional<int> maximumIterations;
     std::optional<double> tolerance;
+    std::optional<double> relativeTolerance;
+    std::optional<double> voltageAbsoluteTolerance;
+    std::optional<double> currentAbsoluteTolerance;
+    std::optional<double> normalizedUpdateTolerance;
+    std::optional<double> normalizedResidualTolerance;
     std::optional<double> maximumSolutionStep;
 };
 

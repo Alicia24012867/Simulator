@@ -39,6 +39,10 @@ struct NewtonSolveDiagnostics {
     int dampedSteps = 0;
     double finalDelta = 0.0;
     double tolerance = 0.0;
+    bool hasNormalizedUpdate = false;
+    double normalizedUpdate = 0.0;
+    bool hasNormalizedResidual = false;
+    double normalizedResidual = 0.0;
     double cpuSeconds = 0.0;
     double wallSeconds = 0.0;
     std::string failureReason;
