@@ -4,11 +4,17 @@
 
 本项目实现的是明确受限的 SPICE 子集，并非完整 ngspice 替代品。I/O 层遵循常见 SPICE netlist、`.print` listing 和 ASCII rawfile 约定，未支持的控制卡或输出表达式会直接报错，不会静默忽略。
 
-## PTA research-beta-v2 里程碑
+## PTA research-beta-v2 基线与后续验证
 
-当前提交将作为 `research-beta-v2` 冻结，用于 PTA 收敛策略、伪元件放置、步长控制、失败恢复与局部 trust-region 的试验性研究。它是可复现的研究原型，而不是生产级 SPICE 发布：研究结论必须保留所用 Git commit/tag、输入网表、完整配置、命令行与对应的 `.pta.jsonl`。建议对每个困难电路同时记录 ordinary、`--pta force` 和 `--pta fallback` 的结果，区分“PTA 能收敛”与“PTA 在可接受代价下更稳健”。
+`research-beta-v2` 冻结了归一化 trust-region 的初始研究基线，用于 PTA 收敛策略、伪元件放置、步长控制和失败恢复的试验性研究。后续提交在该基线之上增加“trust-region 重试耗尽后的检查点恢复”：带 BJT/MOS limiter seed 的 PTA 在同一伪时间点从预测解和器件迭代状态重新开始，以 Armijo/受控非单调 Newton 复核一次；未使用 seed 的 PTA 保持 trust-region 路径。tag 不会被移动，研究结论必须记录所用 Git commit/tag、输入网表、完整配置、命令行与对应 `.pta.jsonl`。
 
-此里程碑将归一化 trust-region 置于每个 PTA 伪时间点的 Newton 层，并保持伪时间缩步、残差定向单节点增容及独立导数/DC 残差稳态判据。其余可复现实验基础包括逐尝试轨迹、严格 BDF2 LTE 的 TRAN 对照路径，以及 `.nodeset` / `.ic` / 器件 `IC=` 初态控制。默认回归通过只能证明受覆盖范围内的实现一致性；跨拓扑、跨参数尺度的鲁棒性和性能结论仍须由后续实验建立。
+该项目是可复现的研究原型，而不是生产级 SPICE 发布。建议对每个困难电路同时记录 ordinary、`--pta force` 和 `--pta fallback` 的结果，区分“PTA 能收敛”与“PTA 在可接受代价下更稳健”。默认回归通过只能证明受覆盖范围内的实现一致性；跨拓扑、跨参数尺度的鲁棒性和性能结论仍须由后续实验建立。
+
+### 当前本地验证基线
+
+本轮在 `-O3` 构建下完成了默认、PTA 与私有网表验证：`make test` 全绿（PTA/TRAN 数值单元 227/227、core 81/81、config 71/71、I/O 7/7；OP 18/18、76 个参考值；TRAN 18/18、863 个参考值；MOS3 OP 4/4 与 TRAN 1/1；递归网表解析 48/48）；PTA Force/Fallback 均通过 18/18、76 个 ngspice OP 参考值；多稳态 CMOS 锁存器夹具仍选择 `q-high` 支路。`make test-private` 的 6/6 网表均能完成并写出 artifact，其中 D1 用 18 次 PTA 尝试收敛，UA741PFBx10 用 498 次 PTA 尝试、约 37.3 s 收敛。
+
+私有网表结果只验证当前实现的收敛与 artifact 完整性，并没有被纳入默认门槛；尤其 UA741PFBx10 没有独立的 ngspice 数值参考，不能据此宣称模型精度或性能普适性。它们应作为困难收敛研究的可重放观察项，保留其 `.pta.jsonl` 与 `.solve.txt`，而非生产级正确性证明。
 
 ## 代码结构
 
@@ -124,7 +130,7 @@
 
 同一 PTA 选项不可重复指定；所有覆盖值会在建模前统一执行配置校验，非法范围或相互矛盾的边界会以命令行错误退出。
 
-PTA 在 MNA pattern 固化前加入人工伪元件：独立电压源 branch 上的伪电感、独立电流源两端的伪电容，以及晶体管节点到地的伪电容。其伪时间迭代复用现有的 Backward Euler / 受步长比限制的 BDF2 `TransientIntegrator`；每一步以归一化 BDF 导数和归一化原始 OP 残差共同判定稳态。导数指标为 `h*|dx/dt| / (abstol + reltol*scale)`；残差指标为 `|Ax-b| / (abstol + reltol*max(|Ax|, |b|))`。二者都会区分节点 KCL 行的电流绝对容差与电压源支路行的电压绝对容差，`derivative-tolerance` 和 `dc-residual-tolerance` 是对应的无量纲阈值。使用 `--pta-diagnostics` 可将 PTA 是否实际执行、收敛指标、局部增容次数、节点降容次数和最小步长恢复次数写至 stderr，并同步保存在结果目录的 `.err` 中；每次尝试还会记录伪时间区间、步长、BE/BDF2 阶数、Newton 迭代/阻尼次数、导数/残差，以及缩步、最小步局部增容重启和振荡降容的决定与原因。同一人类可读轨迹也写入 `.solve.txt`。Newton 失败时先缩小伪时间步长；在最小步长仍失败时，按 PTA KCL 残差选择一个仍有余量的节点伪电容并重启积分历史。每个成功步后，伪时间步会按 `successful-step-scale` 增长，同时仍受最大步长和 BDF2 步长比限制；节点电压变化反向时会按相邻步变化幅度比降低该节点伪电容，两个 ratio 参数分别划分小/中及中/重振荡。
+PTA 在 MNA pattern 固化前加入人工伪元件：独立电压源 branch 上的伪电感、独立电流源两端的伪电容，以及晶体管节点到地的伪电容。其伪时间迭代复用现有的 Backward Euler / 受步长比限制的 BDF2 `TransientIntegrator`；每一步以归一化 BDF 导数和归一化原始 OP 残差共同判定稳态。导数指标为 `h*|dx/dt| / (abstol + reltol*scale)`；残差指标为 `|Ax-b| / (abstol + reltol*max(|Ax|, |b|))`。二者都会区分节点 KCL 行的电流绝对容差与电压源支路行的电压绝对容差，`derivative-tolerance` 和 `dc-residual-tolerance` 是对应的无量纲阈值。使用 `--pta-diagnostics` 可将 PTA 是否实际执行、收敛指标、局部增容次数、节点降容次数和最小步长恢复次数写至 stderr，并同步保存在结果目录的 `.err` 中；每次尝试还会记录伪时间区间、步长、BE/BDF2 阶数、Newton 迭代/阻尼次数、导数/残差，以及缩步、最小步局部增容重启和振荡降容的决定与原因。同一人类可读轨迹也写入 `.solve.txt`。带 BJT/MOS limiter seed 的 PTA 在任一伪时间点耗尽 trust-region 重试时，会从同一检查点重新执行其非单调 Newton 策略；该恢复仍失败才缩小伪时间步，随后才可能在最小步长按 PTA KCL 残差选择一个仍有余量的节点伪电容并重启积分历史。未使用 limiter seed 的 PTA 保持 trust-region 路径，以保留连续跟踪到的稳定支路。每个成功步后，伪时间步会按 `successful-step-scale` 增长，同时仍受最大步长和 BDF2 步长比限制；节点电压变化反向时会按相邻步变化幅度比降低该节点伪电容，两个 ratio 参数分别划分小/中及中/重振荡。
 
 该功能仍处于实验阶段。自适应规则具有单元测试，并有一条端到端夹具覆盖“最小步长失败 → 按残差选择单节点增容 → 重启 → 恢复收敛”路径及后续节点降容。当前 Force 与 Fallback OP 回归覆盖 18 个网表、76 个输出值，并包含一个多稳态困难锁存器。归一化导数收敛已避免固定绝对阈值随伪时间步和未知量量级失真的问题；其默认容差与困难非线性电路的鲁棒性仍需更广泛的基准验证。因此 `force` 与 `fallback` 可用于回归和实验，但暂不视为生产求解保证。
 
@@ -309,7 +315,7 @@ make
 允许的字段如下；未知字段、错误类型、无穷数和非法 SPICE 数值都会以配置错误退出。
 
 - `debug`：布尔值，默认 `true`。控制是否写出同名 `.solve.txt` 报告；命令行 `--debug true|false` 的优先级更高。
-- `op.newton`：`maximum_iterations`、`relative_tolerance`、`voltage_absolute_tolerance`、`current_absolute_tolerance`、`normalized_update_tolerance`、`normalized_residual_tolerance`、`maximum_backtracks`、`backtrack_scale`、`sufficient_decrease`、`maximum_solution_step`、`maximum_consecutive_non_monotone_steps`、`maximum_non_monotone_residual_growth`，以及所有 `trust_region_*` 字段和 `maximum_trust_region_retries`。`tolerance` 保留为兼容字段；若设置且未分别设置电压/电流绝对容差，它会同时设定二者。OP、TRAN 与 PTA 默认使用归一化 trust-region：在同一线性化点比较预测与实际残差下降，并据其比值接受/拒绝候选、缩小或扩大半径。OP/TRAN 的初始半径为 `0` 时自动采用首个 raw-step-limited Newton 方向的归一化步长；PTA 默认使用保守的有限半径 `1e8`，避免首个伪元件 stamp 的 branch-current 更新将半径放大。`trust_region_enabled=false` 可恢复原先的 Armijo 回溯与受控非单调策略。PTA 的伪时间缩步、残差定向增容及独立导数/DC 残差判据仍保留在该局部 Newton 接受机制之外。
+- `op.newton`：`maximum_iterations`、`relative_tolerance`、`voltage_absolute_tolerance`、`current_absolute_tolerance`、`normalized_update_tolerance`、`normalized_residual_tolerance`、`maximum_backtracks`、`backtrack_scale`、`sufficient_decrease`、`maximum_solution_step`、`maximum_consecutive_non_monotone_steps`、`maximum_non_monotone_residual_growth`，以及所有 `trust_region_*` 字段和 `maximum_trust_region_retries`。`tolerance` 保留为兼容字段；若设置且未分别设置电压/电流绝对容差，它会同时设定二者。OP、TRAN 与 PTA 默认使用归一化 trust-region：在同一线性化点比较预测与实际残差下降，并据其比值接受/拒绝候选、缩小或扩大半径。OP/TRAN 的初始半径为 `0` 时自动采用首个 raw-step-limited Newton 方向的归一化步长；PTA 默认使用保守的有限半径 `1e8`，避免首个伪元件 stamp 的 branch-current 更新将半径放大。`trust_region_enabled=false` 可恢复原先的 Armijo 回溯与受控非单调策略。带 BJT/MOS limiter seed 的 PTA 在任一伪时间点耗尽重试后，会从同一试探伪时间点执行一次 PTA 非单调恢复；该恢复仍失败才会进入 PTA 的伪时间缩步或残差定向增容。独立导数/DC 残差判据始终位于这些局部 Newton 接受机制之外。
 - `op.source_stepping`：`enabled`、`initial_step`、`maximum_step`、`minimum_step`、`growth_factor`、`failure_scale`。
 - `pta.newton`：与 `op.newton` 相同。`pta` 还支持 `mode`、`initial_step`、`minimum_step`、`maximum_step`、`maximum_steps`、所有 `derivative_*` 与 `dc_*` 容差、`initial_node_capacitance`、`minimum_node_capacitance`、`maximum_node_capacitance`、`current_source_capacitance`、`voltage_source_inductance`、`compound_time_constant`、`compound_initial_resistance`、`compound_initial_conductance`、`source_ramp_time`、`initial_mos_vgs`、`initial_bjt_vbe`、所有振荡/电容缩放字段，以及 `include_mos_bulk`、`include_diodes`。
 - `tran`：`enabled`、`output_interval`、`stop_time`、`output_start_time`、`maximum_step`、`use_initial_conditions`。
@@ -389,7 +395,18 @@ tests/
 make test
 ```
 
-`make test-unit` 可单独运行瞬态/PTA 数值单元测试（当前含 222 项检查，其中覆盖均匀与非均匀网格 BDF2 LTE 缺陷、Jacobian 投影后的误差归一化、三次根控制律和 PTA trust-region），`make test-core` 可单独运行命令行和 SPICE 字符串工具单元测试，`make test-config` 可单独运行配置模块单元测试和配置 CLI 端到端测试。
+`make test-unit` 可单独运行瞬态/PTA 数值单元测试（当前含 227 项检查，其中覆盖均匀与非均匀网格 BDF2 LTE 缺陷、Jacobian 投影后的误差归一化、三次根控制律，以及 PTA trust-region 耗尽后的检查点恢复），`make test-core` 可单独运行命令行和 SPICE 字符串工具单元测试，`make test-config` 可单独运行配置模块单元测试和配置 CLI 端到端测试。
+
+研究 PTA 时，默认门槛之外还应运行：
+
+```sh
+make pta-force-standard
+make pta-fallback-standard
+make test-pta-hard-op
+make test-private
+```
+
+前两项将标准 OP 网表与 ngspice 参考比较；困难锁存器检查所选多稳态支路；私有网表仅检查求解状态和规范 artifact，不构成额外的默认发布门槛。
 
 `make test-op` 与 `make test-tran` 会在每个网表执行后输出一条
 `TIME <analysis> <case> <milliseconds> PASS/FAIL`，并输出该分析组的总墙钟时间。单例时间覆盖 simulator 子进程启动、解析、建模、求解以及四个 artifact 写出；rawfile 校验和 ngspice 对照时间不包含在其中，便于 PTA 前后比较求解端到端开销。
@@ -514,8 +531,8 @@ tests/
 - 不支持 `PULSE`、`SIN`、`PWL` 等时变独立源，因此瞬态阶跃测试使用 `UIC` 和固定 DC 源构造 t=0 激励。
 - 瞬态使用首步 Backward Euler 与受步长比限制的可变步长 BDF2；BDF2 使用基于三阶差商、动态器件导数残差和 MNA Jacobian 投影的严格 LTE 估计，启动阶段仍使用 BE step-doubling。严格残差目前覆盖独立 `C`、`L` 以及当前 MOS3 companion charge 模型的端点切线电容；尚未实现事件断点对齐、高于 BDF2 的积分公式，或完整半导体电荷模型的 LTE 残差。
 - `.nodeset V(node)=value` 作为 OP 的 Newton 初值提示，不会固定最终解；`.ic V(node[,reference])=value` 在 `UIC` 下构造 t=0 状态、在非 `UIC` 分析中作为较强初值提示。电容 `IC=<V>`、电感 `IC=<A>`、BJT `IC=<VBE>,<VCE>` 和 MOS `IC=<VDS>,<VGS>,<VBS>` 同样参与该初值构造；矛盾的显式电压条件会报错。当前尚未实现带器件方程约束的一致初值求解，浮动的差分 IC 会以其中一端为 0 V 的确定性规范选择表示。
-- Newton 同时检查按未知量量纲归一化的更新量和在候选解重新 stamp 后得到的非线性残差；节点电压使用电压绝对容差，branch current 使用电流绝对容差，而 KCL 残差行的量纲相反。OP、TRAN 与 PTA 默认使用自适应 trust-region：在同一线性化点比较固定行权重下的预测/实际残差下降，按一致性比值接受或拒绝候选并调整半径；拒绝会在该线性化点重试。关闭 trust-region 后恢复 Armijo 回溯与受配置次数/残差增长上限约束的完整受限步。瞬态失败仍会缩小时间步并在上一个已接受状态重试；PTA 保留其伪时间缩步、残差定向增容和独立导数/DC 残差判据。
-- PTA 已具备伪元件 stamp、BE/BDF2 伪时间推进、失败缩步，以及最小步失败时按伪系统 KCL 残差选取单个节点增容；成功步后仍按逐节点振荡降容。导数与 DC 残差判据已经归一化。局部 trust-region 的半径仅约束同一伪时间点内的 Newton 更新，不替代 PTA 的步长、增容与稳定判据。当前 18 个 OP / 76 个输出值的 Force 与 Fallback 回归及一个多稳态困难锁存器构成研究测试基线，但默认容差、跨模型鲁棒性和性能结论仍需通过更广泛的困难非线性电路基准验证。因此它适合作为 PTA 算法研究的可追溯测试版，而不作为生产级 SPICE 求解保证。
+- Newton 同时检查按未知量量纲归一化的更新量和在候选解重新 stamp 后得到的非线性残差；节点电压使用电压绝对容差，branch current 使用电流绝对容差，而 KCL 残差行的量纲相反。OP、TRAN 与 PTA 默认使用自适应 trust-region：在同一线性化点比较固定行权重下的预测/实际残差下降，按一致性比值接受或拒绝候选并调整半径；拒绝会在该线性化点重试。关闭 trust-region 后恢复 Armijo 回溯与受配置次数/残差增长上限约束的完整受限步。带 limiter seed 的 PTA 在任一伪时间点耗尽 trust-region 重试后，会从同一试探状态运行一次独立的非单调恢复；两者均失败时才缩小伪时间步或在最小步增长残差选定的伪电容。无 seed 的 PTA 保持 trust-region 连续跟踪，以避免局部恢复跳转至另一稳定支路。瞬态失败仍会缩小时间步并在上一个已接受状态重试；PTA 的独立导数/DC 残差判据保持不变。
+- PTA 已具备伪元件 stamp、BE/BDF2 伪时间推进、失败缩步，以及最小步失败时按伪系统 KCL 残差选取单个节点增容；成功步后仍按逐节点振荡降容。导数与 DC 残差判据已经归一化。局部 trust-region 的半径仅约束同一伪时间点内的 Newton 更新，而带 limiter seed 的检查点恢复允许其拒绝模型时交由 PTA 的非单调局部策略复核；它们都不替代 PTA 的步长、增容与稳定判据。当前 18 个 OP / 76 个输出值的 Force 与 Fallback 回归及一个多稳态困难锁存器构成研究测试基线，但默认容差、跨模型鲁棒性和性能结论仍需通过更广泛的困难非线性电路基准验证。因此它适合作为 PTA 算法研究的可追溯测试版，而不作为生产级 SPICE 求解保证。
 - 不支持 `.include`、`.lib`、全局 `.param`、`.temp`、`.save`。
 - 不支持受控源 `E/F/G/H`、行为源、AC/noise 分析。
 - 二极管、BJT 和 MOSFET 仍是有限子集。MOS3 已实现 DC channel current、`RD`/`RS`、`RSH*NRD/NRS`、B-D′/B-S′ 结电流及其耗尽结电容、`CGSO`/`CGDO`/`CGBO` 重叠电容，以及带已接受 Qgs/Qgd/Qgb 和结电荷历史的瞬态 companion；含 MOS3 的 UIC 使用 BE step-doubling。器件温度尚未实现。
