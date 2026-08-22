@@ -228,16 +228,76 @@ public:
         stampMos3MeyerCharges(ctx);
     }
 
+    void initializeTransientHistory(const Eigen::VectorXd& solution) override{
+        if(!model_ || !model_->isMos3()) return;
+        const auto core = coreNodes();
+        const Mos3MeyerCapacitances capacitances =
+            evaluateMeyerCapacitances(solution);
+        for(int pair = 0; pair < 3; ++pair){
+            const int negative = kMeyerNegativeTerminals[pair];
+            meyerChargeN_[pair] = capacitanceAt(capacitances, pair) * (
+                voltageAt(solution, core, 1) - voltageAt(solution, core, negative)
+            );
+        }
+        meyerChargeNm1_ = meyerChargeN_;
+        for(int junction = 0; junction < 2; ++junction){
+            const int terminal = kJunctionTerminals[junction];
+            junctionChargeN_[junction] =
+                evaluateMos3JunctionCapacitance(solution, terminal) * (
+                    voltageAt(solution, core, 3) - voltageAt(solution, core, terminal)
+                );
+        }
+        junctionChargeNm1_ = junctionChargeN_;
+    }
+
+    void acceptTransientSolution(const Eigen::VectorXd& previous,
+                                 const Eigen::VectorXd& accepted) override{
+        if(!model_ || !model_->isMos3()) return;
+        const auto core = coreNodes();
+        const Mos3MeyerCapacitances capacitances =
+            evaluateMeyerCapacitances(previous);
+        std::array<double, 3> nextCharge = meyerChargeN_;
+        for(int pair = 0; pair < 3; ++pair){
+            const int negative = kMeyerNegativeTerminals[pair];
+            const double voltageChange =
+                voltageAt(accepted, core, 1) - voltageAt(accepted, core, negative) -
+                voltageAt(previous, core, 1) + voltageAt(previous, core, negative);
+            nextCharge[pair] += capacitanceAt(capacitances, pair) * voltageChange;
+        }
+        meyerChargeNm1_ = meyerChargeN_;
+        meyerChargeN_ = nextCharge;
+
+        std::array<double, 2> nextJunctionCharge = junctionChargeN_;
+        for(int junction = 0; junction < 2; ++junction){
+            const int terminal = kJunctionTerminals[junction];
+            const double voltageChange =
+                voltageAt(accepted, core, 3) - voltageAt(accepted, core, terminal) -
+                voltageAt(previous, core, 3) + voltageAt(previous, core, terminal);
+            nextJunctionCharge[junction] +=
+                evaluateMos3JunctionCapacitance(previous, terminal) * voltageChange;
+        }
+        junctionChargeNm1_ = junctionChargeN_;
+        junctionChargeN_ = nextJunctionCharge;
+    }
+
     void saveIterationState() override{
         savedPreviousVgs_ = previousVgs_;
         savedPreviousVgd_ = previousVgd_;
         savedHasPreviousVoltages_ = hasPreviousVoltages_;
+        savedMeyerChargeN_ = meyerChargeN_;
+        savedMeyerChargeNm1_ = meyerChargeNm1_;
+        savedJunctionChargeN_ = junctionChargeN_;
+        savedJunctionChargeNm1_ = junctionChargeNm1_;
     }
 
     void restoreIterationState() override{
         previousVgs_ = savedPreviousVgs_;
         previousVgd_ = savedPreviousVgd_;
         hasPreviousVoltages_ = savedHasPreviousVoltages_;
+        meyerChargeN_ = savedMeyerChargeN_;
+        meyerChargeNm1_ = savedMeyerChargeNm1_;
+        junctionChargeN_ = savedJunctionChargeN_;
+        junctionChargeNm1_ = savedJunctionChargeNm1_;
     }
 
 private:
@@ -437,49 +497,15 @@ private:
     }
 
     void stampMos3JunctionCharges(const TransientStampContext& ctx){
-        const auto& card = model_->mos3();
-        const double multiplicity = std::max(instance_.m, 1e-30);
-        const double potential = valueOrZero(card.pb) > 0.0
-            ? valueOrZero(card.pb) : 0.8;
-        const double bottomGrading = card.mj ? *card.mj : 0.5;
-        const double sidewallGrading = card.mjsw ? *card.mjsw : 0.33;
-        const double forwardBiasCoeff = card.fc ? *card.fc : 0.5;
-        const double bottomDensity = valueOrZero(card.cj);
-        const double sidewallDensity = valueOrZero(card.cjsw);
-        const double polarity = model_->type() == ModelType::PMOS ? -1.0 : 1.0;
         const auto core = coreNodes();
-
-        const auto stampJunction = [&](int terminal, double area,
-                                       double perimeter,
-                                       const std::optional<double>& explicitCapacitance){
-            const double bottomCapacitance = explicitCapacitance
-                ? *explicitCapacitance * multiplicity
-                : bottomDensity * std::max(area, 0.0) * multiplicity;
-            const double sidewallCapacitance =
-                sidewallDensity * std::max(perimeter, 0.0) * multiplicity;
-            if(bottomCapacitance <= 0.0 && sidewallCapacitance <= 0.0) return;
-
-            const auto voltageAt = [&](const Eigen::VectorXd& solution){
-                return polarity * (
-                    (core[3] >= 0 ? solution[core[3]] : 0.0) -
-                    (core[terminal] >= 0 ? solution[core[terminal]] : 0.0)
-                );
-            };
-            const double capacitance = evaluateJunctionCapacitance(
-                voltageAt(ctx.previousSolution), bottomCapacitance,
-                sidewallCapacitance, potential, bottomGrading, sidewallGrading,
-                forwardBiasCoeff
+        for(int junction = 0; junction < 2; ++junction){
+            const int terminal = kJunctionTerminals[junction];
+            stampChargeCompanion(
+                ctx, core, 3, terminal,
+                evaluateMos3JunctionCapacitance(ctx.previousSolution, terminal),
+                junctionChargeN_[junction], junctionChargeNm1_[junction]
             );
-            // Re-evaluate the voltage-dependent depletion capacitance from
-            // each accepted state.  Keeping it fixed during the following
-            // Newton solve gives the same stable companion form as an
-            // ordinary capacitor while retaining the MOS3 C-V law between
-            // transient steps.
-            stampTransientCapacitor(ctx, core, 3, terminal, capacitance);
-        };
-
-        stampJunction(0, instance_.ad, instance_.pd, card.cbd);
-        stampJunction(2, instance_.as, instance_.ps, card.cbs);
+        }
     }
 
     void stampMos3OverlapCharges(const TransientStampContext& ctx){
@@ -505,17 +531,99 @@ private:
 
     void stampMos3MeyerCharges(const TransientStampContext& ctx){
         const auto core = coreNodes();
-        const auto voltageAt = [&](int terminal){
-            return core[terminal] >= 0 ? ctx.previousSolution[core[terminal]] : 0.0;
-        };
         const Mos3MeyerCapacitances capacitances =
-            evaluateMos3MeyerCapacitances(
-                voltageAt(0), voltageAt(1), voltageAt(2), voltageAt(3),
-                *model_, instance_
+            evaluateMeyerCapacitances(ctx.previousSolution);
+        for(int pair = 0; pair < 3; ++pair){
+            stampChargeCompanion(
+                ctx, core, 1, kMeyerNegativeTerminals[pair],
+                capacitanceAt(capacitances, pair), meyerChargeN_[pair],
+                meyerChargeNm1_[pair]
             );
-        stampTransientCapacitor(ctx, core, 1, 2, capacitances.cgs);
-        stampTransientCapacitor(ctx, core, 1, 0, capacitances.cgd);
-        stampTransientCapacitor(ctx, core, 1, 3, capacitances.cgb);
+        }
+    }
+
+    static constexpr std::array<int, 3> kMeyerNegativeTerminals = {2, 0, 3};
+    static constexpr std::array<int, 2> kJunctionTerminals = {0, 2};
+
+    double evaluateMos3JunctionCapacitance(const Eigen::VectorXd& solution,
+                                           int terminal) const{
+        const auto& card = model_->mos3();
+        const double multiplicity = std::max(instance_.m, 1e-30);
+        const double potential = valueOrZero(card.pb) > 0.0
+            ? valueOrZero(card.pb) : 0.8;
+        const double bottomGrading = card.mj ? *card.mj : 0.5;
+        const double sidewallGrading = card.mjsw ? *card.mjsw : 0.33;
+        const double forwardBiasCoeff = card.fc ? *card.fc : 0.5;
+        const bool drain = terminal == 0;
+        const double area = drain ? instance_.ad : instance_.as;
+        const double perimeter = drain ? instance_.pd : instance_.ps;
+        const std::optional<double>& explicitCapacitance =
+            drain ? card.cbd : card.cbs;
+        const double bottomCapacitance = explicitCapacitance
+            ? *explicitCapacitance * multiplicity
+            : valueOrZero(card.cj) * std::max(area, 0.0) * multiplicity;
+        const double sidewallCapacitance = valueOrZero(card.cjsw) *
+            std::max(perimeter, 0.0) * multiplicity;
+        const auto core = coreNodes();
+        const double polarity = model_->type() == ModelType::PMOS ? -1.0 : 1.0;
+        const double junctionVoltage = polarity * (
+            voltageAt(solution, core, 3) - voltageAt(solution, core, terminal)
+        );
+        return evaluateJunctionCapacitance(
+            junctionVoltage, bottomCapacitance, sidewallCapacitance, potential,
+            bottomGrading, sidewallGrading, forwardBiasCoeff
+        );
+    }
+
+    static double voltageAt(const Eigen::VectorXd& solution,
+                            const std::array<int, 4>& core,
+                            int terminal){
+        return core[terminal] >= 0 ? solution[core[terminal]] : 0.0;
+    }
+
+    Mos3MeyerCapacitances evaluateMeyerCapacitances(
+        const Eigen::VectorXd& solution
+    ) const{
+        const auto core = coreNodes();
+        return evaluateMos3MeyerCapacitances(
+            voltageAt(solution, core, 0), voltageAt(solution, core, 1),
+            voltageAt(solution, core, 2), voltageAt(solution, core, 3),
+            *model_, instance_
+        );
+    }
+
+    static double capacitanceAt(const Mos3MeyerCapacitances& capacitances,
+                                int pair){
+        switch(pair){
+            case 0: return capacitances.cgs;
+            case 1: return capacitances.cgd;
+            default: return capacitances.cgb;
+        }
+    }
+
+    void stampChargeCompanion(const TransientStampContext& ctx,
+                              const std::array<int, 4>& core,
+                              int positive,
+                              int negative,
+                              double capacitance,
+                              double previousCharge,
+                              double olderCharge){
+        if(capacitance <= 0.0) return;
+        const double conductance = ctx.derivative.alpha0 * capacitance;
+        const double previousVoltage =
+            voltageAt(ctx.previousSolution, core, positive) -
+            voltageAt(ctx.previousSolution, core, negative);
+        const double history =
+            (ctx.derivative.alpha0 + ctx.derivative.alpha1) * previousCharge +
+            ctx.derivative.alpha2 * olderCharge -
+            ctx.derivative.alpha0 * capacitance * previousVoltage;
+
+        if(A_[positive][positive]) *A_[positive][positive] += conductance;
+        if(A_[positive][negative]) *A_[positive][negative] -= conductance;
+        if(A_[negative][positive]) *A_[negative][positive] -= conductance;
+        if(A_[negative][negative]) *A_[negative][negative] += conductance;
+        if(rhs_[positive]) *rhs_[positive] -= history;
+        if(rhs_[negative]) *rhs_[negative] += history;
     }
 
     void stampTransientCapacitor(const TransientStampContext& ctx,
@@ -551,4 +659,12 @@ private:
     double savedPreviousVgs_ = 0.0;
     double savedPreviousVgd_ = 0.0;
     bool savedHasPreviousVoltages_ = false;
+    std::array<double, 3> meyerChargeN_ = {};
+    std::array<double, 3> meyerChargeNm1_ = {};
+    std::array<double, 3> savedMeyerChargeN_ = {};
+    std::array<double, 3> savedMeyerChargeNm1_ = {};
+    std::array<double, 2> junctionChargeN_ = {};
+    std::array<double, 2> junctionChargeNm1_ = {};
+    std::array<double, 2> savedJunctionChargeN_ = {};
+    std::array<double, 2> savedJunctionChargeNm1_ = {};
 };

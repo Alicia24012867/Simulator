@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 
+#include <Eigen/Core>
+
 enum class DeviceType{
     Resistor,
     Inductor,
@@ -105,6 +107,11 @@ public:
     }
 
     virtual void setOperatingPointSourceScale(double) {}
+
+    virtual void initializeTransientHistory(const Eigen::VectorXd&) {}
+
+    virtual void acceptTransientSolution(const Eigen::VectorXd&,
+                                         const Eigen::VectorXd&) {}
 
     virtual void initializePtaState(double) {}
 

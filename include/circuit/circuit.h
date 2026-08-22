@@ -87,6 +87,7 @@ private:
         double normalizedError = 0.0;
         double suggestedStepScale = 1.0;
         bool converged = false;
+        bool transientHistoryAdvanced = false;
         NewtonSolveDiagnostics newtonStats;
         Eigen::VectorXd solution;
     };
@@ -115,6 +116,9 @@ private:
     void restoreTransientCheckpoint( 
         const Eigen::VectorXd& acceptedSolution
     );
+
+    void advanceTransientHistory(const Eigen::VectorXd& previous,
+                                 const Eigen::VectorXd& accepted);
 
     bool solveNewtonSystem(const AssembleCallback& assemble,
                            NewtonSolveDiagnostics& stats,

@@ -396,7 +396,7 @@ bool Circuit::solveTransient(
         );
     }
 
-    const bool protectMos3UicChargeHistory = config.useInitialConditions &&
+    const bool hasMos3UicChargeHistory = config.useInitialConditions &&
         std::any_of(
             devices_.begin(), devices_.end(),
             [](const std::unique_ptr<Device>& device){
@@ -426,6 +426,9 @@ bool Circuit::solveTransient(
     }
 
     integrator.Initialize(time, initialSolution);
+    for(auto& device: devices_){
+        device->initializeTransientHistory(initialSolution);
+    }
 
     transientStats_.initializationCpuSeconds =
         double(std::clock() - startClock) / CLOCKS_PER_SEC;
@@ -461,10 +464,7 @@ bool Circuit::solveTransient(
             }
         );
 
-        // MOS3 UIC begins with a zero charge state rather than a consistent
-        // voltage/charge history.  Continue with BE step-doubling; BDF2
-        // would otherwise differentiate a fabricated pre-start state.
-        const bool hasBdf2History = !protectMos3UicChargeHistory &&
+        const bool hasBdf2History = !hasMos3UicChargeHistory &&
             integrator.olderSolution() != nullptr;
         if(hasBdf2History){
             const double bdf2StepLimit = std::nextafter(
@@ -548,11 +548,11 @@ bool Circuit::solveTransient(
                 TransientIntegrator coarseIntegrator(
                     integrator.maximumBdf2StepRatio()
                 );
-                if(protectMos3UicChargeHistory){
+                if(hasMos3UicChargeHistory){
                     coarseIntegrator.restartFrom(time, acceptedSolution);
                 }
                 TransientStepAttempt coarse = runTransientAttempt(
-                    protectMos3UicChargeHistory ? coarseIntegrator : integrator,
+                    hasMos3UicChargeHistory ? coarseIntegrator : integrator,
                     nextTime
                 );
                 attempt = coarse;
@@ -575,6 +575,10 @@ bool Circuit::solveTransient(
 
                     if(firstHalf.converged &&
                        firstHalf.integrationOrder == 1){
+                        advanceTransientHistory(
+                            acceptedSolution, firstHalf.solution
+                        );
+                        firstHalf.transientHistoryAdvanced = true;
                         // restartFrom deliberately clears history: the
                         // second half is BE rather than an internal BDF2 step.
                         fineIntegrator.restartFrom(
@@ -590,6 +594,10 @@ bool Circuit::solveTransient(
 
                         if(secondHalf.converged &&
                            secondHalf.integrationOrder == 1){
+                            advanceTransientHistory(
+                                firstHalf.solution, secondHalf.solution
+                            );
+                            secondHalf.transientHistoryAdvanced = true;
                             const TransientErrorEstimate estimate =
                                 estimateTransientSolutionDifference(
                                     acceptedSolution,
@@ -597,7 +605,7 @@ bool Circuit::solveTransient(
                                     coarse.solution,
                                     nodeMap_->nodeCount(),
                                     config.solverOptions,
-                                    !protectMos3UicChargeHistory
+                                    !hasMos3UicChargeHistory
                                 );
 
                             // Commit the fine endpoint, never the coarse
@@ -647,6 +655,11 @@ bool Circuit::solveTransient(
 
             if(decision.action == TransientStepAction::Accept){
                 mna_->setSolution(attempt.solution);
+                if(!attempt.transientHistoryAdvanced){
+                    advanceTransientHistory(
+                        integrator.currentSolution(), attempt.solution
+                    );
+                }
                 integrator.accept(nextTime, std::move(attempt.solution));
 
                 time = nextTime;
@@ -1076,6 +1089,13 @@ void Circuit::addTransientStats(const NewtonSolveDiagnostics& stats){
 void Circuit::restoreTransientCheckpoint(const Eigen::VectorXd& acceptedSolution){
     restoreNonlinearIterationStates();
     mna_->setSolution(acceptedSolution);
+}
+
+void Circuit::advanceTransientHistory(const Eigen::VectorXd& previous,
+                                      const Eigen::VectorXd& accepted){
+    for(auto& device: devices_){
+        device->acceptTransientSolution(previous, accepted);
+    }
 }
 
 bool Circuit::solveOperatingPointWithSourceStepping(
