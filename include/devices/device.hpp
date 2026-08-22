@@ -54,6 +54,7 @@ class Circuit;
 class MNA;
 class NodeMap;
 struct TransientStampContext;
+struct TransientLteContext;
 class Device{
 public:
     Device(std::string n, std::vector<std::string> ns, DeviceType t): name(n), nodes(ns), type(t){}
@@ -105,6 +106,11 @@ public:
         //default: 
         stampOperatingPoint();
     }
+
+    virtual void stampTransientLteDefect(
+        const TransientLteContext&,
+        Eigen::VectorXd&
+    ) const {}
 
     virtual void setOperatingPointSourceScale(double) {}
 

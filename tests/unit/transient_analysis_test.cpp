@@ -204,6 +204,20 @@ TransientIntegrator makeIntegratorWithHistory(
     return integrator;
 }
 
+TransientIntegrator makeIntegratorWithStrictHistory(
+    const Eigen::VectorXd& solutionNm2,
+    const Eigen::VectorXd& solutionNm1,
+    const Eigen::VectorXd& solutionN,
+    double timeNm1 = 1.0,
+    double timeN = 2.0
+){
+    TransientIntegrator integrator;
+    integrator.initialize(0.0, solutionNm2);
+    integrator.accept(timeNm1, solutionNm1);
+    integrator.accept(timeN, solutionN);
+    return integrator;
+}
+
 TransientSolverOptions makeAbsoluteOnlyOptions(){
     TransientSolverOptions options;
     options.relativeTolerance = 0.0;
@@ -1314,8 +1328,8 @@ void testInvalidInputs(){
     );
 }
 
-// Characterization test for the current O(h^2) linear-predictor proxy.
-// Replace this expectation if estimateError becomes a strict BDF2 LTE estimate.
+// The compatibility proxy remains available to direct callers, while Circuit
+// uses the strict defect estimator below for adaptive transient stepping.
 void testQuadraticSolutionCharacterizesProxy(){
     const TransientIntegrator integrator = makeIntegratorWithHistory(
         makeVector({0.0}),
@@ -1340,6 +1354,99 @@ void testQuadraticSolutionCharacterizesProxy(){
         estimate.suggestedScale,
         options.safetyFactor / std::sqrt(2.0),
         "quadratic proxy uses second-order scale exponent"
+    );
+}
+
+void testStrictBdf2LteRejectsInsufficientHistory(){
+    const TransientIntegrator integrator = makeIntegratorWithHistory(
+        makeVector({0.0}),
+        makeVector({1.0})
+    );
+
+    const TransientLteDefect defect = integrator.strictBdf2Defect(
+        2.0,
+        makeVector({4.0})
+    );
+    expect(!defect.valid, "strict BDF2 LTE requires three accepted states");
+}
+
+void testStrictBdf2LteIsExactForQuadratic(){
+    const TransientIntegrator integrator = makeIntegratorWithStrictHistory(
+        makeVector({0.0}),
+        makeVector({1.0}),
+        makeVector({4.0})
+    );
+
+    const TransientLteDefect defect = integrator.strictBdf2Defect(
+        3.0,
+        makeVector({9.0})
+    );
+    expect(defect.valid, "strict BDF2 LTE accepts complete history");
+    expectNear(
+        defect.derivativeDefect[0],
+        0.0,
+        "strict BDF2 derivative defect vanishes for a quadratic solution"
+    );
+}
+
+void testStrictBdf2LteCubicDefect(){
+    const TransientIntegrator integrator = makeIntegratorWithStrictHistory(
+        makeVector({0.0}),
+        makeVector({1.0}),
+        makeVector({8.0})
+    );
+
+    const TransientLteDefect defect = integrator.strictBdf2Defect(
+        3.0,
+        makeVector({27.0})
+    );
+    expect(defect.valid, "strict cubic BDF2 defect is valid");
+    expectNear(
+        defect.derivativeDefect[0],
+        2.0,
+        "uniform-step cubic BDF2 derivative defect"
+    );
+
+    const TransientIntegrator variableStep = makeIntegratorWithStrictHistory(
+        makeVector({0.0}),
+        makeVector({1.0}),
+        makeVector({27.0}),
+        1.0,
+        3.0
+    );
+    const TransientLteDefect variableDefect = variableStep.strictBdf2Defect(
+        4.0,
+        makeVector({64.0})
+    );
+    expect(variableDefect.valid, "variable-step cubic BDF2 defect is valid");
+    expectNear(
+        variableDefect.derivativeDefect[0],
+        3.0,
+        "variable-step cubic BDF2 derivative defect"
+    );
+}
+
+void testStrictBdf2LteUsesThirdOrderControl(){
+    const TransientSolverOptions options = makeAbsoluteOnlyOptions();
+    const TransientErrorEstimate estimate = estimateTransientStateError(
+        makeVector({0.0}),
+        makeVector({0.0}),
+        makeVector({8.0}),
+        1,
+        options,
+        3
+    );
+
+    expect(estimate.valid, "strict BDF2 state error is valid");
+    expectNear(
+        estimate.normalizedError,
+        8.0,
+        "strict BDF2 state error is normalized"
+    );
+    expectNear(
+        estimate.suggestedScale,
+        0.45,
+        "strict BDF2 state error uses the cubic-root controller"
     );
 }
 
@@ -1637,6 +1744,10 @@ int main(){
     testMaximumBdf2StepRatio();
     testInvalidInputs();
     testQuadraticSolutionCharacterizesProxy();
+    testStrictBdf2LteRejectsInsufficientHistory();
+    testStrictBdf2LteIsExactForQuadratic();
+    testStrictBdf2LteCubicDefect();
+    testStrictBdf2LteUsesThirdOrderControl();
     testTransientStepController();
     testStepDoublingDifferenceEstimate();
     testVoltageOnlyStepDoublingEstimate();

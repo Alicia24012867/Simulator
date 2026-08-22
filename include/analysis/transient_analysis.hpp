@@ -61,6 +61,13 @@ struct TransientErrorEstimate {
     double suggestedScale = 1.0;
 };
 
+// BDF2's local truncation error is a defect in the time derivative.  Circuit
+// converts this defect into a state error through the converged MNA Jacobian.
+struct TransientLteDefect {
+    bool valid = false;
+    Eigen::VectorXd derivativeDefect;
+};
+
 // Parsed .tran parameters plus transient solver configuration.
 struct TransientAnalysisConfig {
     double outputInterval = 0.0;  // TSTEP
@@ -132,6 +139,11 @@ struct TransientStampContext {
     double historyDerivativeDifference(int p, int n) const {
         return historyDerivativeVal(p) - historyDerivativeVal(n);
     }
+};
+
+struct TransientLteContext {
+    const Eigen::VectorXd& correctedSolution;
+    const Eigen::VectorXd& derivativeDefect;
 };
 
 inline TransientErrorEstimate estimateTransientSolutionDifference(
@@ -214,6 +226,84 @@ inline TransientErrorEstimate estimateTransientSolutionDifference(
 
     result.suggestedScale = std::clamp(
         options.safetyFactor / std::sqrt(normalizedError),
+        options.minimumScale,
+        options.maximumScale
+    );
+    return result;
+}
+
+inline TransientErrorEstimate estimateTransientStateError(
+    const Eigen::VectorXd& acceptedSolution,
+    const Eigen::VectorXd& correctedSolution,
+    const Eigen::VectorXd& localError,
+    int voltageUnknownCount,
+    const TransientSolverOptions& options,
+    int localErrorOrder
+){
+    TransientErrorEstimate result;
+
+    const Eigen::Index size = correctedSolution.size();
+    const bool optionsValid =
+        std::isfinite(options.relativeTolerance) &&
+        std::isfinite(options.voltageAbsoluteTolerance) &&
+        std::isfinite(options.currentAbsoluteTolerance) &&
+        std::isfinite(options.safetyFactor) &&
+        std::isfinite(options.minimumScale) &&
+        std::isfinite(options.maximumScale) &&
+        options.relativeTolerance >= 0.0 &&
+        options.voltageAbsoluteTolerance > 0.0 &&
+        options.currentAbsoluteTolerance > 0.0 &&
+        options.safetyFactor > 0.0 &&
+        options.minimumScale > 0.0 &&
+        options.maximumScale >= options.minimumScale &&
+        localErrorOrder > 0;
+
+    if(!optionsValid || size == 0 ||
+       acceptedSolution.size() != size ||
+       localError.size() != size ||
+       voltageUnknownCount < 0 || voltageUnknownCount > size){
+        return result;
+    }
+
+    double normalizedError = 0.0;
+    for(Eigen::Index i = 0; i < size; ++i){
+        const double accepted = acceptedSolution[i];
+        const double corrected = correctedSolution[i];
+        const double error = localError[i];
+        if(!std::isfinite(accepted) ||
+           !std::isfinite(corrected) ||
+           !std::isfinite(error)){
+            return result;
+        }
+
+        const double absoluteTolerance =
+            i < static_cast<Eigen::Index>(voltageUnknownCount)
+            ? options.voltageAbsoluteTolerance
+            : options.currentAbsoluteTolerance;
+        const double weight = absoluteTolerance +
+            options.relativeTolerance *
+            std::max(std::abs(corrected), std::abs(accepted));
+        if(!std::isfinite(weight) || weight <= 0.0){
+            return result;
+        }
+
+        const double componentError = std::abs(error) / weight;
+        if(!std::isfinite(componentError)){
+            return result;
+        }
+        normalizedError = std::max(normalizedError, componentError);
+    }
+
+    result.valid = true;
+    result.normalizedError = normalizedError;
+    if(normalizedError == 0.0){
+        result.suggestedScale = options.maximumScale;
+        return result;
+    }
+
+    const double exponent = -1.0 / static_cast<double>(localErrorOrder);
+    result.suggestedScale = std::clamp(
+        options.safetyFactor * std::pow(normalizedError, exponent),
         options.minimumScale,
         options.maximumScale
     );
@@ -353,6 +443,8 @@ public:
         solutionN_ = initialSolution;
         initialized_ = true;
         hasOlderSolution_ = false;
+        hasOldestSolution_ = false;
+        previousPreviousStep_ = 0.0;
     }
 
     void restartFrom(
@@ -373,6 +465,13 @@ public:
         }
 
         return dt / previousStep_ <= maximumBdf2StepRatio_;
+    }
+
+    bool hasStrictBdf2LteHistory(double targetTime) const {
+        return canUseBdf2(targetTime) &&
+            hasOldestSolution_ &&
+            std::isfinite(previousPreviousStep_) &&
+            previousPreviousStep_ > 0.0;
     }
 
     TransientDerivativeCoefficients coefficients(double targetTime) const {
@@ -420,13 +519,67 @@ public:
             return {};
         }
 
+        // Retained for callers that explicitly request the historical
+        // predictor/corrector proxy.  The transient solver itself uses
+        // strictBdf2Defect() plus a DAE Jacobian projection instead.
         return estimateTransientSolutionDifference(
             solutionN_,
             correctedSolution,
             predict(targetTime),
             voltageUnknownCount,
-            options
+            options,
+            true
         );
+    }
+
+    TransientLteDefect strictBdf2Defect(
+        double targetTime,
+        const Eigen::VectorXd& correctedSolution
+    ) const{
+        TransientLteDefect result;
+        if(!hasStrictBdf2LteHistory(targetTime) ||
+           correctedSolution.size() == 0 ||
+           correctedSolution.size() != solutionN_.size() ||
+           solutionNm1_.size() != solutionN_.size() ||
+           solutionNm2_.size() != solutionN_.size()){
+            return result;
+        }
+
+        const double step = targetTime - acceptedTime_;
+        const double denominator20 = step + previousStep_;
+        const double denominator21 = previousStep_ + previousPreviousStep_;
+        const double denominator3 = step + previousStep_ +
+            previousPreviousStep_;
+        const double defectScale = step * denominator20;
+        if(!std::isfinite(step) || !std::isfinite(denominator20) ||
+           !std::isfinite(denominator21) || !std::isfinite(denominator3) ||
+           !std::isfinite(defectScale) || step <= 0.0 ||
+           denominator20 <= 0.0 || denominator21 <= 0.0 ||
+           denominator3 <= 0.0 || defectScale <= 0.0 ||
+           !correctedSolution.allFinite() || !solutionN_.allFinite() ||
+           !solutionNm1_.allFinite() || !solutionNm2_.allFinite()){
+            return result;
+        }
+
+        const Eigen::VectorXd firstCurrent =
+            (correctedSolution - solutionN_) / step;
+        const Eigen::VectorXd firstPrevious =
+            (solutionN_ - solutionNm1_) / previousStep_;
+        const Eigen::VectorXd firstOlder =
+            (solutionNm1_ - solutionNm2_) / previousPreviousStep_;
+        const Eigen::VectorXd secondCurrent =
+            (firstCurrent - firstPrevious) / denominator20;
+        const Eigen::VectorXd secondPrevious =
+            (firstPrevious - firstOlder) / denominator21;
+        result.derivativeDefect = defectScale *
+            (secondCurrent - secondPrevious) / denominator3;
+        if(!result.derivativeDefect.allFinite()){
+            result.derivativeDefect.resize(0);
+            return result;
+        }
+
+        result.valid = true;
+        return result;
     }
 
     TransientStampContext makeContext(double targetTime) const {
@@ -449,6 +602,14 @@ public:
         assert(nextAcceptedTime > acceptedTime_);
         assert(solutionN_.size() == acceptedSolution.size());
 
+        if(hasOlderSolution_){
+            solutionNm2_ = solutionNm1_;
+            previousPreviousStep_ = previousStep_;
+            hasOldestSolution_ = true;
+        }else{
+            previousPreviousStep_ = 0.0;
+            hasOldestSolution_ = false;
+        }
         previousStep_ = nextAcceptedTime - acceptedTime_;
         acceptedTime_ = nextAcceptedTime;
         std::swap(solutionNm1_, solutionN_);
@@ -476,12 +637,19 @@ public:
         return hasOlderSolution_ ? &solutionNm1_ : nullptr;
     }
 
+    const Eigen::VectorXd* oldestSolution() const noexcept {
+        return hasOldestSolution_ ? &solutionNm2_ : nullptr;
+    }
+
 private:
     double acceptedTime_ = 0.0;
     double previousStep_ = 0.0;
+    double previousPreviousStep_ = 0.0;
     Eigen::VectorXd solutionN_;
     Eigen::VectorXd solutionNm1_;
+    Eigen::VectorXd solutionNm2_;
     bool hasOlderSolution_ = false;
+    bool hasOldestSolution_ = false;
     bool initialized_ = false;
     double maximumBdf2StepRatio_ = 2.0;
 };

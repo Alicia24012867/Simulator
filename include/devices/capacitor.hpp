@@ -65,6 +65,21 @@ public:
         if(rhsN_) *rhsN_ += history;
     }
 
+    void stampTransientLteDefect(
+        const TransientLteContext& ctx,
+        Eigen::VectorXd& residual
+    ) const override{
+        const int p = nodeIds[0];
+        const int n = nodeIds[1];
+        const double positiveDerivative = p >= 0 ? ctx.derivativeDefect[p] : 0.0;
+        const double negativeDerivative = n >= 0 ? ctx.derivativeDefect[n] : 0.0;
+        const double current = capacitance_ *
+            (positiveDerivative - negativeDerivative);
+
+        if(p >= 0) residual[p] += current;
+        if(n >= 0) residual[n] -= current;
+    }
+
 private:
     double capacitance_;
 

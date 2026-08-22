@@ -230,6 +230,58 @@ public:
         stampMos3MeyerCharges(ctx);
     }
 
+    void stampTransientLteDefect(
+        const TransientLteContext& ctx,
+        Eigen::VectorXd& residual
+    ) const override{
+        if(!model_ || !model_->isMos3()) return;
+
+        const auto core = coreNodes();
+        // The current Level-3 transient model is a capacitance companion
+        // formulation, so use the same endpoint tangent in the LTE defect
+        // projection as in its converged Jacobian.
+        for(int junction = 0; junction < 2; ++junction){
+            const int terminal =
+                mos3::ChargeHistory::kJunctionTerminals[junction];
+            stampTransientLteCapacitor(
+                ctx.derivativeDefect,
+                residual,
+                core,
+                3,
+                terminal,
+                evaluateMos3JunctionCapacitance(
+                    ctx.correctedSolution,
+                    terminal
+                )
+            );
+        }
+
+        const mos3::OverlapCapacitances overlap =
+            mos3::overlapCapacitances(*model_, instance_);
+        stampTransientLteCapacitor(
+            ctx.derivativeDefect, residual, core, 1, 2, overlap.cgs
+        );
+        stampTransientLteCapacitor(
+            ctx.derivativeDefect, residual, core, 1, 0, overlap.cgd
+        );
+        stampTransientLteCapacitor(
+            ctx.derivativeDefect, residual, core, 1, 3, overlap.cgb
+        );
+
+        const Mos3MeyerCapacitances meyer =
+            evaluateMeyerCapacitances(ctx.correctedSolution);
+        for(int pair = 0; pair < 3; ++pair){
+            stampTransientLteCapacitor(
+                ctx.derivativeDefect,
+                residual,
+                core,
+                1,
+                mos3::ChargeHistory::kMeyerNegativeTerminals[pair],
+                capacitanceAt(meyer, pair)
+            );
+        }
+    }
+
     void initializeTransientHistory(const Eigen::VectorXd& solution) override{
         if(!model_ || !model_->isMos3()) return;
         chargeHistory_.initialize(
@@ -556,6 +608,31 @@ private:
         if(A_[negative][negative]) *A_[negative][negative] += conductance;
         if(rhs_[positive]) *rhs_[positive] -= history;
         if(rhs_[negative]) *rhs_[negative] += history;
+    }
+
+    static void stampTransientLteCapacitor(
+        const Eigen::VectorXd& derivativeDefect,
+        Eigen::VectorXd& residual,
+        const std::array<int, 4>& core,
+        int positive,
+        int negative,
+        double capacitance
+    ){
+        if(capacitance <= 0.0) return;
+
+        const int positiveNode = core[positive];
+        const int negativeNode = core[negative];
+        const double positiveDerivative = positiveNode >= 0
+            ? derivativeDefect[positiveNode]
+            : 0.0;
+        const double negativeDerivative = negativeNode >= 0
+            ? derivativeDefect[negativeNode]
+            : 0.0;
+        const double current = capacitance *
+            (positiveDerivative - negativeDerivative);
+
+        if(positiveNode >= 0) residual[positiveNode] += current;
+        if(negativeNode >= 0) residual[negativeNode] -= current;
     }
 
     const Model* model_;

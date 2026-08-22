@@ -89,16 +89,26 @@ public:
         clearRhs();
     }
 
-    bool solve(){
+    bool factorize(){
         solver_.factorize(A_);
+        return solver_.info() == Eigen::Success;
+    }
 
-        if(solver_.info()!=Eigen::Success){
+    bool solveFactorized(const Eigen::VectorXd& rhs,
+                         Eigen::VectorXd& result){
+        if(rhs.size() != n_ || !rhs.allFinite()){
             return false;
         }
 
-        x_ = solver_.solve(b_);
+        result = solver_.solve(rhs);
+        return solver_.info() == Eigen::Success && result.allFinite();
+    }
 
-        return solver_.info() == Eigen::Success;
+    bool solve(){
+        if(!factorize()){
+            return false;
+        }
+        return solveFactorized(b_, x_);
     }
 
     const Eigen::VectorXd& solution() const{

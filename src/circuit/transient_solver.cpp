@@ -18,6 +18,7 @@
 namespace {
 constexpr double kTimeRelativeTolerance =
     64.0 * std::numeric_limits<double>::epsilon();
+constexpr double kStrictLteMaximumGrowth = 1.5;
 
 using SteadyClock = std::chrono::steady_clock;
 
@@ -87,7 +88,7 @@ bool Circuit::solveTransient(
     transientStats_.attempted = true;
     transientStats_.usedInitialConditions = config.useInitialConditions;
     transientStats_.finalMethod =
-        "adaptive Backward Euler / variable-step BDF2";
+        "adaptive Backward Euler / variable-step BDF2 with strict LTE";
     transientStats_.maxIterations =
         config.solverOptions.newtonOptions.maximumIterations;
     transientStats_.tolerance = config.solverOptions.newtonOptions.tolerance;
@@ -194,9 +195,9 @@ bool Circuit::solveTransient(
             }
         );
 
-        const bool hasBdf2History = !hasMos3UicChargeHistory &&
-            integrator.olderSolution() != nullptr;
-        if(hasBdf2History){
+        const bool hasStrictBdf2History = !hasMos3UicChargeHistory &&
+            integrator.oldestSolution() != nullptr;
+        if(hasStrictBdf2History){
             const double bdf2StepLimit = std::nextafter(
                 integrator.previousStep() * integrator.maximumBdf2StepRatio(),
                 0.0
@@ -220,6 +221,9 @@ bool Circuit::solveTransient(
         }
 
         int rejectedAttempts = 0;
+
+        const bool useBdf2 = hasStrictBdf2History &&
+            integrator.hasStrictBdf2LteHistory(time + candidateStep);
 
         while(true){
             const double nextTime = time + candidateStep;
@@ -259,7 +263,7 @@ bool Circuit::solveTransient(
 
             TransientStepAttempt attempt;
 
-            if(!hasBdf2History){
+            if(!useBdf2){
                 const double halfStep = 0.5 * candidateStep;
                 const double halfTime = time + halfStep;
 
@@ -278,11 +282,12 @@ bool Circuit::solveTransient(
                 TransientIntegrator coarseIntegrator(
                     integrator.maximumBdf2StepRatio()
                 );
-                if(hasMos3UicChargeHistory){
-                    coarseIntegrator.restartFrom(time, acceptedSolution);
-                }
+                // Startup/error-control step doubling is deliberately BE.
+                // Do not let the outer integrator's two-point BDF2 history
+                // leak into the coarse trial before strict LTE history exists.
+                coarseIntegrator.restartFrom(time, acceptedSolution);
                 TransientStepAttempt coarse = runTransientAttempt(
-                    hasMos3UicChargeHistory ? coarseIntegrator : integrator,
+                    coarseIntegrator,
                     nextTime
                 );
                 attempt = coarse;
@@ -370,7 +375,7 @@ bool Circuit::solveTransient(
 
             TransientStepControlInput controlInput;
             controlInput.converged = attempt.converged;
-            controlInput.requiresBdf2 = hasBdf2History;
+            controlInput.requiresBdf2 = useBdf2;
             controlInput.integrationOrder = attempt.integrationOrder;
             controlInput.errorEstimateValid = attempt.errorEstimateValid;
             controlInput.normalizedError = attempt.normalizedError;
@@ -489,20 +494,87 @@ Circuit::TransientStepAttempt Circuit::tryTransientStep(
 
     if(attempt.converged){
         attempt.solution = mna_->solution();
+        if(integrator.hasStrictBdf2LteHistory(targetTime)){
+            const TransientErrorEstimate estimate = estimateStrictTransientLte(
+                integrator,
+                targetTime,
+                attempt.solution,
+                options
+            );
 
-        const TransientErrorEstimate estimate = integrator.estimateError(
-            targetTime,
-            attempt.solution,
-            nodeMap_->nodeCount(),
-            options
-        );
-
-        attempt.errorEstimateValid = estimate.valid;
-        attempt.normalizedError = estimate.normalizedError;
-        attempt.suggestedStepScale = estimate.suggestedScale;
+            attempt.errorEstimateValid = estimate.valid;
+            attempt.normalizedError = estimate.normalizedError;
+            attempt.suggestedStepScale = estimate.suggestedScale;
+        }
     }
 
     return attempt;
+}
+
+TransientErrorEstimate Circuit::estimateStrictTransientLte(
+    const TransientIntegrator& integrator,
+    double targetTime,
+    const Eigen::VectorXd& correctedSolution,
+    const TransientSolverOptions& options
+){
+    const TransientLteDefect defect = integrator.strictBdf2Defect(
+        targetTime,
+        correctedSolution
+    );
+    if(!defect.valid ||
+       defect.derivativeDefect.size() != correctedSolution.size()){
+        return {};
+    }
+
+    const TransientStampContext stampContext =
+        integrator.makeContext(targetTime);
+    if(stampContext.derivative.order != 2){
+        return {};
+    }
+
+    // Reassemble at the converged endpoint.  The resulting matrix is the
+    // DAE Jacobian used to project the BDF2 derivative defect into a state
+    // error; solveFactorized deliberately leaves the accepted solution intact.
+    mna_->setSolution(correctedSolution);
+    assembleTransientSystem(stampContext);
+    if(!mna_->factorize()){
+        return {};
+    }
+
+    Eigen::VectorXd residual = Eigen::VectorXd::Zero(mna_->size());
+    const TransientLteContext lteContext{
+        correctedSolution,
+        defect.derivativeDefect
+    };
+    for(const auto& device: devices_){
+        device->stampTransientLteDefect(lteContext, residual);
+    }
+    if(!residual.allFinite()){
+        return {};
+    }
+
+    Eigen::VectorXd localError;
+    if(!mna_->solveFactorized(-residual, localError)){
+        return {};
+    }
+
+    TransientErrorEstimate estimate = estimateTransientStateError(
+        integrator.currentSolution(),
+        correctedSolution,
+        localError,
+        nodeMap_->nodeCount(),
+        options,
+        3
+    );
+    if(estimate.valid){
+        // The defect is asymptotically third order.  Limit growth while its
+        // higher-order remainder is still visible on practical circuit steps.
+        estimate.suggestedScale = std::min(
+            estimate.suggestedScale,
+            kStrictLteMaximumGrowth
+        );
+    }
+    return estimate;
 }
 
 void Circuit::addTransientStats(const NewtonSolveDiagnostics& stats){

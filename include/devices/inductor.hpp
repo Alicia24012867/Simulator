@@ -75,6 +75,15 @@ public:
         *rhs += history;
     }
 
+    void stampTransientLteDefect(
+        const TransientLteContext& ctx,
+        Eigen::VectorXd& residual
+    ) const override{
+        if(branch >= 0){
+            residual[branch] -= inductance_ * ctx.derivativeDefect[branch];
+        }
+    }
+
 private:
     double inductance_;
 

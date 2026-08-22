@@ -21,6 +21,7 @@ class CircuitPtaTestAccess;
 class TransientIntegrator;
 
 struct TransientAnalysisConfig;
+struct TransientErrorEstimate;
 struct TransientStampContext;
 struct TransientSolverOptions;
 struct PendingPtaPlacement;
@@ -108,6 +109,13 @@ private:
     TransientStepAttempt tryTransientStep(
         const TransientIntegrator& integrator,
         double targetTime,
+        const TransientSolverOptions& options
+    );
+
+    TransientErrorEstimate estimateStrictTransientLte(
+        const TransientIntegrator& integrator,
+        double targetTime,
+        const Eigen::VectorXd& correctedSolution,
         const TransientSolverOptions& options
     );
 
