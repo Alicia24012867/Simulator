@@ -423,16 +423,6 @@ def main():
                 result.returncode == 0,
                 f"MOS3 model or instance parsing failed: {result.stderr}",
             )
-            result = run(simulator, mos3_instance)
-            require(
-                result.returncode != 0,
-                "MOS3 series resistance was silently accepted before implementation",
-            )
-            require(
-                "MOSFET LEVEL=3 source/drain resistance is not implemented"
-                in result.stderr,
-                f"MOS3 series-resistance diagnostic missing: {result.stderr}",
-            )
             print("PASS MOS3 model and instance parameter parsing")
         except Exception as exc:
             failures.append(str(exc))

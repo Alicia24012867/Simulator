@@ -62,12 +62,12 @@ meaning to a documented solver-level option; it must never reinterpret them as
 
 ## Numerical acceptance
 
-The current executable subset is the DC channel-current path without source or
-drain series resistance. `make test-mos3-dc` compares the three corresponding
+The current executable subset is the complete DC path: channel current,
+internal D-prime/S-prime topology, source/drain resistance, and B-D/B-S
+junction currents. `make test-mos3-dc` compares the four corresponding
 official OP fixtures with ngspice 46. The MOS3 unit target is part of `make
-test`; the complete `make test-mos3` gate remains deferred until the remaining
-OP fixture (internal D-prime/S-prime nodes) and the transient charge fixture
-are implemented.
+test`; the complete `make test-mos3` gate remains deferred until transient
+charge modelling is implemented.
 
 The initial comparison policy is configurable from the Makefile and defaults
 to `atol=1e-7`, `rtol=2e-3` for OP and transient output values.  Tighten these

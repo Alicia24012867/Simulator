@@ -8,7 +8,7 @@
 #include "models/model.hpp"
 
 // DC-only implementation of the ngspice MOS3 channel-current path.  Junction
-// currents and all charge terms are deliberately handled by later milestones.
+// currents are stamped by MOSFET; all charge terms remain for a later milestone.
 struct Mos3DcResult {
     double ids = 0.0;
     double gm = 0.0;
@@ -182,9 +182,17 @@ inline double channelCurrent(const Parameters& p,
         current *= fdrain;
     }
 
-    if(vdsAbs > vdsat && p.alpha > 0.0 && p.kappa > 0.0){
+    if(p.alpha > 0.0 && p.kappa > 0.0 && vdsat > 0.0){
         double deltaLength = 0.0;
-        if(p.vmax > 0.0 && vdsc > 0.0 && current > 0.0){
+        if(vdsAbs <= vdsat){
+            // ngspice MOS3 retains the modern (non-badmos3) punch-through
+            // correction below saturation as well.  Omitting this branch
+            // makes KAPPA ineffective for long-channel devices biased just
+            // below VDSAT.
+            const double normalizedVds = vdsAbs / vdsat;
+            deltaLength = std::sqrt(p.kappa * p.alpha * vdsat / 8.0) *
+                normalizedVds * normalizedVds * normalizedVds * normalizedVds;
+        } else if(p.vmax > 0.0 && vdsc > 0.0 && current > 0.0){
             const double gdsat = std::max(
                 1.0e-12,
                 current * (1.0 - fdrain) / vdsc

@@ -244,7 +244,7 @@ test-tran: $(TARGET)
 	exit $$status
 
 # The DC subset is enabled independently.  The full suite remains outside the
-# default gate until series-resistance topology and transient charge are done.
+# default gate until transient charge modelling is done.
 test-mos3: test-mos3-op test-mos3-tran
 
 test-mos3-dc: test-mos3-dc-unit test-mos3-op
@@ -260,6 +260,7 @@ test-mos3-op: $(TARGET)
 		--include mos3_01_cmosedu_nmos_bias \
 		--include mos3_02_cmosedu_pmos_bias \
 		--include mos3_03_mos6_process_model_op \
+		--include mos3_04_bug481_series_geometry_op \
 		--output-dir "$(MOS3_OP_ACTUAL_DIR)" || status=1; \
 	$(PYTHON) $(TEST_SCRIPT_DIR)/compare_spice.py \
 		--analysis op \
@@ -270,6 +271,7 @@ test-mos3-op: $(TARGET)
 		--include mos3_01_cmosedu_nmos_bias \
 		--include mos3_02_cmosedu_pmos_bias \
 		--include mos3_03_mos6_process_model_op \
+		--include mos3_04_bug481_series_geometry_op \
 		--time-atol "$(TIME_ABS_TOL)" || status=1; \
 	exit $$status
 

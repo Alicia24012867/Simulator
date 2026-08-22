@@ -44,7 +44,7 @@
 - MOSFET：`LEVEL=1` 的简化平方律；以及 ngspice `LEVEL=3` 的 DC channel-current 子集（有效几何、body effect、短沟道、迁移率退化、速度饱和、沟道长度调制及 `gm/gds/gmb`）
 - 实例参数：`AREA`, `W`, `L`，以及 MOS3 的 `AD`、`AS`、`PD`、`PS`、`NRD`、`NRS`、`M`、`OFF`、`IC`、`TEMP`
 
-`RS`、`RBE`、`RCE` 与 `RDS` 已落实到 DC / transient 的器件 stamp：Diode `RS` 是由外部阳极到本征二极管阳极的串联电阻（按 `AREA` 缩放）；BJT `RBE` / `RCE` 分别是本征 B-E / C-E 并联电阻（按 `AREA` 缩放）；Level-1 MOS 的 `RDS` 是按 `W/L` 缩放的 D-S 线性并联电导。MOS3 的 `TOX`、`LD`、`XL`、`WD`、`XW`、`UO`、`VTO`、`KP`、`GAMMA`、`PHI`、`NSUB`、`ETA`、`DELTA`、`THETA`、`VMAX`、`KAPPA` 已参与无串联电阻的 DC channel stamp；B-D/B-S 二极管、内部 D′/S′ 节点与器件电荷仍待实现。未知参数、非数值参数、非物理的负值以及非 `LEVEL=1` / `LEVEL=3` 的 MOSFET model 会在读取阶段明确报错。
+`RS`、`RBE`、`RCE` 与 `RDS` 已落实到 DC / transient 的器件 stamp：Diode `RS` 是由外部阳极到本征二极管阳极的串联电阻（按 `AREA` 缩放）；BJT `RBE` / `RCE` 分别是本征 B-E / C-E 并联电阻（按 `AREA` 缩放）；Level-1 MOS 的 `RDS` 是按 `W/L` 缩放的 D-S 线性并联电导。MOS3 的 `TOX`、`LD`、`XL`、`WD`、`XW`、`UO`、`VTO`、`KP`、`GAMMA`、`PHI`、`NSUB`、`ETA`、`DELTA`、`THETA`、`VMAX`、`KAPPA` 已参与 DC channel stamp；`RD`/`RS`（或 `RSH*NRD/NRS`）会建立内部 D′/S′ 节点，B-D′/B-S′ 结电流按 `JS*AD/AS` 或 `IS` 参与 DC stamp。器件温度、瞬态结电容和 Meyer 栅电荷仍待实现。未知参数、非数值参数、非物理的负值以及非 `LEVEL=1` / `LEVEL=3` 的 MOSFET model 会在读取阶段明确报错。
 
 ### Netlist 读取规则
 
@@ -498,7 +498,7 @@ tests/
 - PTA 已具备伪元件 stamp、BE/BDF2 伪时间推进、失败缩步、最小步长后的全局增容，以及成功步后的逐节点振荡降容；导数与 DC 残差判据已经归一化，但默认容差仍需通过更广泛的困难非线性电路基准验证。
 - 不支持 `.include`、`.lib`、全局 `.param`、`.temp`、`.nodeset`、`.ic`、`.save`。
 - 不支持受控源 `E/F/G/H`、行为源、AC/noise 分析。
-- 二极管、BJT 和 MOSFET 仍是有限子集。MOS3 当前仅实现无源漏串联电阻的 DC channel current；`RD`、`RS`、`RSH*NRD/NRS`、B-D/B-S 结电流、器件温度、瞬态结电容和 Meyer 栅电荷尚未实现。
+- 二极管、BJT 和 MOSFET 仍是有限子集。MOS3 已实现 DC channel current、`RD`/`RS`、`RSH*NRD/NRS` 和 B-D′/B-S′ 结电流；器件温度、瞬态结电容和 Meyer 栅电荷尚未实现。
 - `.pstran` 的 `kvgs0` 目前只读取、保存和校验，尚未映射到 PTA 方程或步长控制。
 - 电阻、电容、二极管、BJT、MOSFET 的器件电流尚不能通过 `.print i(...)` 输出。
 
