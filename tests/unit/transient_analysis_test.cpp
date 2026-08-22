@@ -955,6 +955,17 @@ void testPtaMinimumStepCapacitanceRecovery(){
         "PTA diagnostics expose the per-attempt trace"
     );
     expect(
+        std::any_of(
+            diagnostics.attempts.begin(),
+            diagnostics.attempts.end(),
+            [](const PtaStepAttemptDiagnostics& attempt){
+                return attempt.newton.usedTrustRegion &&
+                    attempt.newton.trustRegionTrials > 0;
+            }
+        ),
+        "PTA uses trust-region Newton trials at pseudo-time points"
+    );
+    expect(
         diagnostics.attempts.back().reachedSteadyState &&
             diagnostics.attempts.back().hasConvergenceMetrics,
         "PTA diagnostic trace ends with a measured steady-state decision"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the retained legacy-Newton and PTA fallback paths on a hard OP deck."""
+"""Verify legacy Newton and trust-region PTA on a selected latch branch."""
 
 from __future__ import annotations
 
@@ -140,6 +140,9 @@ def check_pta_diagnostics(stderr: str) -> None:
         "newton_iterations=",
         "backtracking_steps=",
         "line_search_evaluations=",
+        "trust_region_trials=",
+        "trust_region_rejected_steps=",
+        "trust_region_radius=",
         "newton_normalized_update=",
         "newton_normalized_residual=",
         "normalized_derivative=",

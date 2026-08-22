@@ -410,9 +410,10 @@ bool Circuit::solveNewtonSystem(const AssembleCallback& assemble,
                     );
                 }
 
-                // PTA's default options use this retained line-search path.
-                // Its outer pseudo-time continuation independently checks the
-                // derivative and DC residual before accepting a time step.
+                // This retained path is selected when trustRegionEnabled is
+                // disabled.  PTA's outer pseudo-time continuation still
+                // independently checks derivative and DC residual before
+                // accepting a time step.
                 current = previous + direction;
                 stepScale = 1.0;
                 restoreNonlinearLineSearchStates();

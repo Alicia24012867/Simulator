@@ -20,17 +20,21 @@ enum class PtaMode{
 
 struct PtaAnalysisConfig{
     PtaMode mode = PtaMode::Disabled;
-    // PTA has pseudo-time continuation, accepted-state checkpoints, and
-    // separate derivative/DC-residual acceptance tests.  Preserve its
-    // historical ability to advance a finite non-monotone Newton step; users
-    // may still configure finite bounds through pta.newton when needed.
+    // PTA combines local trust-region Newton steps with pseudo-time
+    // continuation.  The trust region controls the nonlinear solve at each
+    // trial pseudo-time point; derivative/DC-residual checks still decide
+    // whether that converged trial is a steady state or an accepted advance.
+    // Use a finite initial normalized radius: an automatic radius can inherit
+    // an artificially large branch-current update from the first PTA stamp.
+    // The non-monotone bounds remain unlimited because PTA's outer recovery
+    // owns pseudo-time reduction and capacitance growth after a failed solve.
     NewtonSolverOptions newtonOptions = [] {
         NewtonSolverOptions options;
         options.maximumConsecutiveNonMonotoneSteps =
             std::numeric_limits<int>::max();
         options.maximumNonMonotoneResidualGrowth =
             std::numeric_limits<double>::max();
-        options.trustRegionEnabled = false;
+        options.trustRegionInitialRadius = 1.0e8;
         return options;
     }();
 
