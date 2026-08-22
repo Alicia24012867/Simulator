@@ -7,6 +7,8 @@
 #include <utility>
 #include <optional>
 
+#include "models/mosfet/level3_model_card.hpp"
+
 enum class ModelType {
     Diode,
     NPN,
@@ -24,54 +26,7 @@ enum class MosLevel {
 class Model {
 public:
     using Parameters = std::unordered_map<std::string, double>;
-
-    struct Mos3CardParams {
-        std::optional<double> vto;
-        std::optional<double> kp;
-        std::optional<double> gamma;
-        std::optional<double> phi;
-
-        std::optional<double> rd;
-        std::optional<double> rs;
-        std::optional<double> rsh;
-
-        std::optional<double> cbd;
-        std::optional<double> cbs;
-        std::optional<double> is;
-        std::optional<double> js;
-        std::optional<double> pb;
-        std::optional<double> fc;
-        std::optional<double> cj;
-        std::optional<double> mj;
-        std::optional<double> cjsw;
-        std::optional<double> mjsw;
-
-        std::optional<double> cgso;
-        std::optional<double> cgdo;
-        std::optional<double> cgbo;
-
-        std::optional<double> tox;
-        std::optional<double> ld;
-        std::optional<double> xl;
-        std::optional<double> xw;
-        std::optional<double> wd;
-        std::optional<double> uo;
-        std::optional<double> nsub;
-        std::optional<double> tpg;
-        std::optional<double> nss;
-        std::optional<double> vmax;
-        std::optional<double> xj;
-        std::optional<double> nfs;
-
-        std::optional<double> eta;
-        std::optional<double> delta;
-        std::optional<double> theta;
-        std::optional<double> kappa;
-
-        std::optional<double> tnom;
-        std::optional<double> kf;
-        std::optional<double> af;
-    };
+    using Mos3CardParams = ::Mos3CardParams;
 
     MosLevel mosLevel() const { return mosLevel_; }
 
@@ -209,17 +164,6 @@ private:
         return value >= 0.0 && std::isfinite(value) ? value : fallback;
     }
 
-    std::optional<double> suppliedParamAny(
-        const std::string& primary,
-        const std::string& alias = {}
-    ) const {
-        const auto value = suppliedParam(primary);
-        if(value || alias.empty()){
-            return value;
-        }
-        return suppliedParam(alias);
-    }
-
     void rebuildDcCache() {
         mosLevel_ = param("level", 1.0) == 3.0 ?
             MosLevel::Level3 : MosLevel::Level1;
@@ -282,57 +226,7 @@ private:
     }
 
     void rebuildMos3Card() {
-        mos3_ = {};
-
-        if(!isMos3()){
-            return;
-        }
-
-        mos3_.vto = suppliedParamAny("vto", "vt0");
-        mos3_.kp = suppliedParamAny("kp", "k");
-        mos3_.gamma = suppliedParam("gamma");
-        mos3_.phi = suppliedParam("phi");
-
-        mos3_.rd = suppliedParam("rd");
-        mos3_.rs = suppliedParam("rs");
-        mos3_.rsh = suppliedParam("rsh");
-
-        mos3_.cbd = suppliedParam("cbd");
-        mos3_.cbs = suppliedParam("cbs");
-        mos3_.is = suppliedParam("is");
-        mos3_.js = suppliedParam("js");
-        mos3_.pb = suppliedParam("pb");
-        mos3_.fc = suppliedParam("fc");
-        mos3_.cj = suppliedParam("cj");
-        mos3_.mj = suppliedParam("mj");
-        mos3_.cjsw = suppliedParam("cjsw");
-        mos3_.mjsw = suppliedParam("mjsw");
-
-        mos3_.cgso = suppliedParam("cgso");
-        mos3_.cgdo = suppliedParam("cgdo");
-        mos3_.cgbo = suppliedParam("cgbo");
-
-        mos3_.tox = suppliedParam("tox");
-        mos3_.ld = suppliedParam("ld");
-        mos3_.xl = suppliedParam("xl");
-        mos3_.xw = suppliedParam("xw");
-        mos3_.wd = suppliedParam("wd");
-        mos3_.uo = suppliedParamAny("uo", "u0");
-        mos3_.nsub = suppliedParam("nsub");
-        mos3_.tpg = suppliedParam("tpg");
-        mos3_.nss = suppliedParam("nss");
-        mos3_.vmax = suppliedParam("vmax");
-        mos3_.xj = suppliedParam("xj");
-        mos3_.nfs = suppliedParam("nfs");
-
-        mos3_.eta = suppliedParam("eta");
-        mos3_.delta = suppliedParam("delta");
-        mos3_.theta = suppliedParam("theta");
-        mos3_.kappa = suppliedParam("kappa");
-
-        mos3_.tnom = suppliedParam("tnom");
-        mos3_.kf = suppliedParam("kf");
-        mos3_.af = suppliedParam("af");
+        mos3_ = isMos3() ? mos3::parseModelCard(params_) : Mos3CardParams{};
     }
 
     std::string name_;

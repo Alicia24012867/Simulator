@@ -1,4 +1,4 @@
-#include "devices/mos3_dc.hpp"
+#include "devices/mosfet/level3/dc_model.hpp"
 
 #include <algorithm>
 #include <cmath>
