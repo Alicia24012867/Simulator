@@ -1,4 +1,6 @@
-#include "config/overrides.h"
+#include "config/overrides.hpp"
+
+// Strictly parse the external JSON configuration into typed overrides.
 
 #include <cmath>
 #include <initializer_list>
@@ -6,8 +8,8 @@
 #include <stdexcept>
 #include <string>
 
-#include "config/config_loader.h"
-#include "utils/string_utils.hpp"
+#include "config/config_loader.hpp"
+#include "netlist/spice_syntax.hpp"
 
 namespace simulator::config {
 namespace {

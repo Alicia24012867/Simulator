@@ -8,7 +8,7 @@ CIRCUIT_TEST_SOURCES = ./src/circuit/circuit.cpp \
 	./src/circuit/node_map.cpp
 CONFIG_SOURCES = $(wildcard ./src/config/*.cpp)
 CORE_TEST_SOURCES = ./src/app/command_line.cpp \
-	./src/config/option_overrides.cpp
+	./src/config/cli_option_overrides.cpp
 TARGET = spice
 BUILD_DIR ?= build
 OBJECTS = $(patsubst ./src/%.cpp,$(BUILD_DIR)/%.o,$(SRC))

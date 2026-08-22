@@ -1,10 +1,12 @@
-#include "config/overrides.h"
+#include "config/overrides.hpp"
+
+// Parse and apply individual command-line name=value overrides.
 
 #include <algorithm>
 #include <limits>
 #include <stdexcept>
 
-#include "utils/string_utils.hpp"
+#include "netlist/spice_syntax.hpp"
 
 namespace simulator::config {
 namespace {

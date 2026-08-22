@@ -1,11 +1,13 @@
-#include "config/overrides.h"
+#include "config/overrides.hpp"
+
+// Merge typed external overrides while preserving netlist-owned values.
 
 #include <algorithm>
 #include <stdexcept>
 
-#include "analysis/pta_analysis.h"
-#include "analysis/solver_options.h"
-#include "analysis/transient_analysis.h"
+#include "analysis/pta_analysis.hpp"
+#include "analysis/solver_options.hpp"
+#include "analysis/transient_analysis.hpp"
 
 namespace simulator::config {
 namespace {
