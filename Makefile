@@ -18,6 +18,8 @@ UNIT_TEST_BUILD_DIR ?= tests/.build
 UNIT_TEST_TARGET ?= $(UNIT_TEST_BUILD_DIR)/transient_analysis_test
 CORE_TEST_SOURCE ?= tests/unit/core_test.cpp
 CORE_TEST_TARGET ?= $(UNIT_TEST_BUILD_DIR)/core_test
+MOS3_DC_TEST_SOURCE ?= tests/unit/mos3_dc_test.cpp
+MOS3_DC_TEST_TARGET ?= $(UNIT_TEST_BUILD_DIR)/mos3_dc_test
 TESTCASE_ROOT ?= tests/cases
 TEST_ROOT ?= tests
 OP_TESTCASE_DIR ?= $(TESTCASE_ROOT)/op
@@ -95,7 +97,7 @@ else ifneq ($(strip $(EIGEN_PKG_CFLAGS)),)
 EIGEN_FLAGS := $(EIGEN_PKG_CFLAGS)
 endif
 
-.PHONY: all clean test test-unit test-core test-config test-io test-cases test-op test-tran test-netlists test-private test-pta-hard-op test-mos3 test-mos3-op test-mos3-tran compare compare-op \
+.PHONY: all clean test test-unit test-core test-config test-io test-cases test-op test-tran test-netlists test-private test-pta-hard-op test-mos3 test-mos3-op test-mos3-tran test-mos3-dc test-mos3-dc-unit compare compare-op \
 	compare-tran compare-mos3-op compare-mos3-tran generate-standards generate-mos3-standards check-eigen check-deps pta pta-run pta-accuracy \
 	pta-force-standard pta-force-disabled pta-fallback-standard
 
@@ -156,6 +158,13 @@ $(CORE_TEST_TARGET): $(CORE_TEST_SOURCE) $(CORE_TEST_SOURCES) \
 test-core: $(CORE_TEST_TARGET)
 	@"$(CORE_TEST_TARGET)"
 
+$(MOS3_DC_TEST_TARGET): $(MOS3_DC_TEST_SOURCE) $(HEADERS) | check-eigen
+	@mkdir -p "$(@D)"
+	$(CXX) $(CXX_FLAGS) $(EIGEN_FLAGS) -o "$@" "$<"
+
+test-mos3-dc-unit: $(MOS3_DC_TEST_TARGET)
+	@"$(MOS3_DC_TEST_TARGET)"
+
 CONFIG_TEST_SOURCE ?= tests/unit/config_test.cpp
 CONFIG_TEST_TARGET ?= $(UNIT_TEST_BUILD_DIR)/config_test
 CONFIG_CLI_TEST_SCRIPT ?= $(TEST_SCRIPT_DIR)/test_config.py
@@ -170,10 +179,11 @@ test-config: $(CONFIG_TEST_TARGET) $(TARGET)
 	@"$(CONFIG_TEST_TARGET)"
 	@$(PYTHON) "$(CONFIG_CLI_TEST_SCRIPT)" ./$(TARGET)
 
-test: $(TARGET) $(UNIT_TEST_TARGET) $(CORE_TEST_TARGET) $(CONFIG_TEST_TARGET)
+test: $(TARGET) $(UNIT_TEST_TARGET) $(CORE_TEST_TARGET) $(CONFIG_TEST_TARGET) $(MOS3_DC_TEST_TARGET)
 	@status=0; \
 	"$(UNIT_TEST_TARGET)" || status=1; \
 	"$(CORE_TEST_TARGET)" || status=1; \
+	"$(MOS3_DC_TEST_TARGET)" || status=1; \
 	$(MAKE) --no-print-directory test-config || status=1; \
 	$(MAKE) --no-print-directory test-io || status=1; \
 	$(MAKE) --no-print-directory test-op || status=1; \
@@ -233,10 +243,11 @@ test-tran: $(TARGET)
 		$(TRAN_COMPARE_FLAGS) || status=1; \
 	exit $$status
 
-# This suite intentionally is not folded into `make test` until MOS3 is
-# implemented. Its current failure proves that LEVEL=3 cards are not being
-# mistaken for the legacy Level-1 approximation.
+# The DC subset is enabled independently.  The full suite remains outside the
+# default gate until series-resistance topology and transient charge are done.
 test-mos3: test-mos3-op test-mos3-tran
+
+test-mos3-dc: test-mos3-dc-unit test-mos3-op
 
 test-mos3-op: $(TARGET)
 	@rm -rf "$(MOS3_OP_ACTUAL_DIR)"; \
@@ -246,6 +257,9 @@ test-mos3-op: $(TARGET)
 		--analysis op \
 		--simulator "./$(TARGET)" \
 		--case-dir "$(MOS3_OP_CASE_DIR)" \
+		--include mos3_01_cmosedu_nmos_bias \
+		--include mos3_02_cmosedu_pmos_bias \
+		--include mos3_03_mos6_process_model_op \
 		--output-dir "$(MOS3_OP_ACTUAL_DIR)" || status=1; \
 	$(PYTHON) $(TEST_SCRIPT_DIR)/compare_spice.py \
 		--analysis op \
@@ -253,6 +267,9 @@ test-mos3-op: $(TARGET)
 		--actual "$(MOS3_OP_ACTUAL_DIR)" \
 		--atol "$(MOS3_OP_ABS_TOL)" \
 		--rtol "$(MOS3_OP_REL_TOL)" \
+		--include mos3_01_cmosedu_nmos_bias \
+		--include mos3_02_cmosedu_pmos_bias \
+		--include mos3_03_mos6_process_model_op \
 		--time-atol "$(TIME_ABS_TOL)" || status=1; \
 	exit $$status
 

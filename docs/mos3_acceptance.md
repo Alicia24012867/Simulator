@@ -62,10 +62,12 @@ meaning to a documented solver-level option; it must never reinterpret them as
 
 ## Numerical acceptance
 
-The MOS3 regression assets are intentionally not part of the default `make
-test` gate yet: the current program only offers legacy Level-3 card parsing and
-will correctly fail them.  Once the device implementation is introduced,
-`make test-mos3` becomes a required gate together with `make test`.
+The current executable subset is the DC channel-current path without source or
+drain series resistance. `make test-mos3-dc` compares the three corresponding
+official OP fixtures with ngspice 46. The MOS3 unit target is part of `make
+test`; the complete `make test-mos3` gate remains deferred until the remaining
+OP fixture (internal D-prime/S-prime nodes) and the transient charge fixture
+are implemented.
 
 The initial comparison policy is configurable from the Makefile and defaults
 to `atol=1e-7`, `rtol=2e-3` for OP and transient output values.  Tighten these

@@ -8,26 +8,15 @@
 #include <utility>
 
 #include "devices/device.hpp"
+#include "devices/mos3_dc.hpp"
+#include "devices/mosfet_params.hpp"
 #include "math/limiting.hpp"
 #include "math/mna.hpp"
 #include "models/model.hpp"
 
 class MOSFET: public Device{
 public:
-    struct MosInstanceParams {
-        double w = 1.0;
-        double l = 1.0;
-        double ad = 0.0;
-        double as = 0.0;
-        double pd = 0.0;
-        double ps = 0.0;
-        double nrd = 0.0;
-        double nrs = 0.0;
-        double m = 1.0;
-        bool off = false;
-        std::optional<std::array<double, 3>> ic;
-        std::optional<double> temp;
-    };
+    using MosInstanceParams = ::MosInstanceParams;
 
     MOSFET(std::string name,
            std::vector<std::string> nodes,
@@ -67,12 +56,11 @@ public:
     }
 
     void pattern(MNA& mna) override{
-        addPattern(mna, 0, 0);
-        addPattern(mna, 0, 1);
-        addPattern(mna, 0, 2);
-        addPattern(mna, 2, 0);
-        addPattern(mna, 2, 1);
-        addPattern(mna, 2, 2);
+        for(int r: {0, 2}){
+            for(int c = 0; c < 4; ++c){
+                addPattern(mna, r, c);
+            }
+        }
     }
 
     void bindMatrix(MNA& mna) override{
@@ -83,7 +71,7 @@ public:
                 sol_[r] = mna.solutionPtr(row);
             }
 
-            for(int c: {0, 1, 2}){
+            for(int c = 0; c < 4; ++c){
                 const int col = nodeIds[c];
                 if(row >= 0 && col >= 0){
                     A_[r][c] = mna.ptr(row, col);
@@ -102,9 +90,8 @@ public:
     void stampOperatingPoint() override{
         if(!model_) return;
         if(model_->isMos3()){
-            throw std::runtime_error(
-                "MOSFET LEVEL=3 evaluation is not implemented; use --parse-only"
-            );
+            stampMos3OperatingPoint();
+            return;
         }
 
         const auto& dc = model_->mosDc();
@@ -211,6 +198,46 @@ private:
         const int col = nodeIds[c];
         if(row >= 0 && col >= 0){
             mna.addPattern(row, col);
+        }
+    }
+
+    void stampMos3OperatingPoint(){
+        const auto& card = model_->mos3();
+        const auto valueOrZero = [](const std::optional<double>& value){
+            return value ? *value : 0.0;
+        };
+        if(valueOrZero(card.rd) > 0.0 || valueOrZero(card.rs) > 0.0 ||
+           (valueOrZero(card.rsh) > 0.0 &&
+            (instance_.nrd > 0.0 || instance_.nrs > 0.0))){
+            throw std::runtime_error(
+                "MOSFET LEVEL=3 source/drain resistance is not implemented"
+            );
+        }
+
+        const double v[4] = {
+            voltage(sol_[0]), voltage(sol_[1]), voltage(sol_[2]), voltage(sol_[3])
+        };
+        const Mos3DcResult result = instance_.off
+            ? Mos3DcResult{}
+            : evaluateMos3Dc(v[0], v[1], v[2], v[3], *model_, instance_);
+
+        double f[4] = {result.ids, 0.0, -result.ids, 0.0};
+        double j[4][4] = {};
+        j[0][0] = result.gds;
+        j[0][1] = result.gm;
+        j[0][3] = result.gmb;
+        j[0][2] = -(result.gds + result.gm + result.gmb);
+        for(int c = 0; c < 4; ++c){
+            j[2][c] = -j[0][c];
+        }
+
+        for(int r: {0, 2}){
+            double b = -f[r];
+            for(int c = 0; c < 4; ++c){
+                if(A_[r][c]) *A_[r][c] += j[r][c];
+                b += j[r][c] * v[c];
+            }
+            if(rhs_[r]) *rhs_[r] += b;
         }
     }
 

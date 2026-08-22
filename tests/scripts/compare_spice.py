@@ -218,6 +218,13 @@ def main():
     parser.add_argument("--atol", type=float, required=True)
     parser.add_argument("--rtol", type=float, required=True)
     parser.add_argument("--time-atol", type=float, default=1.0e-15)
+    parser.add_argument(
+        "--include",
+        action="append",
+        default=[],
+        metavar="STEM",
+        help="compare only this case stem (repeatable)",
+    )
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -231,6 +238,9 @@ def main():
         return 2
 
     standards = sorted(standard_dir.glob("*.out"))
+    if args.include:
+        included = set(args.include)
+        standards = [path for path in standards if path.stem in included]
     if not standards:
         print(f"error: no .out standards in {standard_dir}", file=sys.stderr)
         return 2

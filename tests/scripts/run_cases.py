@@ -36,6 +36,13 @@ def parse_arguments():
     parser.add_argument("--simulator", type=Path, required=True)
     parser.add_argument("--case-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--include",
+        action="append",
+        default=[],
+        metavar="STEM",
+        help="run only this case stem (repeatable)",
+    )
     return parser.parse_args()
 
 
@@ -50,6 +57,9 @@ def main():
         )
     else:
         cases = sorted(arguments.case_dir.glob("*.cir"))
+    if arguments.include:
+        included = set(arguments.include)
+        cases = [case for case in cases if case.stem in included]
     if not cases:
         print(f"No {arguments.analysis} cases found in {arguments.case_dir}", file=sys.stderr)
         return 2
