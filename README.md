@@ -4,6 +4,12 @@
 
 本项目实现的是明确受限的 SPICE 子集，并非完整 ngspice 替代品。I/O 层遵循常见 SPICE netlist、`.print` listing 和 ASCII rawfile 约定，未支持的控制卡或输出表达式会直接报错，不会静默忽略。
 
+## PTA research beta 里程碑
+
+当前提交将作为 `research-beta` 冻结，用于 PTA 收敛策略、伪元件放置、步长控制和失败恢复的试验性研究。它是可复现的研究原型，而不是生产级 SPICE 发布：研究结论必须保留所用 Git commit/tag、输入网表、完整配置、命令行与对应的 `.pta.jsonl`。建议对每个困难电路同时记录 ordinary、`--pta force` 和 `--pta fallback` 的结果，区分“PTA 能收敛”与“PTA 在可接受代价下更稳健”。
+
+本里程碑已经提供残差驱动的 Newton 回溯、按 PTA KCL 残差定向的单节点伪电容增容、逐尝试可重放轨迹、严格 BDF2 LTE 的 TRAN 对照路径，以及 `.nodeset` / `.ic` / 器件 `IC=` 初态控制。默认回归通过只能证明受覆盖范围内的实现一致性；跨拓扑、跨参数尺度的鲁棒性和性能结论仍须由后续实验建立。
+
 ## 代码结构
 
 - `src/app/`：程序入口和命令行解析。`main.cpp` 只负责编排配置、网表、求解与输出流程。
@@ -59,7 +65,7 @@
 - 独立源接受 `5`、`DC 5`、`DC=5`、`DC= 5` 和 `DC = 5`；当前不接受任意 `key=value` 代替 DC 值。
 - 数值 token 会完整校验，`1..2`、`1k=2` 等畸形写法不会只读取前缀后继续运行。
 - 网表必须至少包含一个元件和一个非 ground 节点，避免把零维 MNA 系统送入求解器。
-- 当前支持的控制卡为 `.title`、`.model`、`.subckt` / `.ends`、`.op`、`.tran`、`.pstran`、`.option` / `.options`、`.print` 和 `.end`。其他 dot command 会明确报错。
+- 当前支持的控制卡为 `.title`、`.model`、`.subckt` / `.ends`、`.op`、`.tran`、`.pstran`、`.nodeset`、`.ic`、`.option` / `.options`、`.print` 和 `.end`。其他 dot command 会明确报错。
 
 ### 分析与 `.print`
 
@@ -72,6 +78,8 @@
 .pstran convval=... initstep=... minstep=... maxstep=... [tau=... vbe0=... kvgs0=... tauramp=...]
 .print op v(node) v(node1,node2) i(device)
 .print tran v(node) v(node1,node2) i(device)
+.nodeset v(node[,reference])=value
+.ic v(node[,reference])=value
 ```
 
 - `v(node1,node2)` 在输出层计算差分电压，不改变 MNA 方程。
@@ -80,7 +88,7 @@
 - 没有 `.print` 时，默认输出所有非 ground 节点电压和所有 branch unknown 电流。
 - `i(device)` 当前只适用于具有 branch unknown 的器件，即独立电压源和电感；请求其他器件电流会得到明确错误。
 - 没有分析卡时默认执行 `.op`。同时存在 `.op` 与 `.tran` 时依次输出两个分析块。
-- `.tran` 未指定 `UIC` 时先求 operating point；指定 `UIC` 时当前使用全零 MNA 初值。尚未支持器件 `IC=`。
+- `.tran` 未指定 `UIC` 时先求 operating point；`.nodeset` 是该 OP 的初值提示，`.ic` 与器件 `IC=` 是较强的初值提示。指定 `UIC` 时不求 OP，而以 `.ic` 和 C/L/BJT/MOS 的 `IC=` 构造 t=0 状态；没有显式初值时才使用全零 MNA 状态。矛盾的显式电压条件会报错。
 - `.option DELMAX=value`（也接受 `.options`）是 HSPICE 兼容的内部时间步长硬上限，数值接受 SPICE 后缀。ngspice 的标准、可移植写法是 `.tran` 的第四个 `TMAX` 参数；两者同时出现时取更小者，确保每个内部积分步都不超过任一上限。该限制也应用于 `.pstran` 的伪时间步，且不改变 `.op`。ngspice 当前可接受 `DELMAX` 这个非标准 option 名称，但不将其列为通用 `.options` 变量；本程序刻意实现其 HSPICE 语义，而非静默忽略。
 - `.pstran` 启用 PTA operating-point 求解，接受不区分大小写的 `convval`、`initstep`、`minstep`、`maxstep`、`tau`、`vbe0`、`kvgs0`、`tauramp` 参数，且可使用 `key=value`、`key = value` 或 `key= value` 写法。`convval` 映射为 PTA 的导数和 DC 残差阈值，三个 step 参数映射为 PTA 步长边界；`tau` 启用复合伪元件，`tauramp` 控制独立源斜坡。`vbe0` 和 `kvgs0` 分别为 BJT `VBE` 与 MOS `VGS` 的初始、极性归一化 Newton 限幅器种子；MOS 同时以 `VGD=0` 建立同一初始限幅状态。它们只约束第一轮非线性更新幅度，不写入或钳位任何共享电路节点；对 PMOS，`kvgs0` 仍使用正的器件本征 `VGS` 约定。`.pstran` 与 `--pta` 或 `pta.mode` 同时指定时会静默保留网表的 `force` 模式。
 - `TSTEP` 控制输出间隔，`TSTART` 控制开始保存的时间，`TMAX` 限制内部积分步长。当前未指定 `TMAX` 时内部最大步长使用 `TSTEP`；输出时间点也会强制成为积分点，因此与 ngspice 的默认自适应步长策略不同。
@@ -118,7 +126,7 @@
 
 PTA 在 MNA pattern 固化前加入人工伪元件：独立电压源 branch 上的伪电感、独立电流源两端的伪电容，以及晶体管节点到地的伪电容。其伪时间迭代复用现有的 Backward Euler / 受步长比限制的 BDF2 `TransientIntegrator`；每一步以归一化 BDF 导数和归一化原始 OP 残差共同判定稳态。导数指标为 `h*|dx/dt| / (abstol + reltol*scale)`；残差指标为 `|Ax-b| / (abstol + reltol*max(|Ax|, |b|))`。二者都会区分节点 KCL 行的电流绝对容差与电压源支路行的电压绝对容差，`derivative-tolerance` 和 `dc-residual-tolerance` 是对应的无量纲阈值。使用 `--pta-diagnostics` 可将 PTA 是否实际执行、收敛指标、局部增容次数、节点降容次数和最小步长恢复次数写至 stderr，并同步保存在结果目录的 `.err` 中；每次尝试还会记录伪时间区间、步长、BE/BDF2 阶数、Newton 迭代/阻尼次数、导数/残差，以及缩步、最小步局部增容重启和振荡降容的决定与原因。同一人类可读轨迹也写入 `.solve.txt`。Newton 失败时先缩小伪时间步长；在最小步长仍失败时，按 PTA KCL 残差选择一个仍有余量的节点伪电容并重启积分历史。每个成功步后，伪时间步会按 `successful-step-scale` 增长，同时仍受最大步长和 BDF2 步长比限制；节点电压变化反向时会按相邻步变化幅度比降低该节点伪电容，两个 ratio 参数分别划分小/中及中/重振荡。
 
-该功能仍处于实验阶段。自适应规则具有单元测试，并有一条端到端夹具覆盖“最小步长失败 → 全局增容 → 重启 → 恢复收敛”路径及后续节点降容。当前 Force OP 回归覆盖的 18 个网表、76 个输出值均可通过参考对比。归一化导数收敛已避免固定绝对阈值随伪时间步和未知量量级失真的问题；其默认容差与困难非线性电路的鲁棒性仍需更广泛的基准验证。因此 `force` 与 `fallback` 可用于回归和实验，但暂不视为生产求解保证。
+该功能仍处于实验阶段。自适应规则具有单元测试，并有一条端到端夹具覆盖“最小步长失败 → 按残差选择单节点增容 → 重启 → 恢复收敛”路径及后续节点降容。当前 Force 与 Fallback OP 回归覆盖 18 个网表、76 个输出值，并包含一个多稳态困难锁存器。归一化导数收敛已避免固定绝对阈值随伪时间步和未知量量级失真的问题；其默认容差与困难非线性电路的鲁棒性仍需更广泛的基准验证。因此 `force` 与 `fallback` 可用于回归和实验，但暂不视为生产求解保证。
 
 ## 输出格式
 
@@ -467,7 +475,7 @@ make test-cases
 make generate-standards  # 需要 ngspice
 ```
 
-`tests/references/` 不使用本项目求解结果自我生成。OP 参考值直接来自 ngspice 46；生成 TRAN 参考时，脚本会向临时网表注入固定的高精度 ngspice 设置：`reltol=1e-8`、`vntol=1e-10`、`abstol=1e-12`、`trtol=1`，并将内部最大步长限制为 `TSTEP / 2000`。随后将 ngspice 结果线性重采样到网表要求的输出时间网格，原始测试网表不会被修改。对于 `UIC` 网表，仅显式 `t=0` 行按本项目当前的全零采样约定处理，所有 `t>0` 数据均来自 ngspice。
+`tests/references/` 不使用本项目求解结果自我生成。OP 参考值直接来自 ngspice 46；生成 TRAN 参考时，脚本会向临时网表注入固定的高精度 ngspice 设置：`reltol=1e-8`、`vntol=1e-10`、`abstol=1e-12`、`trtol=1`，并将内部最大步长限制为 `TSTEP / 2000`。随后将 ngspice 结果线性重采样到网表要求的输出时间网格，原始测试网表不会被修改。对于未提供显式初值的 `UIC` 网表，仅显式 `t=0` 行按本项目的全零采样约定处理，所有 `t>0` 数据均来自 ngspice；带 `.ic` 或器件 `IC=` 的新研究用例应单独保存其 ngspice 初态与比对规则。
 
 MOS Level-3 的独立回归资产位于 [`tests/cases/mos3/`](tests/cases/mos3/)。这些 fixture 直接适配自 ngspice 官方 SourceForge 仓库和 bug #481；使用 `make generate-mos3-standards` 以 ngspice 46 重建参考输出。`make test-mos3` 验证当前四个官方 OP case 和一个 UIC 瞬态 case，并纳入默认 `make test`。
 
