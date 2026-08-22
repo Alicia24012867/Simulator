@@ -1,4 +1,4 @@
-#include "app/command_line.h"
+#include "app/command_line.hpp"
 
 #include <cctype>
 #include <limits>
@@ -9,10 +9,10 @@
 #include <string>
 #include <vector>
 
-#include "analysis/solver_options.h"
-#include "analysis/transient_analysis.h"
-#include "config/overrides.h"
-#include "utils/string_utils.hpp"
+#include "analysis/solver_options.hpp"
+#include "analysis/transient_analysis.hpp"
+#include "config/overrides.hpp"
+#include "utils/string.hpp"
 
 namespace simulator::app {
 namespace {

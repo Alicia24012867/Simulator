@@ -355,13 +355,6 @@ public:
         hasOlderSolution_ = false;
     }
 
-    void Initialize(
-        double initialTime,
-        const Eigen::VectorXd& initialSolution
-    ){
-        initialize(initialTime, initialSolution);
-    }
-
     void restartFrom(
         double time,
         const Eigen::VectorXd& solution

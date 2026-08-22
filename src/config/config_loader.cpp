@@ -1,4 +1,4 @@
-#include "config/config_loader.h"
+#include "config/config_loader.hpp"
 
 #include <fstream>
 #include <stdexcept>

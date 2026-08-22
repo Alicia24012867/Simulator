@@ -1,5 +1,5 @@
-#include "app/command_line.h"
-#include "utils/string_utils.hpp"
+#include "app/command_line.hpp"
+#include "netlist/spice_syntax.hpp"
 
 #include <algorithm>
 #include <cmath>

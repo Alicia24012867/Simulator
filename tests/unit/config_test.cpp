@@ -1,5 +1,5 @@
-#include "config/config_loader.h"
-#include "config/overrides.h"
+#include "config/config_loader.hpp"
+#include "config/overrides.hpp"
 
 #include <chrono>
 #include <cmath>

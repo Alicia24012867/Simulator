@@ -1,14 +1,14 @@
-#include "analysis/transient_analysis.h"
-#include "analysis/pta_analysis.h"
-#include "analysis/solver_options.h"
-#include "circuit/circuit.h"
+#include "analysis/transient_analysis.hpp"
+#include "analysis/pta_analysis.hpp"
+#include "analysis/solver_options.hpp"
+#include "circuit/circuit.hpp"
 #include "devices/current_source.hpp"
 #include "devices/device.hpp"
 #include "devices/pseudo_device.hpp"
 #include "devices/resistor.hpp"
 #include "devices/voltage_source.hpp"
-#include "math/mna.hpp"
-#include "math/newton_step.hpp"
+#include "solver/mna.hpp"
+#include "solver/newton_step.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -199,7 +199,7 @@ TransientIntegrator makeIntegratorWithHistory(
     double acceptedTime = 1.0
 ){
     TransientIntegrator integrator;
-    integrator.Initialize(0.0, initialSolution);
+    integrator.initialize(0.0, initialSolution);
     integrator.accept(acceptedTime, acceptedSolution);
     return integrator;
 }
@@ -962,7 +962,7 @@ void testLinearFailureDiagnostics(){
 
 void testRequiresBdf2History(){
     TransientIntegrator integrator;
-    integrator.Initialize(0.0, makeVector({0.0}));
+    integrator.initialize(0.0, makeVector({0.0}));
 
     const TransientErrorEstimate estimate = integrator.estimateError(
         1.0,
@@ -1546,7 +1546,7 @@ void testRestartForcesBackwardEuler(){
 
 void testAcceptedHistoryRotation(){
     TransientIntegrator integrator;
-    integrator.Initialize(0.0, makeVector({1.0, 2.0}));
+    integrator.initialize(0.0, makeVector({1.0, 2.0}));
     integrator.accept(1.0, makeVector({3.0, 4.0}));
 
     expectNear(

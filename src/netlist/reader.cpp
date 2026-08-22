@@ -1,10 +1,10 @@
-#include "netlist/reader.h"
+#include "netlist/reader.hpp"
 
 #include <fstream>
 #include <iostream>
 #include <utility>
 
-#include "utils/string_utils.hpp"
+#include "netlist/spice_syntax.hpp"
 
 NetlistReader::NetlistReader(std::string filename):
     filename_(std::move(filename)) {}

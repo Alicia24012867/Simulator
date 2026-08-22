@@ -1,7 +1,7 @@
 #pragma once
 
 #include "devices/device.hpp"
-#include "math/mna.hpp"
+#include "solver/mna.hpp"
 
 class CurrentSource: public Device{
 public: 

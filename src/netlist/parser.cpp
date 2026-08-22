@@ -8,10 +8,10 @@
 #include <unordered_set>
 #include <utility>
 
-#include "netlist/parser.h"
-#include "netlist/reader.h"
-#include "netlist/subcircuit.h"
-#include "circuit/circuit.h"
+#include "netlist/parser.hpp"
+#include "netlist/reader.hpp"
+#include "netlist/subcircuit.hpp"
+#include "circuit/circuit.hpp"
 #include "devices/bjt.hpp"
 #include "devices/capacitor.hpp"
 #include "devices/current_source.hpp"
@@ -21,7 +21,7 @@
 #include "devices/resistor.hpp"
 #include "devices/voltage_source.hpp"
 #include "models/model.hpp"
-#include "utils/string_utils.hpp"
+#include "netlist/spice_syntax.hpp"
 
 namespace {
 ModelType parseModelType(const std::string& token){

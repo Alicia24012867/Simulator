@@ -1,4 +1,4 @@
-#include "netlist/subcircuit.h"
+#include "netlist/subcircuit.hpp"
 
 #include <cctype>
 #include <cmath>
@@ -9,7 +9,7 @@
 #include <unordered_set>
 #include <utility>
 
-#include "utils/string_utils.hpp"
+#include "netlist/spice_syntax.hpp"
 
 namespace {
 using ParameterLookup = std::function<double(const std::string&)>;

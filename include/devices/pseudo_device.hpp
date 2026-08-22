@@ -2,10 +2,10 @@
 
 #include <cassert>
 
-#include "device.hpp"
-#include "../math/mna.hpp"
-#include "../analysis/pta_analysis.h"
-#include "../analysis/transient_analysis.h"
+#include "analysis/pta_analysis.hpp"
+#include "analysis/transient_analysis.hpp"
+#include "devices/device.hpp"
+#include "solver/mna.hpp"
 
 enum class PtaPlacementKind{
     CurrentSourceParallelCap,

@@ -2,9 +2,9 @@
 
 #include <cassert>
 
-#include "circuit/circuit.h"
+#include "circuit/circuit.hpp"
 #include "devices/device.hpp"
-#include "math/mna.hpp"
+#include "solver/mna.hpp"
 
 class VoltageSource: public Device{
 public:

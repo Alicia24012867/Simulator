@@ -2,8 +2,8 @@ CXX = g++
 CXX_STD = c++17
 OPT_FLAGS ?= -O3
 CXX_FLAGS = -std=$(CXX_STD) $(OPT_FLAGS) -Wall -Wextra -I./include -I./third_party
-SRC = $(sort $(wildcard ./src/*.cpp) $(wildcard ./src/*/*.cpp))
-HEADERS = $(shell find ./include -type f 2>/dev/null)
+SRC := $(sort $(shell find ./src -type f -name '*.cpp' 2>/dev/null))
+HEADERS := $(sort $(shell find ./include -type f -name '*.hpp' 2>/dev/null))
 CIRCUIT_TEST_SOURCES = $(sort $(wildcard ./src/circuit/*.cpp)) \
 	./src/devices/device.cpp
 CONFIG_SOURCES = $(wildcard ./src/config/*.cpp)
@@ -47,7 +47,7 @@ TIME_ABS_TOL ?= 1e-15
 OP_COMPARE_FLAGS ?=
 TRAN_COMPARE_FLAGS ?=
 PTA_COMPARE_FLAGS ?= $(OP_COMPARE_FLAGS)
-PRIVATE_TIMEOUT ?= 120
+NETLIST_PARSE_TIMEOUT ?= 120
 MOS3_CASE_ROOT ?= $(TESTCASE_ROOT)/mos3
 MOS3_REFERENCE_ROOT ?= $(STANDARD_ROOT)/mos3
 MOS3_ACTUAL_ROOT ?= $(ACTUAL_DIR)/mos3
@@ -244,8 +244,8 @@ test-tran: $(TARGET)
 		$(TRAN_COMPARE_FLAGS) || status=1; \
 	exit $$status
 
-# The DC subset is enabled independently.  The full suite remains outside the
-# default gate until transient charge modelling is done.
+# Keep focused MOS3 targets for local development; the complete MOS3 suite is
+# also part of the default `test` gate.
 test-mos3: test-mos3-op test-mos3-tran
 
 test-mos3-dc: test-mos3-dc-unit test-mos3-op
@@ -304,11 +304,11 @@ test-private: $(TARGET)
 		--output-dir "$(PRIVATE_ACTUAL_DIR)"
 
 test-netlists: $(TARGET)
-	@$(PYTHON) $(TEST_SCRIPT_DIR)/test_private_netlists.py \
+	@$(PYTHON) $(TEST_SCRIPT_DIR)/test_netlist_parsing.py \
 		./$(TARGET) \
 		$(TEST_ROOT) \
 		--recursive \
-		--timeout $(PRIVATE_TIMEOUT)
+		--timeout $(NETLIST_PARSE_TIMEOUT)
 
 # This is a solver-differentiation benchmark, not a permanent release gate:
 # improving ordinary Newton so it converges should prompt updating the fixture.

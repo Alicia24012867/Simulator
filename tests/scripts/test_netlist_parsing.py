@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Parse every curated private netlist without requiring a DC solution."""
+"""Parse every curated netlist without requiring a DC solution."""
 
 from __future__ import annotations
 
@@ -96,5 +96,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except (OSError, RuntimeError, ValueError) as error:
-        print(f"FAIL private netlists: {error}", file=sys.stderr)
+        print(f"FAIL netlist parsing: {error}", file=sys.stderr)
         raise SystemExit(1)

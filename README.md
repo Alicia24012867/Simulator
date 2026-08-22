@@ -6,21 +6,20 @@
 
 ## 代码结构
 
-- `src/main.cpp`：编排配置加载、网表解析、求解、诊断捕获和 artifact 提交流程。
-- `src/app/command_line.cpp`：命令行语法、重复参数检查和帮助文本。
-- `src/netlist/reader.cpp`：文件读取、注释与续行处理，以及 `.end` 位置校验。
-- `src/netlist/subcircuit.cpp`：`.subckt` 定义收集和 `X` 实例递归展平；不依赖 `Circuit`，只输出原语 token。
-- `src/netlist/parser.cpp`：控制卡、模型和原语器件的语义校验与构造。
-- `src/config/config_loader.cpp`：`config.json` 的定位与加载。
-- `src/config/parse_overrides.cpp`：严格 schema 校验，并生成类型化覆盖层。
-- `src/config/apply_overrides.cpp`、`option_overrides.cpp`：分别应用配置文件覆盖和命令行 `name=value` 覆盖，同时保护网表中显式指定的参数。
-- `src/circuit/`：节点编号、MNA 构建及 OP/TRAN/PTA 求解调度。
-- `include/analysis/solver_diagnostics.h`：OP、source stepping、PTA 和 TRAN 的类型化求解诊断数据。
-- `src/io/spice_output.cpp`：listing、ASCII rawfile 格式化，以及结果目录和多文件事务提交。
-- `src/io/solver_report.cpp`：把电路规模、方法链、迭代/步长统计、耗时、有效配置和调参提示写成求解报告。
+- `src/app/`：程序入口和命令行解析。`main.cpp` 只负责编排配置、网表、求解与输出流程。
+- `src/circuit/`：电路构建和求解调度；OP、TRAN、PTA 与公共 Newton 求解分别位于 `operating_point_solver.cpp`、`transient_solver.cpp`、`pta_solver.cpp` 和 `newton_solver.cpp`。
+- `include/analysis/`：分析配置、积分策略和类型化诊断数据，不负责电路拓扑。
+- `include/solver/`：MNA、Newton 步长和非线性电压限制等求解基础设施。
+- `include/devices/`、`src/devices/`：器件接口与实现。MOSFET 实例配置放在 `devices/mosfet/`，Level-3 的 DC、charge 和 configuration 实现集中在 `devices/mosfet/level3/`。
+- `include/models/`：模型卡与模型缓存；MOSFET Level-3 模型卡单独位于 `models/mosfet/level3_model_card.hpp`。
+- `src/netlist/`、`include/netlist/`：词法读取、SPICE 数值/赋值语法、子电路展平，以及控制卡、模型和器件构造。
+- `src/config/`：`config.json` 定位、严格 schema 解析、覆盖应用与 CLI `name=value` 解析；文件名直接体现 parser、applier 或 CLI 职责。
+- `src/io/spice_output.cpp`：listing、ASCII rawfile 和 PTA diagnostic 格式化。
+- `src/io/output_files.cpp`：结果路径校验、临时文件、原子提交与失败回滚。
+- `src/io/solver_report.cpp`：输出电路规模、方法链、迭代/步长统计、有效配置和调参提示。
 - `third_party/nlohmann/json.hpp`：随仓库固定版本的 header-only JSON 解析器。
 
-这种分层使网表语法、层次展开和求解模型可以独立演进。大型网表的普通逻辑行不再长期保留原始文本；子电路引脚索引在定义阶段预计算，展开每个实例时无需构造临时绑定表。
+项目自有 C++ 头文件统一使用 `.hpp`，实现文件统一使用 `.cpp`；项目内 include 均从 `include/` 根目录书写，避免目录移动后相对路径失效。这种分层使网表语法、器件模型、求解策略和文件事务可以独立演进。
 
 ## 已支持功能
 
@@ -465,21 +464,21 @@ MOS Level-3 的独立回归资产位于 [`tests/cases/mos3/`](tests/cases/mos3/)
 include/
   analysis/      分析计划、求解诊断、瞬态配置、stamp 上下文与积分器
   app/           命令行接口
-  circuit/       Circuit 求解编排与 NodeMap 拓扑接口
+  circuit/       Circuit 与 NodeMap 公共接口
   config/        配置加载、类型化覆盖及参数优先级接口
-  devices/       器件定义及 OP / TRAN stamp
-  io/            SPICE listing / rawfile、求解报告与事务式 artifact 接口
-  math/          Eigen 稀疏 MNA、Newton 步长控制与数值限制工具
-  models/        .model 参数存储
-  netlist/       网表读取、层次展开与 Parser 接口
-  utils/         跨模块字符串与 SPICE 数值工具
+  devices/       器件定义、OP / TRAN stamp 与 MOSFET Level-3 子模块
+  io/            SPICE 格式化、求解报告与事务式 artifact 接口
+  models/        .model 参数存储及模型卡配置
+  netlist/       网表读取、SPICE 词法、层次展开与 Parser 接口
+  solver/        Eigen 稀疏 MNA、Newton 步长与非线性电压限制
+  utils/         与 SPICE 语法无关的通用字符串工具
 src/
-  app/           命令行解析
-  circuit/       Circuit 与 NodeMap 实现
-  config/        配置加载、schema 解析和覆盖应用
-  io/            listing / rawfile / 求解报告格式化与文件提交
+  app/           应用入口与命令行解析
+  circuit/       电路构建，以及 OP / TRAN / PTA / Newton 分工实现
+  config/        配置加载、schema parser、override applier 与 CLI 覆盖
+  devices/       非 header-only 的器件公共实现
+  io/            SPICE 格式化、求解报告与原子文件事务
   netlist/       网表读取、子电路展开与语义解析
-  main.cpp       应用入口与高层流程编排
 tests/
   cases/         OP / TRAN netlist 与 SOURCES.md
   references/    ngspice 独立参考 listing
@@ -487,7 +486,7 @@ tests/
   output/        按网表分目录的测试 artifact（不纳入版本控制）
 ```
 
-项目内头文件统一相对于 `include/` 引用，文件名统一使用 snake_case。`include/analysis`、`include/devices`、`include/math` 和 `include/models` 当前主要是 header-only 模块；存在独立实现文件的模块则在 `src/` 中使用对应职责目录。Makefile 自动收集 `src/` 及其一级职责目录中的 `.cpp` 文件。默认构建使用 `-O3`；调试时可用 `make OPT_FLAGS=-O0` 覆盖。
+项目内头文件统一使用 `.hpp` 并相对于 `include/` 引用，文件名统一使用 snake_case；实现文件使用 `.cpp` 并放入对应职责目录。Makefile 递归收集 `src/` 下的实现文件，因此后续增加子模块不会静默漏编译。默认构建使用 `-O3`；调试时可用 `make OPT_FLAGS=-O0` 覆盖。
 
 ## 当前限制
 

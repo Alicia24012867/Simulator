@@ -8,13 +8,14 @@
 #include <streambuf>
 #include <string>
 
-#include "app/command_line.h"
-#include "config/config_loader.h"
-#include "config/overrides.h"
-#include "circuit/circuit.h"
-#include "io/solver_report.h"
-#include "io/spice_output.h"
-#include "netlist/parser.h"
+#include "app/command_line.hpp"
+#include "circuit/circuit.hpp"
+#include "config/config_loader.hpp"
+#include "config/overrides.hpp"
+#include "io/output_files.hpp"
+#include "io/solver_report.hpp"
+#include "io/spice_output.hpp"
+#include "netlist/parser.hpp"
 
 namespace {
 

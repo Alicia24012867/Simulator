@@ -2,7 +2,7 @@
 
 #include <cassert>
 
-#include "analysis/transient_analysis.h"
+#include "analysis/transient_analysis.hpp"
 #include "devices/device.hpp"
 
 class Capacitor: public Device{

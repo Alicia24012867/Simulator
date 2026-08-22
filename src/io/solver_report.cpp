@@ -1,4 +1,4 @@
-#include "io/solver_report.h"
+#include "io/solver_report.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -7,10 +7,10 @@
 #include <ostream>
 #include <string>
 
-#include "analysis/analysis_plan.h"
-#include "analysis/pta_analysis.h"
-#include "analysis/solver_options.h"
-#include "circuit/circuit.h"
+#include "analysis/analysis_plan.hpp"
+#include "analysis/pta_analysis.hpp"
+#include "analysis/solver_options.hpp"
+#include "circuit/circuit.hpp"
 
 namespace {
 

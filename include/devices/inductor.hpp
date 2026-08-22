@@ -2,10 +2,10 @@
 
 #include <cassert>
 
-#include "analysis/transient_analysis.h"
-#include "circuit/circuit.h"
+#include "analysis/transient_analysis.hpp"
+#include "circuit/circuit.hpp"
 #include "devices/device.hpp"
-#include "math/mna.hpp"
+#include "solver/mna.hpp"
 
 
 class Inductor: public Device{

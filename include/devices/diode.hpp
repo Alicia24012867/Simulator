@@ -3,10 +3,10 @@
 #include <algorithm>
 #include <cmath>
 
-#include "circuit/circuit.h"
+#include "circuit/circuit.hpp"
 #include "devices/device.hpp"
-#include "math/limiting.hpp"
-#include "math/mna.hpp"
+#include "solver/mna.hpp"
+#include "solver/voltage_limiting.hpp"
 #include "models/model.hpp"
 
 class Diode: public Device{
@@ -93,7 +93,7 @@ public:
         const double is = dc.is * area;
 
         if(hasPreviousVd_){
-            vd = limitPnJunctionColon(vd, previousVd_, nvt, is);
+            vd = limitPnJunctionVoltage(vd, previousVd_, nvt, is);
         }
         
         previousVd_ = vd;

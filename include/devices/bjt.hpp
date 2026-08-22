@@ -4,10 +4,10 @@
 #include <array>
 #include <cmath>
 
-#include "circuit/circuit.h"
+#include "circuit/circuit.hpp"
 #include "devices/device.hpp"
-#include "math/limiting.hpp"
-#include "math/mna.hpp"
+#include "solver/mna.hpp"
+#include "solver/voltage_limiting.hpp"
 #include "models/model.hpp"
 
 // DC-only Gummel-Poon subset.  Charge storage parameters are deliberately not
@@ -76,8 +76,8 @@ public:
         const double is = dc.is * area;
 
         if(hasPreviousVoltages_){
-            vbe = limitPnJunctionColon(vbe, previousVbe_, nvtBe, is);
-            vbc = limitPnJunctionColon(vbc, previousVbc_, nvtBc, is);
+            vbe = limitPnJunctionVoltage(vbe, previousVbe_, nvtBe, is);
+            vbc = limitPnJunctionVoltage(vbc, previousVbc_, nvtBc, is);
         }
         previousVbe_ = vbe;
         previousVbc_ = vbc;

@@ -79,12 +79,3 @@ inline double limitPnJunctionVoltage(double newV, double oldV, double vt, double
 
     return std::isfinite(limited) ? limited : vcrit;
 }
-
-inline double colonCriticalVoltage(double vt, double is){
-    return pnJunctionCriticalVoltage(vt, is);
-}
-
-inline double limitPnJunctionColon(double newV, double oldV,
-                                   double vt, double is){
-    return limitPnJunctionVoltage(newV, oldV, vt, is);
-}
