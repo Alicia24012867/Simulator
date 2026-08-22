@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "circuit/circuit.h"
+#include "analysis/transient_analysis.h"
 #include "devices/device.hpp"
 #include "devices/mos3_dc.hpp"
 #include "devices/mosfet_params.hpp"
@@ -211,6 +212,16 @@ public:
         }
     }
 
+    void stampTransient(const TransientStampContext& ctx) override{
+        if(!model_ || !model_->isMos3()){
+            stampOperatingPoint();
+            return;
+        }
+
+        stampMos3OperatingPoint();
+        stampMos3JunctionCharges(ctx);
+    }
+
     void saveIterationState() override{
         savedPreviousVgs_ = previousVgs_;
         savedPreviousVgd_ = previousVgd_;
@@ -379,6 +390,103 @@ private:
 
         stampLinearization(f, j);
         stampSeriesResistors();
+    }
+
+    struct JunctionCapacitance {
+        double capacitance = 0.0;
+    };
+
+    static double evaluateJunctionCapacitance(double voltage,
+                                              double bottomCapacitance,
+                                              double sidewallCapacitance,
+                                              double potential,
+                                              double bottomGrading,
+                                              double sidewallGrading,
+                                              double forwardBiasCoeff){
+        if((bottomCapacitance <= 0.0 && sidewallCapacitance <= 0.0) ||
+           potential <= 0.0){
+            return 0.0;
+        }
+
+        const double fc = std::clamp(forwardBiasCoeff, 0.0, 0.99);
+        const double depletionVoltage = fc * potential;
+        const auto depletion = [&](double capacitance, double grading){
+            if(capacitance <= 0.0) return 0.0;
+            const double arg = std::max(1.0 - voltage / potential, 1.0e-12);
+            return capacitance * std::pow(arg, -grading);
+        };
+
+        if(voltage < depletionVoltage){
+            return depletion(bottomCapacitance, bottomGrading) +
+                depletion(sidewallCapacitance, sidewallGrading);
+        }
+
+        const double arg = std::max(1.0 - fc, 1.0e-12);
+        const auto forward = [&](double capacitance, double grading){
+            if(capacitance <= 0.0) return 0.0;
+            const double scale = std::pow(arg, -grading);
+            const double f2 = capacitance * (1.0 - fc * (1.0 + grading)) *
+                scale / arg;
+            const double f3 = capacitance * grading * scale / arg / potential;
+            return f2 + voltage * f3;
+        };
+        return forward(bottomCapacitance, bottomGrading) +
+            forward(sidewallCapacitance, sidewallGrading);
+    }
+
+    void stampMos3JunctionCharges(const TransientStampContext& ctx){
+        const auto& card = model_->mos3();
+        const double multiplicity = std::max(instance_.m, 1e-30);
+        const double potential = valueOrZero(card.pb) > 0.0
+            ? valueOrZero(card.pb) : 0.8;
+        const double bottomGrading = card.mj ? *card.mj : 0.5;
+        const double sidewallGrading = card.mjsw ? *card.mjsw : 0.33;
+        const double forwardBiasCoeff = card.fc ? *card.fc : 0.5;
+        const double bottomDensity = valueOrZero(card.cj);
+        const double sidewallDensity = valueOrZero(card.cjsw);
+        const double polarity = model_->type() == ModelType::PMOS ? -1.0 : 1.0;
+        const auto core = coreNodes();
+
+        const auto stampJunction = [&](int terminal, double area,
+                                       double perimeter,
+                                       const std::optional<double>& explicitCapacitance){
+            const double bottomCapacitance = explicitCapacitance
+                ? *explicitCapacitance * multiplicity
+                : bottomDensity * std::max(area, 0.0) * multiplicity;
+            const double sidewallCapacitance =
+                sidewallDensity * std::max(perimeter, 0.0) * multiplicity;
+            if(bottomCapacitance <= 0.0 && sidewallCapacitance <= 0.0) return;
+
+            const auto voltageAt = [&](const Eigen::VectorXd& solution){
+                return polarity * (
+                    (core[3] >= 0 ? solution[core[3]] : 0.0) -
+                    (core[terminal] >= 0 ? solution[core[terminal]] : 0.0)
+                );
+            };
+            const double capacitance = evaluateJunctionCapacitance(
+                voltageAt(ctx.previousSolution), bottomCapacitance,
+                sidewallCapacitance, potential, bottomGrading, sidewallGrading,
+                forwardBiasCoeff
+            );
+            // Re-evaluate the voltage-dependent depletion capacitance from
+            // each accepted state.  Keeping it fixed during the following
+            // Newton solve gives the same stable companion form as an
+            // ordinary capacitor while retaining the MOS3 C-V law between
+            // transient steps.
+            const double conductance = ctx.derivative.alpha0 * capacitance;
+            const double history = capacitance *
+                ctx.historyDerivativeDifference(core[3], core[terminal]);
+
+            if(A_[3][3]) *A_[3][3] += conductance;
+            if(A_[3][terminal]) *A_[3][terminal] -= conductance;
+            if(A_[terminal][3]) *A_[terminal][3] -= conductance;
+            if(A_[terminal][terminal]) *A_[terminal][terminal] += conductance;
+            if(rhs_[3]) *rhs_[3] -= history;
+            if(rhs_[terminal]) *rhs_[terminal] += history;
+        };
+
+        stampJunction(0, instance_.ad, instance_.pd, card.cbd);
+        stampJunction(2, instance_.as, instance_.ps, card.cbs);
     }
 
     const Model* model_;
