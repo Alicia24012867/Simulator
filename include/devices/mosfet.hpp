@@ -220,6 +220,7 @@ public:
 
         stampMos3OperatingPoint();
         stampMos3JunctionCharges(ctx);
+        stampMos3OverlapCharges(ctx);
     }
 
     void saveIterationState() override{
@@ -392,10 +393,6 @@ private:
         stampSeriesResistors();
     }
 
-    struct JunctionCapacitance {
-        double capacitance = 0.0;
-    };
-
     static double evaluateJunctionCapacitance(double voltage,
                                               double bottomCapacitance,
                                               double sidewallCapacitance,
@@ -473,20 +470,50 @@ private:
             // Newton solve gives the same stable companion form as an
             // ordinary capacitor while retaining the MOS3 C-V law between
             // transient steps.
-            const double conductance = ctx.derivative.alpha0 * capacitance;
-            const double history = capacitance *
-                ctx.historyDerivativeDifference(core[3], core[terminal]);
-
-            if(A_[3][3]) *A_[3][3] += conductance;
-            if(A_[3][terminal]) *A_[3][terminal] -= conductance;
-            if(A_[terminal][3]) *A_[terminal][3] -= conductance;
-            if(A_[terminal][terminal]) *A_[terminal][terminal] += conductance;
-            if(rhs_[3]) *rhs_[3] -= history;
-            if(rhs_[terminal]) *rhs_[terminal] += history;
+            stampTransientCapacitor(ctx, core, 3, terminal, capacitance);
         };
 
         stampJunction(0, instance_.ad, instance_.pd, card.cbd);
         stampJunction(2, instance_.as, instance_.ps, card.cbs);
+    }
+
+    void stampMos3OverlapCharges(const TransientStampContext& ctx){
+        const auto& card = model_->mos3();
+        const double multiplicity = std::max(instance_.m, 1e-30);
+        const double effectiveLength = instance_.l -
+            2.0 * valueOrZero(card.ld) + valueOrZero(card.xl);
+        const double effectiveWidth = instance_.w -
+            2.0 * valueOrZero(card.wd) + valueOrZero(card.xw);
+        if(effectiveLength <= 0.0 || effectiveWidth <= 0.0) return;
+
+        const auto core = coreNodes();
+        stampTransientCapacitor(
+            ctx, core, 1, 2, valueOrZero(card.cgso) * multiplicity * effectiveWidth
+        );
+        stampTransientCapacitor(
+            ctx, core, 1, 0, valueOrZero(card.cgdo) * multiplicity * effectiveWidth
+        );
+        stampTransientCapacitor(
+            ctx, core, 1, 3, valueOrZero(card.cgbo) * multiplicity * effectiveLength
+        );
+    }
+
+    void stampTransientCapacitor(const TransientStampContext& ctx,
+                                 const std::array<int, 4>& core,
+                                 int positive,
+                                 int negative,
+                                 double capacitance){
+        if(capacitance <= 0.0) return;
+        const double conductance = ctx.derivative.alpha0 * capacitance;
+        const double history = capacitance *
+            ctx.historyDerivativeDifference(core[positive], core[negative]);
+
+        if(A_[positive][positive]) *A_[positive][positive] += conductance;
+        if(A_[positive][negative]) *A_[positive][negative] -= conductance;
+        if(A_[negative][positive]) *A_[negative][positive] -= conductance;
+        if(A_[negative][negative]) *A_[negative][negative] += conductance;
+        if(rhs_[positive]) *rhs_[positive] -= history;
+        if(rhs_[negative]) *rhs_[negative] += history;
     }
 
     const Model* model_;
