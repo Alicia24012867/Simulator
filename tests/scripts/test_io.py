@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import json
 import subprocess
 import sys
 import tempfile
@@ -113,6 +114,10 @@ def main():
                 "successful bundled error log is not empty",
             )
             report_text = bundled_report.read_text()
+            require(
+                not (bundle / "valid.pta.jsonl").exists(),
+                "non-PTA run unexpectedly wrote a PTA trace",
+            )
             for expected in (
                 "SPICE Solver Report",
                 "Status: succeeded",
@@ -499,6 +504,37 @@ def main():
             require(
                 "pta.initial_mos_vgs: 1.2" in pstran_report,
                 ".pstran kvgs0 did not map to the MOS limiter seed",
+            )
+            pstran_trace = root / "pstran" / "pstran.pta.jsonl"
+            require(pstran_trace.is_file(), ".pstran JSONL trace is missing")
+            trace_records = [
+                json.loads(line)
+                for line in pstran_trace.read_text().splitlines()
+                if line.strip()
+            ]
+            require(
+                trace_records[0]["record_type"] == "metadata" and
+                trace_records[0]["schema_version"] == 1 and
+                trace_records[0]["configuration_hash"].startswith("fnv1a64:") and
+                trace_records[0]["configuration"]["newton"]["maximum_backtracks"] >= 0,
+                "PTA trace metadata lacks its replayable configuration snapshot",
+            )
+            attempts = [
+                record for record in trace_records
+                if record["record_type"] == "attempt"
+            ]
+            require(attempts, "PTA JSONL trace contains no attempt records")
+            require(
+                all("newton" in attempt and "time_step" in attempt
+                    for attempt in attempts),
+                "PTA JSONL attempt record omits solver state",
+            )
+            final_trace = trace_records[-1]
+            require(
+                final_trace["record_type"] == "final" and
+                final_trace["status"] == "succeeded" and
+                final_trace["solution"]["node_voltages"],
+                "PTA JSONL trace lacks the successful final solution",
             )
 
             duplicate = root / "duplicate-pstran.sp"

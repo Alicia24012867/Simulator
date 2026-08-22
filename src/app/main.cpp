@@ -13,6 +13,7 @@
 #include "config/config_loader.hpp"
 #include "config/overrides.hpp"
 #include "io/output_files.hpp"
+#include "io/pta_trace.hpp"
 #include "io/solver_report.hpp"
 #include "io/spice_output.hpp"
 #include "netlist/parser.hpp"
@@ -192,6 +193,21 @@ int main(int argc, char* argv[]){
         }
 
         report.totalWallSeconds = elapsedSeconds(simulationStart);
+        std::optional<std::string> ptaTrace;
+        if(circuitAvailable && effectiveConfigurationAvailable &&
+           circuit.ptaDiagnostics().attempted){
+            ptaTrace = PtaTraceWriter::write(
+                circuit,
+                ptaConfig,
+                report.inputPath,
+                report.configurationSource,
+                report.status,
+                report.statusDetail
+            );
+        }
+        const std::optional<std::string_view> ptaTraceView = ptaTrace
+            ? std::optional<std::string_view>(*ptaTrace)
+            : std::nullopt;
         errorCapture->stop();
         const std::string errorLog = errorCapture->str();
 
@@ -214,12 +230,14 @@ int main(int argc, char* argv[]){
                     rawOutput,
                     errorLog,
                     solverReport,
+                    ptaTraceView,
                     std::cerr
                 )
                 : SpiceOutputFiles::writeFailureAtomically(
                     *outputPaths,
                     errorLog,
                     solverReport,
+                    ptaTraceView,
                     std::cerr
                 );
         } else {
@@ -229,11 +247,13 @@ int main(int argc, char* argv[]){
                     listingOutput,
                     rawOutput,
                     errorLog,
+                    ptaTraceView,
                     std::cerr
                 )
                 : SpiceOutputFiles::writeFailureAtomically(
                     *outputPaths,
                     errorLog,
+                    ptaTraceView,
                     std::cerr
                 );
         }

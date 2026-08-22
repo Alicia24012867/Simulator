@@ -19,6 +19,7 @@ class Model;
 class NodeMap;
 class SpiceOutputAccess;
 class CircuitPtaTestAccess;
+class PtaTraceWriter;
 class TransientIntegrator;
 
 struct TransientAnalysisConfig;
@@ -80,6 +81,7 @@ public:
 private:
     friend class SpiceOutputAccess;
     friend class CircuitPtaTestAccess;
+    friend class PtaTraceWriter;
 
     using AssembleCallback = std::function<void()>;
 

@@ -378,6 +378,7 @@ OutputBundlePaths OutputBundlePaths::derive(
     paths.rawPath = paths.directory / pathWithSuffix(stem, ".raw");
     paths.errorPath = paths.directory / pathWithSuffix(stem, ".err");
     paths.reportPath = paths.directory / pathWithSuffix(stem, ".solve.txt");
+    paths.ptaTracePath = paths.directory / pathWithSuffix(stem, ".pta.jsonl");
     return paths;
 }
 
@@ -416,12 +417,13 @@ bool OutputBundlePaths::validate(const std::filesystem::path& inputPath,
         }
     }
 
-    const std::array<std::pair<const std::filesystem::path*, const char*>, 4>
+    const std::array<std::pair<const std::filesystem::path*, const char*>, 5>
         outputs = {{
             {&listingPath, "listing output"},
             {&rawPath, "raw output"},
             {&errorPath, "error log"},
-            {&reportPath, "solve report"}
+            {&reportPath, "solve report"},
+            {&ptaTracePath, "PTA trace"}
         }};
     const std::filesystem::path normalizedDirectory = normalizedPath(directory);
 
@@ -499,12 +501,13 @@ bool OutputBundlePaths::validateMirrors(
     const std::optional<std::string>& rawMirror,
     std::ostream& error
 ) const{
-    const std::array<std::pair<const std::filesystem::path*, const char*>, 4>
+    const std::array<std::pair<const std::filesystem::path*, const char*>, 5>
         outputs = {{
             {&listingPath, "listing output"},
             {&rawPath, "raw output"},
             {&errorPath, "error log"},
-            {&reportPath, "solve report"}
+            {&reportPath, "solve report"},
+            {&ptaTracePath, "PTA trace"}
         }};
 
     const auto validateMirror = [&outputs, &error, this](
@@ -589,7 +592,30 @@ bool SpiceOutputFiles::writeAtomically(
             {paths.listingPath, listing, "listing output"},
             {paths.rawPath, raw, "raw output"},
             {paths.errorPath, errorLog, "error log"},
-            {paths.reportPath, {}, "solve report", true}
+            {paths.reportPath, {}, "solve report", true},
+            {paths.ptaTracePath, {}, "PTA trace", true}
+        },
+        error
+    );
+}
+
+bool SpiceOutputFiles::writeAtomically(
+    const OutputBundlePaths& paths,
+    std::string_view listing,
+    std::string_view raw,
+    std::string_view errorLog,
+    const std::optional<std::string_view>& ptaTrace,
+    std::ostream& error
+){
+    return writeOutputsAtomically(
+        {
+            {paths.listingPath, listing, "listing output"},
+            {paths.rawPath, raw, "raw output"},
+            {paths.errorPath, errorLog, "error log"},
+            {paths.reportPath, {}, "solve report", true},
+            ptaTrace
+                ? PendingOutput{paths.ptaTracePath, *ptaTrace, "PTA trace"}
+                : PendingOutput{paths.ptaTracePath, {}, "PTA trace", true}
         },
         error
     );
@@ -608,7 +634,31 @@ bool SpiceOutputFiles::writeAtomically(
             {paths.listingPath, listing, "listing output"},
             {paths.rawPath, raw, "raw output"},
             {paths.errorPath, errorLog, "error log"},
-            {paths.reportPath, report, "solve report"}
+            {paths.reportPath, report, "solve report"},
+            {paths.ptaTracePath, {}, "PTA trace", true}
+        },
+        error
+    );
+}
+
+bool SpiceOutputFiles::writeAtomically(
+    const OutputBundlePaths& paths,
+    std::string_view listing,
+    std::string_view raw,
+    std::string_view errorLog,
+    std::string_view report,
+    const std::optional<std::string_view>& ptaTrace,
+    std::ostream& error
+){
+    return writeOutputsAtomically(
+        {
+            {paths.listingPath, listing, "listing output"},
+            {paths.rawPath, raw, "raw output"},
+            {paths.errorPath, errorLog, "error log"},
+            {paths.reportPath, report, "solve report"},
+            ptaTrace
+                ? PendingOutput{paths.ptaTracePath, *ptaTrace, "PTA trace"}
+                : PendingOutput{paths.ptaTracePath, {}, "PTA trace", true}
         },
         error
     );
@@ -622,7 +672,26 @@ bool SpiceOutputFiles::writeFailureAtomically(
     return writeOutputsAtomically(
         {
             {paths.errorPath, errorLog, "error log"},
-            {paths.reportPath, {}, "solve report", true}
+            {paths.reportPath, {}, "solve report", true},
+            {paths.ptaTracePath, {}, "PTA trace", true}
+        },
+        error
+    );
+}
+
+bool SpiceOutputFiles::writeFailureAtomically(
+    const OutputBundlePaths& paths,
+    std::string_view errorLog,
+    const std::optional<std::string_view>& ptaTrace,
+    std::ostream& error
+){
+    return writeOutputsAtomically(
+        {
+            {paths.errorPath, errorLog, "error log"},
+            {paths.reportPath, {}, "solve report", true},
+            ptaTrace
+                ? PendingOutput{paths.ptaTracePath, *ptaTrace, "PTA trace"}
+                : PendingOutput{paths.ptaTracePath, {}, "PTA trace", true}
         },
         error
     );
@@ -637,7 +706,27 @@ bool SpiceOutputFiles::writeFailureAtomically(
     return writeOutputsAtomically(
         {
             {paths.errorPath, errorLog, "error log"},
-            {paths.reportPath, report, "solve report"}
+            {paths.reportPath, report, "solve report"},
+            {paths.ptaTracePath, {}, "PTA trace", true}
+        },
+        error
+    );
+}
+
+bool SpiceOutputFiles::writeFailureAtomically(
+    const OutputBundlePaths& paths,
+    std::string_view errorLog,
+    std::string_view report,
+    const std::optional<std::string_view>& ptaTrace,
+    std::ostream& error
+){
+    return writeOutputsAtomically(
+        {
+            {paths.errorPath, errorLog, "error log"},
+            {paths.reportPath, report, "solve report"},
+            ptaTrace
+                ? PendingOutput{paths.ptaTracePath, *ptaTrace, "PTA trace"}
+                : PendingOutput{paths.ptaTracePath, {}, "PTA trace", true}
         },
         error
     );

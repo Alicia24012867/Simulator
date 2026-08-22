@@ -116,13 +116,13 @@
 
 同一 PTA 选项不可重复指定；所有覆盖值会在建模前统一执行配置校验，非法范围或相互矛盾的边界会以命令行错误退出。
 
-PTA 在 MNA pattern 固化前加入人工伪元件：独立电压源 branch 上的伪电感、独立电流源两端的伪电容，以及晶体管节点到地的伪电容。其伪时间迭代复用现有的 Backward Euler / 受步长比限制的 BDF2 `TransientIntegrator`；每一步以归一化 BDF 导数和归一化原始 OP 残差共同判定稳态。导数指标为 `h*|dx/dt| / (abstol + reltol*scale)`；残差指标为 `|Ax-b| / (abstol + reltol*max(|Ax|, |b|))`。二者都会区分节点 KCL 行的电流绝对容差与电压源支路行的电压绝对容差，`derivative-tolerance` 和 `dc-residual-tolerance` 是对应的无量纲阈值。使用 `--pta-diagnostics` 可将 PTA 是否实际执行、收敛指标、全局增容次数、节点降容次数和最小步长恢复次数写至 stderr，并同步保存在结果目录的 `.err` 中；每次尝试还会记录伪时间区间、步长、BE/BDF2 阶数、Newton 迭代/阻尼次数、导数/残差，以及缩步、最小步增容重启和振荡降容的决定与原因。同一轨迹也写入 `.solve.txt`。Newton 失败时先缩小伪时间步长；在最小步长仍失败时，增大所有节点伪电容并重启积分历史。每个成功步后，伪时间步会按 `successful-step-scale` 增长，同时仍受最大步长和 BDF2 步长比限制；节点电压变化反向时会按相邻步变化幅度比降低该节点伪电容，两个 ratio 参数分别划分小/中及中/重振荡。
+PTA 在 MNA pattern 固化前加入人工伪元件：独立电压源 branch 上的伪电感、独立电流源两端的伪电容，以及晶体管节点到地的伪电容。其伪时间迭代复用现有的 Backward Euler / 受步长比限制的 BDF2 `TransientIntegrator`；每一步以归一化 BDF 导数和归一化原始 OP 残差共同判定稳态。导数指标为 `h*|dx/dt| / (abstol + reltol*scale)`；残差指标为 `|Ax-b| / (abstol + reltol*max(|Ax|, |b|))`。二者都会区分节点 KCL 行的电流绝对容差与电压源支路行的电压绝对容差，`derivative-tolerance` 和 `dc-residual-tolerance` 是对应的无量纲阈值。使用 `--pta-diagnostics` 可将 PTA 是否实际执行、收敛指标、局部增容次数、节点降容次数和最小步长恢复次数写至 stderr，并同步保存在结果目录的 `.err` 中；每次尝试还会记录伪时间区间、步长、BE/BDF2 阶数、Newton 迭代/阻尼次数、导数/残差，以及缩步、最小步局部增容重启和振荡降容的决定与原因。同一人类可读轨迹也写入 `.solve.txt`。Newton 失败时先缩小伪时间步长；在最小步长仍失败时，按 PTA KCL 残差选择一个仍有余量的节点伪电容并重启积分历史。每个成功步后，伪时间步会按 `successful-step-scale` 增长，同时仍受最大步长和 BDF2 步长比限制；节点电压变化反向时会按相邻步变化幅度比降低该节点伪电容，两个 ratio 参数分别划分小/中及中/重振荡。
 
 该功能仍处于实验阶段。自适应规则具有单元测试，并有一条端到端夹具覆盖“最小步长失败 → 全局增容 → 重启 → 恢复收敛”路径及后续节点降容。当前 Force OP 回归覆盖的 18 个网表、76 个输出值均可通过参考对比。归一化导数收敛已避免固定绝对阈值随伪时间步和未知量量级失真的问题；其默认容差与困难非线性电路的鲁棒性仍需更广泛的基准验证。因此 `force` 与 `fallback` 可用于回归和实验，但暂不视为生产求解保证。
 
 ## 输出格式
 
-每次非 `--parse-only` 运行都会创建一个去掉网表最后扩展名的同名目录，并生成 `.out`、`.raw`、`.err` 以及默认启用的 `.solve.txt` artifact bundle。例如输入 `circuits/amplifier.cir`：
+每次非 `--parse-only` 运行都会创建一个去掉网表最后扩展名的同名目录，并生成 `.out`、`.raw`、`.err` 以及默认启用的 `.solve.txt` artifact bundle；实际执行 PTA 时还会生成独立的 `.pta.jsonl` 轨迹。例如输入 `circuits/amplifier.cir`：
 
 ```text
 circuits/
@@ -132,6 +132,7 @@ circuits/
     amplifier.raw
     amplifier.err
     amplifier.solve.txt
+    amplifier.pta.jsonl  # 仅 PTA 实际执行时
 ```
 
 使用 `--output-root results` 时，目录改为 `results/amplifier/`，其中的文件名保持不变。`--parse-only` 只校验输入，不创建结果目录。`-b` / `--batch` 禁止向 stdout 回显 listing，但不影响 artifact。位置输出参数、`-o` 和 `-r` 仍可用于额外生成兼容的 listing/rawfile 镜像；规范结果始终写入上述同名目录。
@@ -182,9 +183,10 @@ Values:
 
 - `.err` 保存本次运行写到 stderr 的内容；成功且未请求额外诊断时通常为空。诊断仍会同步显示在终端。
 - `.solve.txt` 默认启用，保存运行状态、总墙钟时间、电路器件构成、节点与 MNA 规模、当前解幅值范围、实际求解方法链、每阶段迭代/阻尼/失败原因、source stepping 每次尝试、PTA 每个伪时间步及收敛指标、TRAN 接受/拒绝步统计、CPU/墙钟用时、最终生效配置和基于诊断指标生成的调参观察项。使用 `--debug false` 或配置文件根字段 `"debug": false` 会关闭本次运行的报告写入，并在提交本次 artifact 时移除该 bundle 中已有的旧 `.solve.txt`；`.out`、`.raw` 和 `.err` 仍照常生成。
+- `.pta.jsonl` 仅在 PTA 实际执行时写出，且不受 `debug` 开关影响。第一行保存 schema、输入路径、配置来源、完整 PTA/ Newton 配置快照与 FNV-1a 哈希；随后每行对应一次 PTA 尝试；最后一行记录结束状态、聚合统计以及最终节点电压和 branch current。未执行 PTA 的运行会在同一事务中移除该 bundle 中可能残留的旧轨迹。
 - Fallback 报告会保留完整链路，例如 `direct Newton failed -> source stepping failed -> adaptive PTA succeeded`，不会只保留最后一次 PTA 结果。
 
-输出数值使用 classic locale、科学计数法，并拒绝写出 NaN/Inf。成功运行先在内存中生成结果，再将 `.out/.raw/.err` 和（启用 debug 时）`.solve.txt` 作为一组事务提交；关闭 debug 时，同一事务会移除旧 `.solve.txt`。任一暂存、替换或移除失败都会回滚。解析、构建或求解失败时只更新 `.err` 和（启用时）`.solve.txt`，或在关闭 debug 时移除旧报告；已有的有效 `.out/.raw` 保持不变。input、四个规范 artifact 和兼容 listing/raw 镜像不能通过规范路径、符号链接或硬链接相互指向同一文件。
+输出数值使用 classic locale、科学计数法，并拒绝写出 NaN/Inf。成功运行先在内存中生成结果，再将 `.out/.raw/.err`、PTA 实际执行时的 `.pta.jsonl` 和（启用 debug 时）`.solve.txt` 作为一组事务提交；关闭 debug 时，同一事务会移除旧 `.solve.txt`。任一暂存、替换或移除失败都会回滚。解析、构建或求解失败时只更新 `.err`、PTA 实际执行时的轨迹和（启用时）`.solve.txt`，或在关闭 debug 时移除旧报告；已有的有效 `.out/.raw` 保持不变。input、五个规范 artifact 和兼容 listing/raw 镜像不能通过规范路径、符号链接或硬链接相互指向同一文件。
 
 ## 构建与运行
 

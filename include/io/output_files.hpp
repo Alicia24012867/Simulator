@@ -12,6 +12,7 @@ struct OutputBundlePaths {
     std::filesystem::path rawPath;
     std::filesystem::path errorPath;
     std::filesystem::path reportPath;
+    std::filesystem::path ptaTracePath;
 
     static OutputBundlePaths derive(
         const std::filesystem::path& inputPath,
@@ -61,7 +62,26 @@ public:
         std::string_view listing,
         std::string_view raw,
         std::string_view errorLog,
+        const std::optional<std::string_view>& ptaTrace,
+        std::ostream& error
+    );
+
+    static bool writeAtomically(
+        const OutputBundlePaths& paths,
+        std::string_view listing,
+        std::string_view raw,
+        std::string_view errorLog,
         std::string_view report,
+        std::ostream& error
+    );
+
+    static bool writeAtomically(
+        const OutputBundlePaths& paths,
+        std::string_view listing,
+        std::string_view raw,
+        std::string_view errorLog,
+        std::string_view report,
+        const std::optional<std::string_view>& ptaTrace,
         std::ostream& error
     );
 
@@ -74,7 +94,22 @@ public:
     static bool writeFailureAtomically(
         const OutputBundlePaths& paths,
         std::string_view errorLog,
+        const std::optional<std::string_view>& ptaTrace,
+        std::ostream& error
+    );
+
+    static bool writeFailureAtomically(
+        const OutputBundlePaths& paths,
+        std::string_view errorLog,
         std::string_view report,
+        std::ostream& error
+    );
+
+    static bool writeFailureAtomically(
+        const OutputBundlePaths& paths,
+        std::string_view errorLog,
+        std::string_view report,
+        const std::optional<std::string_view>& ptaTrace,
         std::ostream& error
     );
 };
