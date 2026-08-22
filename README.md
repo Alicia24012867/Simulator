@@ -44,7 +44,7 @@
 - MOSFET：`LEVEL=1` 的简化平方律；以及 ngspice `LEVEL=3` 的 DC channel-current 子集（有效几何、body effect、短沟道、迁移率退化、速度饱和、沟道长度调制及 `gm/gds/gmb`）
 - 实例参数：`AREA`, `W`, `L`，以及 MOS3 的 `AD`、`AS`、`PD`、`PS`、`NRD`、`NRS`、`M`、`OFF`、`IC`、`TEMP`
 
-`RS`、`RBE`、`RCE` 与 `RDS` 已落实到 DC / transient 的器件 stamp：Diode `RS` 是由外部阳极到本征二极管阳极的串联电阻（按 `AREA` 缩放）；BJT `RBE` / `RCE` 分别是本征 B-E / C-E 并联电阻（按 `AREA` 缩放）；Level-1 MOS 的 `RDS` 是按 `W/L` 缩放的 D-S 线性并联电导。MOS3 的 `TOX`、`LD`、`XL`、`WD`、`XW`、`UO`、`VTO`、`KP`、`GAMMA`、`PHI`、`NSUB`、`ETA`、`DELTA`、`THETA`、`VMAX`、`KAPPA` 已参与 DC channel stamp；`RD`/`RS`（或 `RSH*NRD/NRS`）会建立内部 D′/S′ 节点，B-D′/B-S′ 结电流按 `JS*AD/AS` 或 `IS` 参与 DC stamp，结电容与 `CGSO`/`CGDO`/`CGBO` 重叠电容则以瞬态 companion stamp 接入。器件温度和 Meyer 栅电荷仍待实现。未知参数、非数值参数、非物理的负值以及非 `LEVEL=1` / `LEVEL=3` 的 MOSFET model 会在读取阶段明确报错。
+`RS`、`RBE`、`RCE` 与 `RDS` 已落实到 DC / transient 的器件 stamp：Diode `RS` 是由外部阳极到本征二极管阳极的串联电阻（按 `AREA` 缩放）；BJT `RBE` / `RCE` 分别是本征 B-E / C-E 并联电阻（按 `AREA` 缩放）；Level-1 MOS 的 `RDS` 是按 `W/L` 缩放的 D-S 线性并联电导。MOS3 的 `TOX`、`LD`、`XL`、`WD`、`XW`、`UO`、`VTO`、`KP`、`GAMMA`、`PHI`、`NSUB`、`ETA`、`DELTA`、`THETA`、`VMAX`、`KAPPA` 已参与 DC channel stamp；`RD`/`RS`（或 `RSH*NRD/NRS`）会建立内部 D′/S′ 节点，B-D′/B-S′ 结电流按 `JS*AD/AS` 或 `IS` 参与 DC stamp，结电容、`CGSO`/`CGDO`/`CGBO` 重叠电容和 Meyer 本征栅电容均以瞬态 companion stamp 接入。器件温度与 UIC 下的 MOS3 电荷历史初始化仍待实现。未知参数、非数值参数、非物理的负值以及非 `LEVEL=1` / `LEVEL=3` 的 MOSFET model 会在读取阶段明确报错。
 
 ### Netlist 读取规则
 
@@ -457,7 +457,7 @@ make generate-standards  # 需要 ngspice
 
 `tests/references/` 不使用本项目求解结果自我生成。OP 参考值直接来自 ngspice 46；生成 TRAN 参考时，脚本会向临时网表注入固定的高精度 ngspice 设置：`reltol=1e-8`、`vntol=1e-10`、`abstol=1e-12`、`trtol=1`，并将内部最大步长限制为 `TSTEP / 2000`。随后将 ngspice 结果线性重采样到网表要求的输出时间网格，原始测试网表不会被修改。对于 `UIC` 网表，仅显式 `t=0` 行按本项目当前的全零采样约定处理，所有 `t>0` 数据均来自 ngspice。
 
-MOS Level-3 的实现契约和独立回归资产位于 [`docs/mos3_acceptance.md`](docs/mos3_acceptance.md) 与 [`tests/cases/mos3/`](tests/cases/mos3/)。这些 fixture 直接适配自 ngspice 官方 SourceForge 仓库和 bug #481；使用 `make generate-mos3-standards` 以 ngspice 46 重建参考输出。`make test-mos3-dc` 验证当前三个无串联电阻的官方 OP case；完整 `make test-mos3` 在内部 D′/S′ 节点与瞬态电荷实现前仍不纳入默认 `make test`。
+MOS Level-3 的实现契约和独立回归资产位于 [`docs/mos3_acceptance.md`](docs/mos3_acceptance.md) 与 [`tests/cases/mos3/`](tests/cases/mos3/)。这些 fixture 直接适配自 ngspice 官方 SourceForge 仓库和 bug #481；使用 `make generate-mos3-standards` 以 ngspice 46 重建参考输出。`make test-mos3-dc` 验证当前四个官方 OP case；完整 `make test-mos3` 仍不纳入默认 `make test`，直到 UIC 电荷历史初始化与官方瞬态参考一致。
 
 ## 目录结构
 
@@ -498,7 +498,7 @@ tests/
 - PTA 已具备伪元件 stamp、BE/BDF2 伪时间推进、失败缩步、最小步长后的全局增容，以及成功步后的逐节点振荡降容；导数与 DC 残差判据已经归一化，但默认容差仍需通过更广泛的困难非线性电路基准验证。
 - 不支持 `.include`、`.lib`、全局 `.param`、`.temp`、`.nodeset`、`.ic`、`.save`。
 - 不支持受控源 `E/F/G/H`、行为源、AC/noise 分析。
-- 二极管、BJT 和 MOSFET 仍是有限子集。MOS3 已实现 DC channel current、`RD`/`RS`、`RSH*NRD/NRS`、B-D′/B-S′ 结电流及其耗尽结电容，以及 `CGSO`/`CGDO`/`CGBO` 重叠电容；器件温度和 Meyer 栅电荷尚未实现。
+- 二极管、BJT 和 MOSFET 仍是有限子集。MOS3 已实现 DC channel current、`RD`/`RS`、`RSH*NRD/NRS`、B-D′/B-S′ 结电流及其耗尽结电容、`CGSO`/`CGDO`/`CGBO` 重叠电容和 Meyer 本征栅电容；器件温度与 UIC 电荷历史初始化尚未实现。
 - `.pstran` 的 `kvgs0` 目前只读取、保存和校验，尚未映射到 PTA 方程或步长控制。
 - 电阻、电容、二极管、BJT、MOSFET 的器件电流尚不能通过 `.print i(...)` 输出。
 

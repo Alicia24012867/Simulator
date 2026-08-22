@@ -221,6 +221,7 @@ public:
         stampMos3OperatingPoint();
         stampMos3JunctionCharges(ctx);
         stampMos3OverlapCharges(ctx);
+        stampMos3MeyerCharges(ctx);
     }
 
     void saveIterationState() override{
@@ -496,6 +497,21 @@ private:
         stampTransientCapacitor(
             ctx, core, 1, 3, valueOrZero(card.cgbo) * multiplicity * effectiveLength
         );
+    }
+
+    void stampMos3MeyerCharges(const TransientStampContext& ctx){
+        const auto core = coreNodes();
+        const auto voltageAt = [&](int terminal){
+            return core[terminal] >= 0 ? ctx.previousSolution[core[terminal]] : 0.0;
+        };
+        const Mos3MeyerCapacitances capacitances =
+            evaluateMos3MeyerCapacitances(
+                voltageAt(0), voltageAt(1), voltageAt(2), voltageAt(3),
+                *model_, instance_
+            );
+        stampTransientCapacitor(ctx, core, 1, 2, capacitances.cgs);
+        stampTransientCapacitor(ctx, core, 1, 0, capacitances.cgd);
+        stampTransientCapacitor(ctx, core, 1, 3, capacitances.cgb);
     }
 
     void stampTransientCapacitor(const TransientStampContext& ctx,

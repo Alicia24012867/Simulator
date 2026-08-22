@@ -104,11 +104,75 @@ void testMultiplierAndGeometry(){
     expect(rejected, "invalid MOS3 effective geometry is rejected");
 }
 
+void testMeyerCapacitances(){
+    const Model model = makeNmos();
+    const auto instance = nominalInstance();
+    const auto parameters = mos3_detail::resolve(model, instance);
+    const double oxideCapacitance = parameters.cox * parameters.leff *
+        parameters.weff * parameters.multiplier;
+
+    const auto cutoff = evaluateMos3MeyerCapacitances(
+        1.0, 0.0, 0.0, 0.0, model, instance
+    );
+    expectNear(cutoff.cgs, 0.0, "Meyer cutoff Cgs is zero");
+    expectNear(cutoff.cgd, 0.0, "Meyer cutoff Cgd is zero");
+    expectNear(cutoff.cgb, oxideCapacitance, "Meyer cutoff Cgb is Cox");
+
+    const auto saturation = evaluateMos3MeyerCapacitances(
+        3.0, 3.0, 0.0, 0.0, model, instance
+    );
+    expectNear(
+        saturation.cgs, 2.0 * oxideCapacitance / 3.0,
+        "Meyer saturation Cgs is two thirds Cox"
+    );
+    expectNear(saturation.cgd, 0.0, "Meyer saturation Cgd is zero");
+    expectNear(saturation.cgb, 0.0, "Meyer saturation Cgb is zero");
+
+    const auto forwardLinear = evaluateMos3MeyerCapacitances(
+        0.05, 3.0, 0.0, 0.0, model, instance
+    );
+    const auto reverseLinear = evaluateMos3MeyerCapacitances(
+        0.0, 3.0, 0.05, 0.0, model, instance
+    );
+    expect(
+        forwardLinear.cgs > 0.0 && forwardLinear.cgd > 0.0,
+        "Meyer linear region distributes channel charge to source and drain"
+    );
+    expectNear(
+        reverseLinear.cgs, forwardLinear.cgd,
+        "Meyer reverse mode swaps Cgs with Cgd"
+    );
+    expectNear(
+        reverseLinear.cgd, forwardLinear.cgs,
+        "Meyer reverse mode swaps Cgd with Cgs"
+    );
+
+    Model pmos("pmos3", ModelType::PMOS, {
+        {"level", 3.0}, {"tox", 20.0e-9}, {"vto", -0.7},
+        {"kp", 100.0e-6}, {"gamma", 0.5}, {"phi", 0.7},
+        {"theta", 0.1}, {"eta", 1.0e-6}, {"vmax", 1.0e5},
+        {"kappa", 0.3}, {"nsub", 1.0e17}, {"xj", 0.5e-6},
+        {"ld", 0.1e-6}
+    });
+    const auto pmosLinear = evaluateMos3MeyerCapacitances(
+        4.95, 2.0, 5.0, 5.0, pmos, instance
+    );
+    expectNear(
+        pmosLinear.cgs, forwardLinear.cgs,
+        "Meyer PMOS uses the polarity-normalized Cgs"
+    );
+    expectNear(
+        pmosLinear.cgd, forwardLinear.cgd,
+        "Meyer PMOS uses the polarity-normalized Cgd"
+    );
+}
+
 } // namespace
 
 int main(){
     testCutoffAndDerivatives();
     testMultiplierAndGeometry();
+    testMeyerCapacitances();
     std::cout << "MOS3 DC unit tests: " << (checks - failures) << "/" << checks
               << " checks passed\n";
     return failures == 0 ? 0 : 1;
