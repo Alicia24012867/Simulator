@@ -27,6 +27,11 @@ struct NewtonSolverOptions {
     double backtrackScale = 0.5;
     double sufficientDecrease = 1.0e-4;
     double maximumSolutionStep = 1.0;
+    // Ordinary OP/TRAN may make limited progress after an exhausted Armijo
+    // search only when the full limited step remains finite and its residual
+    // is bounded.  Set this to zero to retain strictly monotone searches.
+    int maximumConsecutiveNonMonotoneSteps = 1;
+    double maximumNonMonotoneResidualGrowth = 4.0;
 
     bool valid() const noexcept {
         return maximumIterations > 0 &&
@@ -46,7 +51,10 @@ struct NewtonSolverOptions {
             std::isfinite(sufficientDecrease) &&
             sufficientDecrease > 0.0 && sufficientDecrease < 1.0 &&
             std::isfinite(maximumSolutionStep) &&
-            maximumSolutionStep > 0.0;
+            maximumSolutionStep > 0.0 &&
+            maximumConsecutiveNonMonotoneSteps >= 0 &&
+            std::isfinite(maximumNonMonotoneResidualGrowth) &&
+            maximumNonMonotoneResidualGrowth >= 1.0;
     }
 };
 

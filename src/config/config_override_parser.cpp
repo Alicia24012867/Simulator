@@ -278,7 +278,9 @@ NewtonOverrides parseNewtonOverrides(
             "maximum_backtracks",
             "backtrack_scale",
             "sufficient_decrease",
-            "maximum_solution_step"
+            "maximum_solution_step",
+            "maximum_consecutive_non_monotone_steps",
+            "maximum_non_monotone_residual_growth"
         }
     );
 
@@ -361,6 +363,21 @@ NewtonOverrides parseNewtonOverrides(
         loadedConfig,
         jsonPath,
         result.maximumSolutionStep
+    );
+    readOptionalInteger(
+        object,
+        "maximum_consecutive_non_monotone_steps",
+        loadedConfig,
+        jsonPath,
+        0,
+        result.maximumConsecutiveNonMonotoneSteps
+    );
+    readOptionalNumber(
+        object,
+        "maximum_non_monotone_residual_growth",
+        loadedConfig,
+        jsonPath,
+        result.maximumNonMonotoneResidualGrowth
     );
     return result;
 }

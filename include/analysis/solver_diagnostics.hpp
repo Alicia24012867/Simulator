@@ -39,6 +39,10 @@ struct NewtonSolveDiagnostics {
     int dampedSteps = 0;
     int backtrackingSteps = 0;
     int lineSearchEvaluations = 0;
+    // Number of finite full Newton steps accepted after an otherwise
+    // exhausted residual line search.  OP/TRAN require configured bounds;
+    // PTA is governed by its outer pseudo-time continuation.
+    int nonMonotoneStepFallbacks = 0;
     double finalDelta = 0.0;
     double finalStepScale = 1.0;
     double tolerance = 0.0;

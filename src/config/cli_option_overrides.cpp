@@ -207,6 +207,21 @@ bool applyOperatingPointOption(
     if(key == "newton.maximum-solution-step"){
         return readDouble(value, options.newton.maximumSolutionStep, error);
     }
+    if(key == "newton.maximum-consecutive-non-monotone-steps"){
+        return readInteger(
+            value,
+            0,
+            options.newton.maximumConsecutiveNonMonotoneSteps,
+            error
+        );
+    }
+    if(key == "newton.maximum-non-monotone-residual-growth"){
+        return readDouble(
+            value,
+            options.newton.maximumNonMonotoneResidualGrowth,
+            error
+        );
+    }
     if(key == "source-stepping.enabled"){
         return readBoolean(value, options.sourceStepping.enabled, error);
     }
@@ -304,6 +319,21 @@ bool applyPtaOption(
     if(key == "newton.maximum-solution-step"){
         return readDouble(value, options.newtonOptions.maximumSolutionStep,
                           error);
+    }
+    if(key == "newton.maximum-consecutive-non-monotone-steps"){
+        return readInteger(
+            value,
+            0,
+            options.newtonOptions.maximumConsecutiveNonMonotoneSteps,
+            error
+        );
+    }
+    if(key == "newton.maximum-non-monotone-residual-growth"){
+        return readDouble(
+            value,
+            options.newtonOptions.maximumNonMonotoneResidualGrowth,
+            error
+        );
     }
     if(key == "maximum-steps"){
         return readInteger(value, 1, options.maximumSteps, error);
@@ -549,6 +579,23 @@ bool applyTransientOption(
         return readDouble(
             value,
             config.solverOptions.newtonOptions.maximumSolutionStep,
+            error
+        );
+    }
+    if(key == "solver.newton.maximum-consecutive-non-monotone-steps"){
+        return readInteger(
+            value,
+            0,
+            config.solverOptions.newtonOptions
+                .maximumConsecutiveNonMonotoneSteps,
+            error
+        );
+    }
+    if(key == "solver.newton.maximum-non-monotone-residual-growth"){
+        return readDouble(
+            value,
+            config.solverOptions.newtonOptions
+                .maximumNonMonotoneResidualGrowth,
             error
         );
     }

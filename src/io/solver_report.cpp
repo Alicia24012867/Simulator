@@ -111,6 +111,8 @@ void writeNewton(std::ostream& output,
                << diagnostics.backtrackingSteps << '\n'
                << indent << "Line-search residual evaluations: "
                << diagnostics.lineSearchEvaluations << '\n'
+               << indent << "Non-monotone line-search fallbacks: "
+               << diagnostics.nonMonotoneStepFallbacks << '\n'
                << indent << "Final update infinity norm: "
                << diagnostics.finalDelta << '\n'
                << indent << "Final Newton step scale: "
@@ -404,7 +406,13 @@ void writeNewtonConfiguration(std::ostream& output,
            << "  " << prefix << ".sufficient_decrease: "
            << options.sufficientDecrease << '\n'
            << "  " << prefix << ".maximum_solution_step: "
-           << options.maximumSolutionStep << '\n';
+           << options.maximumSolutionStep << '\n'
+           << "  " << prefix
+           << ".maximum_consecutive_non_monotone_steps: "
+           << options.maximumConsecutiveNonMonotoneSteps << '\n'
+           << "  " << prefix
+           << ".maximum_non_monotone_residual_growth: "
+           << options.maximumNonMonotoneResidualGrowth << '\n';
 }
 
 void writeConfiguration(

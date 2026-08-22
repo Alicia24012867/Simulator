@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cmath>
 #include <ctime>
+#include <limits>
 #include <string>
 
 #include "analysis/solver_options.hpp"
@@ -89,6 +90,7 @@ bool Circuit::solveNewtonSystem(const AssembleCallback& assemble,
     Eigen::VectorXd matrixProduct;
     Eigen::VectorXd residual;
     const int voltageUnknownCount = nodeMap_->nodeCount();
+    int consecutiveNonMonotoneFallbacks = 0;
 
     const auto normalizedResidual = [this,
                                      &matrixProduct,
@@ -186,12 +188,59 @@ bool Circuit::solveNewtonSystem(const AssembleCallback& assemble,
         }
 
         if(!accepted){
-            current = previous;
+            if(consecutiveNonMonotoneFallbacks >=
+                   options.maximumConsecutiveNonMonotoneSteps)
+            {
+                current = previous;
+                restoreNonlinearLineSearchStates();
+                return finish(
+                    false,
+                    "Newton-Raphson residual line search exhausted its "
+                    "backtracking limit and the controlled non-monotone "
+                    "step limit"
+                );
+            }
+
+            // OP and TRAN use finite bounds here to make only limited
+            // progress after an exhausted Armijo search.  PTA's default
+            // options intentionally leave the same bounds effectively open:
+            // pseudo-time continuation independently checks its derivative
+            // and DC residual and can restore an accepted checkpoint.
+            current = previous + direction;
+            stepScale = 1.0;
             restoreNonlinearLineSearchStates();
-            return finish(
-                false,
-                "Newton-Raphson residual line search exhausted its backtracking limit"
-            );
+            assemble();
+            ++stats.lineSearchEvaluations;
+            if(!normalizedResidual(candidateResidual)){
+                return finish(
+                    false,
+                    "Newton-Raphson nonlinear residual contains a non-finite value"
+                );
+            }
+            const bool hasResidualGrowthBound =
+                options.maximumNonMonotoneResidualGrowth <
+                    std::numeric_limits<double>::max();
+            const double maximumResidual = !hasResidualGrowthBound ||
+                    baselineResidual > std::numeric_limits<double>::max() /
+                        options.maximumNonMonotoneResidualGrowth
+                ? std::numeric_limits<double>::max()
+                : baselineResidual *
+                    options.maximumNonMonotoneResidualGrowth;
+            if(hasResidualGrowthBound && candidateResidual > maximumResidual){
+                current = previous;
+                restoreNonlinearLineSearchStates();
+                return finish(
+                    false,
+                    "Newton-Raphson residual line search exhausted its "
+                    "backtracking limit and the controlled non-monotone "
+                    "residual-growth bound"
+                );
+            }
+            accepted = true;
+            ++stats.nonMonotoneStepFallbacks;
+            ++consecutiveNonMonotoneFallbacks;
+        }else{
+            consecutiveNonMonotoneFallbacks = 0;
         }
 
         if(step.limited || stepScale < 1.0){

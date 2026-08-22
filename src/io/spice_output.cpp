@@ -414,6 +414,8 @@ void SpiceOutputWriter::writePtaDiagnostics(std::ostream& os,
            << " backtracking_steps=" << attempt.newton.backtrackingSteps
            << " line_search_evaluations="
            << attempt.newton.lineSearchEvaluations
+           << " non_monotone_step_fallbacks="
+           << attempt.newton.nonMonotoneStepFallbacks
            << " newton_normalized_update=";
         if(attempt.newton.hasNormalizedUpdate){
             os << attempt.newton.normalizedUpdate;

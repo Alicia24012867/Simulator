@@ -166,7 +166,11 @@ std::string configurationObject(const PtaAnalysisConfig& config){
            << "\"sufficient_decrease\":"
            << config.newtonOptions.sufficientDecrease << ','
            << "\"maximum_solution_step\":"
-           << config.newtonOptions.maximumSolutionStep << "}}";
+           << config.newtonOptions.maximumSolutionStep << ','
+           << "\"maximum_consecutive_non_monotone_steps\":"
+           << config.newtonOptions.maximumConsecutiveNonMonotoneSteps << ','
+           << "\"maximum_non_monotone_residual_growth\":"
+           << config.newtonOptions.maximumNonMonotoneResidualGrowth << "}}";
     return output.str();
 }
 
@@ -178,6 +182,8 @@ void writeNewton(std::ostream& output, const NewtonSolveDiagnostics& newton){
            << ",\"backtracking_steps\":" << newton.backtrackingSteps
            << ",\"line_search_evaluations\":"
            << newton.lineSearchEvaluations
+           << ",\"non_monotone_step_fallbacks\":"
+           << newton.nonMonotoneStepFallbacks
            << ",\"final_step_scale\":";
     writeJsonNumber(output, newton.finalStepScale);
     output << ",\"normalized_update\":";

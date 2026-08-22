@@ -20,7 +20,18 @@ enum class PtaMode{
 
 struct PtaAnalysisConfig{
     PtaMode mode = PtaMode::Disabled;
-    NewtonSolverOptions newtonOptions;
+    // PTA has pseudo-time continuation, accepted-state checkpoints, and
+    // separate derivative/DC-residual acceptance tests.  Preserve its
+    // historical ability to advance a finite non-monotone Newton step; users
+    // may still configure finite bounds through pta.newton when needed.
+    NewtonSolverOptions newtonOptions = [] {
+        NewtonSolverOptions options;
+        options.maximumConsecutiveNonMonotoneSteps =
+            std::numeric_limits<int>::max();
+        options.maximumNonMonotoneResidualGrowth =
+            std::numeric_limits<double>::max();
+        return options;
+    }();
 
     // time control
     double initialStep = 1.0e-9;

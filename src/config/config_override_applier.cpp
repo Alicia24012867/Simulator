@@ -62,6 +62,14 @@ void applyNewtonOverrides(
     if(overrides.maximumSolutionStep){
         options.maximumSolutionStep = *overrides.maximumSolutionStep;
     }
+    if(overrides.maximumConsecutiveNonMonotoneSteps){
+        options.maximumConsecutiveNonMonotoneSteps =
+            *overrides.maximumConsecutiveNonMonotoneSteps;
+    }
+    if(overrides.maximumNonMonotoneResidualGrowth){
+        options.maximumNonMonotoneResidualGrowth =
+            *overrides.maximumNonMonotoneResidualGrowth;
+    }
 }
 
 void applySourceSteppingOverrides(

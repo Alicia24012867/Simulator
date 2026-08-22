@@ -70,8 +70,15 @@ private:
 // nonlinear defect.  A raw update-only criterion would stop after one pass.
 class NewtonResidualTrapDevice: public Device {
 public:
-    NewtonResidualTrapDevice(std::string name, std::vector<std::string> nodes):
-        Device(std::move(name), std::move(nodes), DeviceType::BJT) {}
+    NewtonResidualTrapDevice(
+        std::string name,
+        std::vector<std::string> nodes,
+        double initialRightHandSide = 5.0e-10,
+        double laterRightHandSide = 1.0
+    ):
+        Device(std::move(name), std::move(nodes), DeviceType::BJT),
+        initialRightHandSide_(initialRightHandSide),
+        laterRightHandSide_(laterRightHandSide) {}
 
     bool isNonlinear() const override{
         return true;
@@ -90,12 +97,14 @@ public:
     void stampOperatingPoint() override{
         *diagonal_ += 1.0;
         *rhs_ += std::abs(mna_->solution()[nodeIds[0]]) < 1.0e-15
-            ? 5.0e-10
-            : 1.0;
+            ? initialRightHandSide_
+            : laterRightHandSide_;
     }
 
 private:
     MNA* mna_ = nullptr;
+    double initialRightHandSide_;
+    double laterRightHandSide_;
     double* diagonal_ = nullptr;
     double* rhs_ = nullptr;
 };
@@ -317,6 +326,12 @@ void testSolverOptionsValidation(){
     newton.maximumSolutionStep =
         std::numeric_limits<double>::quiet_NaN();
     expect(!newton.valid(), "non-finite Newton step bound is invalid");
+    newton = NewtonSolverOptions{};
+    newton.maximumConsecutiveNonMonotoneSteps = -1;
+    expect(!newton.valid(), "negative non-monotone Newton step limit is invalid");
+    newton = NewtonSolverOptions{};
+    newton.maximumNonMonotoneResidualGrowth = 0.99;
+    expect(!newton.valid(), "Newton residual growth bound below one is invalid");
 
     SourceSteppingOptions sourceStepping;
     expect(sourceStepping.valid(), "default source-stepping options are valid");
@@ -1189,6 +1204,31 @@ void testNewtonResidualBacktracking(){
     );
 }
 
+void testControlledNonMonotoneNewtonFallback(){
+    Circuit circuit;
+    circuit.addDevice<NewtonResidualTrapDevice>(
+        "XCONTROLLED",
+        std::vector<std::string>{"node", "0", "0"},
+        0.5,
+        1.0
+    );
+
+    expect(circuit.build(PtaAnalysisConfig{}),
+           "controlled Newton fallback fixture builds");
+    OperatingPointSolverOptions options;
+    options.sourceStepping.enabled = false;
+    expect(circuit.solveOperatingPoint(options),
+           "default bounded non-monotone Newton fallback converges");
+
+    const NewtonSolveDiagnostics& diagnostics =
+        circuit.operatingPointDiagnostics().directNewton;
+    expect(
+        diagnostics.converged && diagnostics.nonMonotoneStepFallbacks == 1 &&
+            diagnostics.lineSearchEvaluations > options.newton.maximumBacktracks,
+        "Newton records one default-bounded non-monotone fallback after Armijo exhaustion"
+    );
+}
+
 void testRequiresBdf2History(){
     TransientIntegrator integrator;
     integrator.initialize(0.0, makeVector({0.0}));
@@ -1996,6 +2036,7 @@ int main(){
     testLinearFailureDiagnostics();
     testNewtonRequiresReassembledResidual();
     testNewtonResidualBacktracking();
+    testControlledNonMonotoneNewtonFallback();
     testRequiresBdf2History();
     testZeroErrorUsesMaximumScale();
     testVoltageAndCurrentAbsoluteTolerances();

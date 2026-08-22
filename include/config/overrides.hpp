@@ -64,6 +64,8 @@ struct NewtonOverrides {
     std::optional<double> backtrackScale;
     std::optional<double> sufficientDecrease;
     std::optional<double> maximumSolutionStep;
+    std::optional<int> maximumConsecutiveNonMonotoneSteps;
+    std::optional<double> maximumNonMonotoneResidualGrowth;
 };
 
 struct SourceSteppingOverrides {

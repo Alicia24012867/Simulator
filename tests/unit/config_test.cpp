@@ -278,7 +278,9 @@ void testConfigOverrideParsing(){
                         "maximum_backtracks": 6,
                         "backtrack_scale": 0.4,
                         "sufficient_decrease": 0.002,
-                        "maximum_solution_step": 0.25
+                        "maximum_solution_step": 0.25,
+                        "maximum_consecutive_non_monotone_steps": 2,
+                        "maximum_non_monotone_residual_growth": 3.5
                     },
                     "source_stepping": {
                         "enabled": false,
@@ -348,7 +350,15 @@ void testConfigOverrideParsing(){
             overrides.operatingPoint->newton->backtrackScale &&
             *overrides.operatingPoint->newton->backtrackScale == 0.4 &&
             overrides.operatingPoint->newton->sufficientDecrease &&
-            *overrides.operatingPoint->newton->sufficientDecrease == 0.002,
+            *overrides.operatingPoint->newton->sufficientDecrease == 0.002 &&
+            overrides.operatingPoint->newton
+                ->maximumConsecutiveNonMonotoneSteps &&
+            *overrides.operatingPoint->newton
+                ->maximumConsecutiveNonMonotoneSteps == 2 &&
+            overrides.operatingPoint->newton
+                ->maximumNonMonotoneResidualGrowth &&
+            *overrides.operatingPoint->newton
+                ->maximumNonMonotoneResidualGrowth == 3.5,
         "OP normalized Newton convergence fields are retained"
     );
     expect(
@@ -457,7 +467,9 @@ void testConfigOverrideApplication(){
                         "maximum_backtracks": 3,
                         "backtrack_scale": 0.25,
                         "sufficient_decrease": 0.005,
-                        "maximum_solution_step": 0.5
+                        "maximum_solution_step": 0.5,
+                        "maximum_consecutive_non_monotone_steps": 2,
+                        "maximum_non_monotone_residual_growth": 3.5
                     },
                     "source_stepping": {
                         "enabled": false,
@@ -512,7 +524,9 @@ void testConfigOverrideApplication(){
             operatingPoint.newton.maximumBacktracks == 3 &&
             operatingPoint.newton.backtrackScale == 0.25 &&
             operatingPoint.newton.sufficientDecrease == 0.005 &&
-            operatingPoint.newton.maximumSolutionStep == 0.5,
+            operatingPoint.newton.maximumSolutionStep == 0.5 &&
+            operatingPoint.newton.maximumConsecutiveNonMonotoneSteps == 2 &&
+            operatingPoint.newton.maximumNonMonotoneResidualGrowth == 3.5,
         "OP mixed-unit Newton overrides are applied"
     );
     expect(
@@ -631,13 +645,23 @@ void testCommandLineOverrideApplication(){
         "OP command-line Newton backtracking limit is applied"
     );
     expect(
+        simulator::config::applyOperatingPointOption(
+            "newton.maximum_consecutive_non_monotone_steps=0",
+            operatingPoint,
+            key,
+            error
+        ) && key == "newton.maximum-consecutive-non-monotone-steps" &&
+            operatingPoint.newton.maximumConsecutiveNonMonotoneSteps == 0,
+        "OP command-line controlled Newton fallback limit is applied"
+    );
+    expect(
         simulator::config::applyPtaOption(
-            "newton.maximum-solution-step=0.25",
+            "newton.maximum_non_monotone_residual_growth=2.5",
             pta,
             key,
             error
-        ) && pta.newtonOptions.maximumSolutionStep == 0.25,
-        "PTA command-line Newton override is applied"
+        ) && pta.newtonOptions.maximumNonMonotoneResidualGrowth == 2.5,
+        "PTA command-line controlled Newton fallback bound is applied"
     );
     expect(
         simulator::config::applyPtaOption(
@@ -697,13 +721,14 @@ void testCommandLineOverrideApplication(){
     );
     expect(
         simulator::config::applyTransientOption(
-            "solver.newton.maximum_iterations=31",
+            "solver.newton.maximum_consecutive_non_monotone_steps=3",
             transient,
             key,
             error
         ) && transient &&
-            transient->solverOptions.newtonOptions.maximumIterations == 31,
-        "TRAN command-line Newton override is applied"
+            transient->solverOptions.newtonOptions
+                .maximumConsecutiveNonMonotoneSteps == 3,
+        "TRAN command-line controlled Newton fallback limit is applied"
     );
     expect(
         simulator::config::applyTransientOption(
