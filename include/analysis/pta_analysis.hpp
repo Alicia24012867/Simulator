@@ -5,9 +5,11 @@
 #include <limits>
 #include <optional>
 #include <stdexcept>
+#include <vector>
 
 #include <Eigen/Core>
 
+#include "analysis/solver_diagnostics.hpp"
 #include "analysis/solver_options.hpp"
 
 enum class PtaMode{
@@ -236,6 +238,9 @@ struct PtaDiagnostics {
     int minimumStepRecoveries = 0;
     double normalizedDerivative = 0.0;
     double normalizedDcResidual = 0.0;
+    // The complete per-attempt trace is preserved for experiments and is
+    // emitted by --pta-diagnostics as well as the solver report.
+    std::vector<PtaStepAttemptDiagnostics> attempts;
 };
 
 inline PtaDerivativeEstimate estimatePtaNormalizedDerivative(

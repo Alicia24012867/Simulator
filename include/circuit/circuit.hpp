@@ -106,6 +106,13 @@ private:
         bool hasPreviousDelta = false;
     };
 
+    struct PtaCapacitanceReductionSummary {
+        int total = 0;
+        int smallOscillation = 0;
+        int mediumOscillation = 0;
+        int heavyOscillation = 0;
+    };
+
     TransientStepAttempt tryTransientStep(
         const TransientIntegrator& integrator,
         double targetTime,
@@ -168,7 +175,7 @@ private:
 
     bool growAllPtaNodeCapacitances(const PtaAnalysisConfig& config);
 
-    void updatePtaNodeCapacitancesAfterAcceptedStep(
+    PtaCapacitanceReductionSummary updatePtaNodeCapacitancesAfterAcceptedStep(
         const Eigen::VectorXd& currentSolution,
         const Eigen::VectorXd& previousSolution,
         const PtaAnalysisConfig& config

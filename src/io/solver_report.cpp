@@ -31,6 +31,24 @@ const char* ptaModeName(PtaMode mode){
     return "unknown";
 }
 
+const char* ptaIntegrationMethodName(int order){
+    switch(order){
+        case 1: return "BE";
+        case 2: return "BDF2";
+        default: return "unknown";
+    }
+}
+
+const char* ptaAttemptDecision(const PtaStepAttemptDiagnostics& attempt){
+    if(attempt.reachedSteadyState) return "steady-state";
+    if(attempt.restartedAfterCapacitanceGrowth){
+        return "capacitance-growth-restart";
+    }
+    if(attempt.retriedWithSmallerStep) return "retry-smaller-step";
+    if(attempt.accepted) return "accepted";
+    return "failed";
+}
+
 std::string operatingPointMethodPath(
     const OperatingPointDiagnostics& diagnostics
 ){
@@ -206,25 +224,37 @@ void writeOperatingPointAttempt(
             output << "      #" << pta.attempt
                    << " t=[" << pta.startTime << ", " << pta.targetTime << ']'
                    << " step=" << pta.timeStep
-                   << " order=BDF" << pta.integrationOrder
+                   << " order=" << ptaIntegrationMethodName(
+                       pta.integrationOrder
+                   )
                    << " source_scale=" << pta.sourceScale
                    << " newton=" << succeededFailed(pta.newton.converged)
                    << " iterations=" << pta.newton.iterations
-                   << " result=";
-            if(pta.reachedSteadyState){
-                output << "steady-state";
-            } else if(pta.restartedAfterCapacitanceGrowth){
-                output << "capacitance-growth-restart";
-            } else if(pta.retriedWithSmallerStep){
-                output << "retry-smaller-step";
-            } else if(pta.accepted){
-                output << "accepted";
-            } else {
-                output << "failed";
-            }
+                   << " damped=" << pta.newton.dampedSteps
+                   << " result=" << ptaAttemptDecision(pta);
             if(pta.hasConvergenceMetrics){
                 output << " derivative=" << pta.normalizedDerivative
                        << " dc_residual=" << pta.normalizedDcResidual;
+            } else {
+                output << " derivative=n/a dc_residual=n/a";
+            }
+            if(pta.retryTimeStep > 0.0){
+                output << " retry_step=" << pta.retryTimeStep;
+            }
+            if(pta.capacitanceGrowths > 0){
+                output << " capacitance_growths=" << pta.capacitanceGrowths
+                       << " growth_reason=minimum-step-newton-failure";
+            }
+            if(pta.capacitanceReductions > 0){
+                output << " capacitance_reductions="
+                       << pta.capacitanceReductions
+                       << " reduction_reason=node-voltage-sign-reversal"
+                       << " reduction_severity=(small="
+                       << pta.smallOscillationCapacitanceReductions
+                       << ",medium="
+                       << pta.mediumOscillationCapacitanceReductions
+                       << ",heavy="
+                       << pta.heavyOscillationCapacitanceReductions << ')';
             }
             if(!pta.status.empty()){
                 output << " status=\"" << pta.status << '"';

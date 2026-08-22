@@ -824,9 +824,44 @@ void testPtaMinimumStepCapacitanceRecovery(){
     );
     expect(
         diagnostics.minimumStepRecoveries > 0 &&
-        diagnostics.capacitanceGrowths > 0 &&
-        diagnostics.capacitanceReductions > 0,
+            diagnostics.capacitanceGrowths > 0 &&
+            diagnostics.capacitanceReductions > 0,
         "PTA diagnostics expose adaptive recovery counters"
+    );
+    expect(
+        !diagnostics.attempts.empty(),
+        "PTA diagnostics expose the per-attempt trace"
+    );
+    expect(
+        diagnostics.attempts.back().reachedSteadyState &&
+            diagnostics.attempts.back().hasConvergenceMetrics,
+        "PTA diagnostic trace ends with a measured steady-state decision"
+    );
+    expect(
+        std::any_of(
+            diagnostics.attempts.begin(),
+            diagnostics.attempts.end(),
+            [](const PtaStepAttemptDiagnostics& attempt){
+                return attempt.restartedAfterCapacitanceGrowth &&
+                    attempt.capacitanceGrowths == 1 &&
+                    attempt.retryTimeStep > 0.0;
+            }
+        ),
+        "PTA trace records the minimum-step growth decision and retry step"
+    );
+    expect(
+        std::any_of(
+            diagnostics.attempts.begin(),
+            diagnostics.attempts.end(),
+            [](const PtaStepAttemptDiagnostics& attempt){
+                return attempt.capacitanceReductions > 0 &&
+                    attempt.capacitanceReductions ==
+                        attempt.smallOscillationCapacitanceReductions +
+                        attempt.mediumOscillationCapacitanceReductions +
+                        attempt.heavyOscillationCapacitanceReductions;
+            }
+        ),
+        "PTA trace categorizes node-capacitance reductions by oscillation severity"
     );
 
     const OperatingPointDiagnostics& detailed =

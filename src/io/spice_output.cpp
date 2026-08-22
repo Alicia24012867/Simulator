@@ -42,6 +42,24 @@ namespace {
 constexpr int kIndexWidth = 8;
 constexpr int kValueWidth = 20;
 
+const char* ptaIntegrationMethodName(int order){
+    switch(order){
+        case 1: return "BE";
+        case 2: return "BDF2";
+        default: return "unknown";
+    }
+}
+
+const char* ptaAttemptDecision(const PtaStepAttemptDiagnostics& attempt){
+    if(attempt.reachedSteadyState) return "steady-state";
+    if(attempt.restartedAfterCapacitanceGrowth){
+        return "capacitance-growth-restart";
+    }
+    if(attempt.retriedWithSmallerStep) return "retry-smaller-step";
+    if(attempt.accepted) return "accepted";
+    return "failed";
+}
+
 struct ResolvedVariable {
     PrintQuantity quantity = PrintQuantity::Voltage;
     std::string label;
@@ -378,6 +396,56 @@ void SpiceOutputWriter::writePtaDiagnostics(std::ostream& os,
            << diagnostics.normalizedDerivative << "\n"
            << "  normalized_dc_residual: "
            << diagnostics.normalizedDcResidual << "\n";
+    }
+
+    os << "  attempt_trace:\n";
+    for(const PtaStepAttemptDiagnostics& attempt: diagnostics.attempts){
+        os << std::scientific << std::setprecision(10)
+           << "    #" << attempt.attempt
+           << " pseudo_time=[" << attempt.startTime << ", "
+           << attempt.targetTime << ']'
+           << " step=" << attempt.timeStep
+           << " order=" << ptaIntegrationMethodName(attempt.integrationOrder)
+           << " source_scale=" << attempt.sourceScale
+           << " newton="
+           << (attempt.newton.converged ? "converged" : "failed")
+           << " newton_iterations=" << attempt.newton.iterations
+           << " damped_steps=" << attempt.newton.dampedSteps;
+        if(attempt.hasConvergenceMetrics){
+            os << " normalized_derivative="
+               << attempt.normalizedDerivative
+               << " normalized_dc_residual="
+               << attempt.normalizedDcResidual;
+        } else {
+            os << " normalized_derivative=n/a"
+               << " normalized_dc_residual=n/a";
+        }
+        os << " decision=" << ptaAttemptDecision(attempt);
+        if(attempt.retryTimeStep > 0.0){
+            os << " retry_step=" << attempt.retryTimeStep;
+        }
+        if(attempt.capacitanceGrowths > 0){
+            os << " capacitance_growths=" << attempt.capacitanceGrowths
+               << " growth_reason=minimum-step-newton-failure";
+        }
+        if(attempt.capacitanceReductions > 0){
+            os << " capacitance_reductions="
+               << attempt.capacitanceReductions
+               << " reduction_reason=node-voltage-sign-reversal"
+               << " reduction_severity=(small="
+               << attempt.smallOscillationCapacitanceReductions
+               << ",medium="
+               << attempt.mediumOscillationCapacitanceReductions
+               << ",heavy="
+               << attempt.heavyOscillationCapacitanceReductions << ')';
+        }
+        if(!attempt.status.empty()){
+            os << " status=\"" << attempt.status << '\"';
+        }
+        if(!attempt.failureReason.empty()){
+            os << " reason=\"" << attempt.failureReason << '\"';
+        }
+        os << '\n';
     }
 }
 

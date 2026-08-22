@@ -183,6 +183,7 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
 
             if(reducedStep < candidateStep){
                 attempt.retriedWithSmallerStep = true;
+                attempt.retryTimeStep = reducedStep;
                 attempt.status = "retry with smaller pseudo-time step";
                 attempt.failureReason = stats.failureReason;
                 operatingPointStats_.ptaAttempts.push_back(std::move(attempt));
@@ -206,6 +207,8 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
             ++operatingPointStats_.ptaMinimumStepRecoveries;
             ++operatingPointStats_.ptaCapacitanceGrowths;
             attempt.restartedAfterCapacitanceGrowth = true;
+            attempt.capacitanceGrowths = 1;
+            attempt.retryTimeStep = reducedStep;
             attempt.status = "restart after PTA capacitance growth";
             attempt.failureReason =
                 "Newton solve failed at the minimum PTA step";
@@ -311,15 +314,19 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
             return finish(true);
         }
 
-        const int reductionsBefore =
-            operatingPointStats_.ptaCapacitanceReductions;
-        updatePtaNodeCapacitancesAfterAcceptedStep(
-            currentSolution,
-            acceptedSolution,
-            config
-        );
-        attempt.capacitanceReductions =
-            operatingPointStats_.ptaCapacitanceReductions - reductionsBefore;
+        const PtaCapacitanceReductionSummary reductions =
+            updatePtaNodeCapacitancesAfterAcceptedStep(
+                currentSolution,
+                acceptedSolution,
+                config
+            );
+        attempt.capacitanceReductions = reductions.total;
+        attempt.smallOscillationCapacitanceReductions =
+            reductions.smallOscillation;
+        attempt.mediumOscillationCapacitanceReductions =
+            reductions.mediumOscillation;
+        attempt.heavyOscillationCapacitanceReductions =
+            reductions.heavyOscillation;
         attempt.accepted = true;
         attempt.status = "accepted";
         ++operatingPointStats_.ptaAcceptedSteps;
@@ -568,11 +575,13 @@ bool Circuit::growAllPtaNodeCapacitances(const PtaAnalysisConfig& config){
     return grewAnyCapacitance;
 }
 
-void Circuit::updatePtaNodeCapacitancesAfterAcceptedStep(
+Circuit::PtaCapacitanceReductionSummary
+Circuit::updatePtaNodeCapacitancesAfterAcceptedStep(
     const Eigen::VectorXd& currentSolution,
     const Eigen::VectorXd& previousSolution,
     const PtaAnalysisConfig& config
 ){
+    PtaCapacitanceReductionSummary summary;
     for(auto& state: ptaNodeCaps_){
         if(state.node < 0 ||
            state.node >= currentSolution.size() ||
@@ -605,10 +614,13 @@ void Circuit::updatePtaNodeCapacitancesAfterAcceptedStep(
                 std::abs(currentDelta) / std::abs(state.previousDelta);
 
             double capacitanceScale = config.smallOscillationScale;
+            int* severityCount = &summary.smallOscillation;
             if(ratio >= config.heavyOscillationRatio){
                 capacitanceScale = config.heavyOscillationScale;
+                severityCount = &summary.heavyOscillation;
             }else if(ratio >= config.mediumOscillationRatio){
                 capacitanceScale = config.mediumOscillationScale;
+                severityCount = &summary.mediumOscillation;
             }
 
             const double nextCapacitance = std::max(
@@ -621,10 +633,13 @@ void Circuit::updatePtaNodeCapacitancesAfterAcceptedStep(
                 state.capacitor->setValue(nextCapacitance);
                 state.capacitance = nextCapacitance;
                 ++operatingPointStats_.ptaCapacitanceReductions;
+                ++summary.total;
+                ++(*severityCount);
             }
         }
 
         state.previousDelta = currentDelta;
         state.hasPreviousDelta = true;
     }
+    return summary;
 }

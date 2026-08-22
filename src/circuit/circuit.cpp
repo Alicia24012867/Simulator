@@ -37,7 +37,8 @@ PtaDiagnostics Circuit::ptaDiagnostics() const{
         operatingPointStats_.ptaCapacitanceReductions,
         operatingPointStats_.ptaMinimumStepRecoveries,
         operatingPointStats_.ptaNormalizedDerivative,
-        operatingPointStats_.ptaNormalizedDcResidual
+        operatingPointStats_.ptaNormalizedDcResidual,
+        operatingPointStats_.ptaAttempts
     };
 }
 

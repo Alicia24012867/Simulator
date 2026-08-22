@@ -66,10 +66,20 @@ struct PtaStepAttemptDiagnostics {
     bool reachedSteadyState = false;
     bool retriedWithSmallerStep = false;
     bool restartedAfterCapacitanceGrowth = false;
+    // Non-zero only when the failed attempt schedules another attempt at a
+    // smaller pseudo-time step.
+    double retryTimeStep = 0.0;
     bool hasConvergenceMetrics = false;
     double normalizedDerivative = 0.0;
     double normalizedDcResidual = 0.0;
+    // A global growth is triggered only after a Newton failure at the minimum
+    // pseudo-time step.  Reductions are applied after an accepted step whose
+    // node-voltage change reverses direction.
+    int capacitanceGrowths = 0;
     int capacitanceReductions = 0;
+    int smallOscillationCapacitanceReductions = 0;
+    int mediumOscillationCapacitanceReductions = 0;
+    int heavyOscillationCapacitanceReductions = 0;
     std::string status;
     std::string failureReason;
     NewtonSolveDiagnostics newton;
