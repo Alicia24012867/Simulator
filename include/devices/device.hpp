@@ -127,6 +127,13 @@ public:
 
     virtual void restoreIterationState() {}
 
+    // A Newton line search needs a nested checkpoint for repeated trial
+    // stamps.  Keep it separate from the outer solve checkpoint used by
+    // source stepping, PTA retries, and transient step rollback.
+    virtual void saveLineSearchState() {}
+
+    virtual void restoreLineSearchState() {}
+
 protected:
     std::string name;
     std::vector<std::string> nodes;

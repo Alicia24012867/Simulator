@@ -125,6 +125,16 @@ public:
         hasPreviousVd_ = savedHasPreviousVd_;
     }
 
+    void saveLineSearchState() override{
+        lineSearchPreviousVd_ = previousVd_;
+        lineSearchHasPreviousVd_ = hasPreviousVd_;
+    }
+
+    void restoreLineSearchState() override{
+        previousVd_ = lineSearchPreviousVd_;
+        hasPreviousVd_ = lineSearchHasPreviousVd_;
+    }
+
 private:
     static double voltage(const double* ptr){
         return ptr ? *ptr : 0.0;
@@ -167,4 +177,6 @@ private:
     bool hasPreviousVd_ = false;
     double savedPreviousVd_ = 0.0;
     bool savedHasPreviousVd_ = false;
+    double lineSearchPreviousVd_ = 0.0;
+    bool lineSearchHasPreviousVd_ = false;
 };

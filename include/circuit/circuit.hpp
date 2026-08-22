@@ -167,6 +167,10 @@ private:
 
     void restoreNonlinearIterationStates();
 
+    void saveNonlinearLineSearchStates();
+
+    void restoreNonlinearLineSearchStates();
+
     void recordTransientSample(double time);
 
     void collectPendingPtaPlacements(const PtaAnalysisConfig& config);

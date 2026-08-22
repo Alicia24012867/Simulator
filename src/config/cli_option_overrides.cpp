@@ -195,6 +195,15 @@ bool applyOperatingPointOption(
             error
         );
     }
+    if(key == "newton.maximum-backtracks"){
+        return readInteger(value, 0, options.newton.maximumBacktracks, error);
+    }
+    if(key == "newton.backtrack-scale"){
+        return readDouble(value, options.newton.backtrackScale, error);
+    }
+    if(key == "newton.sufficient-decrease"){
+        return readDouble(value, options.newton.sufficientDecrease, error);
+    }
     if(key == "newton.maximum-solution-step"){
         return readDouble(value, options.newton.maximumSolutionStep, error);
     }
@@ -277,6 +286,20 @@ bool applyPtaOption(
             options.newtonOptions.normalizedResidualTolerance,
             error
         );
+    }
+    if(key == "newton.maximum-backtracks"){
+        return readInteger(
+            value,
+            0,
+            options.newtonOptions.maximumBacktracks,
+            error
+        );
+    }
+    if(key == "newton.backtrack-scale"){
+        return readDouble(value, options.newtonOptions.backtrackScale, error);
+    }
+    if(key == "newton.sufficient-decrease"){
+        return readDouble(value, options.newtonOptions.sufficientDecrease, error);
     }
     if(key == "newton.maximum-solution-step"){
         return readDouble(value, options.newtonOptions.maximumSolutionStep,
@@ -497,6 +520,28 @@ bool applyTransientOption(
         return readDouble(
             value,
             config.solverOptions.newtonOptions.normalizedResidualTolerance,
+            error
+        );
+    }
+    if(key == "solver.newton.maximum-backtracks"){
+        return readInteger(
+            value,
+            0,
+            config.solverOptions.newtonOptions.maximumBacktracks,
+            error
+        );
+    }
+    if(key == "solver.newton.backtrack-scale"){
+        return readDouble(
+            value,
+            config.solverOptions.newtonOptions.backtrackScale,
+            error
+        );
+    }
+    if(key == "solver.newton.sufficient-decrease"){
+        return readDouble(
+            value,
+            config.solverOptions.newtonOptions.sufficientDecrease,
             error
         );
     }

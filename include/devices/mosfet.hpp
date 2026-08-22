@@ -326,6 +326,20 @@ public:
         chargeHistory_ = savedChargeHistory_;
     }
 
+    void saveLineSearchState() override{
+        lineSearchPreviousVgs_ = previousVgs_;
+        lineSearchPreviousVgd_ = previousVgd_;
+        lineSearchHasPreviousVoltages_ = hasPreviousVoltages_;
+        lineSearchChargeHistory_ = chargeHistory_;
+    }
+
+    void restoreLineSearchState() override{
+        previousVgs_ = lineSearchPreviousVgs_;
+        previousVgd_ = lineSearchPreviousVgd_;
+        hasPreviousVoltages_ = lineSearchHasPreviousVoltages_;
+        chargeHistory_ = lineSearchChargeHistory_;
+    }
+
 private:
     using Vec4 = std::array<double, 4>;
     using Mat4 = std::array<std::array<double, 4>, 4>;
@@ -691,4 +705,8 @@ private:
     bool savedHasPreviousVoltages_ = false;
     mos3::ChargeHistory chargeHistory_;
     mos3::ChargeHistory savedChargeHistory_;
+    double lineSearchPreviousVgs_ = 0.0;
+    double lineSearchPreviousVgd_ = 0.0;
+    bool lineSearchHasPreviousVoltages_ = false;
+    mos3::ChargeHistory lineSearchChargeHistory_;
 };

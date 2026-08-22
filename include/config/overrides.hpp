@@ -60,6 +60,9 @@ struct NewtonOverrides {
     std::optional<double> currentAbsoluteTolerance;
     std::optional<double> normalizedUpdateTolerance;
     std::optional<double> normalizedResidualTolerance;
+    std::optional<int> maximumBacktracks;
+    std::optional<double> backtrackScale;
+    std::optional<double> sufficientDecrease;
     std::optional<double> maximumSolutionStep;
 };
 

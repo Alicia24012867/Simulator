@@ -107,6 +107,7 @@ void printUsage(std::ostream& output, const char* program){
            << "  maximum-iterations, relative-tolerance,\n"
            << "  voltage-absolute-tolerance, current-absolute-tolerance,\n"
            << "  normalized-update-tolerance, normalized-residual-tolerance,\n"
+           << "  maximum-backtracks, backtrack-scale, sufficient-decrease,\n"
            << "  maximum-solution-step (tolerance is a legacy absolute alias)\n";
     output << "\nPTA option fields:\n"
            << "  initial-step, minimum-step, maximum-step, maximum-steps\n"

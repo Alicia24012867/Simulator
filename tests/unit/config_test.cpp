@@ -275,6 +275,9 @@ void testConfigOverrideParsing(){
                         "current_absolute_tolerance": "4n",
                         "normalized_update_tolerance": 0.8,
                         "normalized_residual_tolerance": 0.9,
+                        "maximum_backtracks": 6,
+                        "backtrack_scale": 0.4,
+                        "sufficient_decrease": 0.002,
                         "maximum_solution_step": 0.25
                     },
                     "source_stepping": {
@@ -339,7 +342,13 @@ void testConfigOverrideParsing(){
                 0.8 &&
             overrides.operatingPoint->newton->normalizedResidualTolerance &&
             *overrides.operatingPoint->newton->normalizedResidualTolerance ==
-                0.9,
+                0.9 &&
+            overrides.operatingPoint->newton->maximumBacktracks &&
+            *overrides.operatingPoint->newton->maximumBacktracks == 6 &&
+            overrides.operatingPoint->newton->backtrackScale &&
+            *overrides.operatingPoint->newton->backtrackScale == 0.4 &&
+            overrides.operatingPoint->newton->sufficientDecrease &&
+            *overrides.operatingPoint->newton->sufficientDecrease == 0.002,
         "OP normalized Newton convergence fields are retained"
     );
     expect(
@@ -445,6 +454,9 @@ void testConfigOverrideApplication(){
                         "relative_tolerance": 0.002,
                         "voltage_absolute_tolerance": "3u",
                         "normalized_residual_tolerance": 0.75,
+                        "maximum_backtracks": 3,
+                        "backtrack_scale": 0.25,
+                        "sufficient_decrease": 0.005,
                         "maximum_solution_step": 0.5
                     },
                     "source_stepping": {
@@ -497,6 +509,9 @@ void testConfigOverrideApplication(){
             operatingPoint.newton.voltageAbsoluteTolerance == 3e-6 &&
             operatingPoint.newton.currentAbsoluteTolerance == 4e-9 &&
             operatingPoint.newton.normalizedResidualTolerance == 0.75 &&
+            operatingPoint.newton.maximumBacktracks == 3 &&
+            operatingPoint.newton.backtrackScale == 0.25 &&
+            operatingPoint.newton.sufficientDecrease == 0.005 &&
             operatingPoint.newton.maximumSolutionStep == 0.5,
         "OP mixed-unit Newton overrides are applied"
     );
@@ -604,6 +619,16 @@ void testCommandLineOverrideApplication(){
         ) && key == "newton.current-absolute-tolerance" &&
             operatingPoint.newton.currentAbsoluteTolerance == 5e-9,
         "OP command-line normalized Newton tolerance is applied"
+    );
+    expect(
+        simulator::config::applyOperatingPointOption(
+            "newton.maximum_backtracks=2",
+            operatingPoint,
+            key,
+            error
+        ) && key == "newton.maximum-backtracks" &&
+            operatingPoint.newton.maximumBacktracks == 2,
+        "OP command-line Newton backtracking limit is applied"
     );
     expect(
         simulator::config::applyPtaOption(

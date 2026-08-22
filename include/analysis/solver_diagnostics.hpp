@@ -37,7 +37,10 @@ struct NewtonSolveDiagnostics {
     int iterations = 0;
     int maximumIterations = 0;
     int dampedSteps = 0;
+    int backtrackingSteps = 0;
+    int lineSearchEvaluations = 0;
     double finalDelta = 0.0;
+    double finalStepScale = 1.0;
     double tolerance = 0.0;
     bool hasNormalizedUpdate = false;
     double normalizedUpdate = 0.0;

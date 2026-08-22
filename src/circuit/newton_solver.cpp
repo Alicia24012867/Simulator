@@ -90,9 +90,45 @@ bool Circuit::solveNewtonSystem(const AssembleCallback& assemble,
     Eigen::VectorXd residual;
     const int voltageUnknownCount = nodeMap_->nodeCount();
 
+    const auto normalizedResidual = [this,
+                                     &matrixProduct,
+                                     &residual,
+                                     voltageUnknownCount,
+                                     &options](double& value) {
+        if(!mna_->evaluateResidual(matrixProduct, residual)){
+            return false;
+        }
+        const NewtonResidualEstimate estimate =
+            estimateNormalizedNewtonResidual(
+                residual,
+                matrixProduct,
+                mna_->rhs(),
+                voltageUnknownCount,
+                options.relativeTolerance,
+                options.voltageAbsoluteTolerance,
+                options.currentAbsoluteTolerance
+            );
+        if(!estimate.valid){
+            return false;
+        }
+        value = estimate.normalizedResidual;
+        return true;
+    };
+
     for(int iter = 0; iter < options.maximumIterations; ++iter){
         stats.iterations = iter + 1;
         assemble();
+
+        double baselineResidual = 0.0;
+        if(!normalizedResidual(baselineResidual)){
+            return finish(
+                false,
+                "Newton-Raphson nonlinear residual contains a non-finite value"
+            );
+        }
+        // Device limiters are stateful.  Every backtracking candidate must be
+        // stamped from precisely the same previous-iterate state.
+        saveNonlinearLineSearchStates();
 
         if(!mna_->solve()){
             return finish(
@@ -114,11 +150,54 @@ bool Circuit::solveNewtonSystem(const AssembleCallback& assemble,
                 "Newton-Raphson update is non-finite"
             );
         }
-        if(step.limited){
-            ++stats.dampedSteps;
+        const Eigen::VectorXd direction = current - previous;
+        double stepScale = 1.0;
+        bool accepted = false;
+        double candidateResidual = 0.0;
+
+        for(int backtrack = 0;
+            backtrack <= options.maximumBacktracks;
+            ++backtrack)
+        {
+            current = previous + stepScale * direction;
+            restoreNonlinearLineSearchStates();
+            assemble();
+            ++stats.lineSearchEvaluations;
+            if(!normalizedResidual(candidateResidual)){
+                return finish(
+                    false,
+                    "Newton-Raphson nonlinear residual contains a non-finite value"
+                );
+            }
+
+            const double requiredResidual = baselineResidual *
+                (1.0 - options.sufficientDecrease * stepScale);
+            if(candidateResidual < options.normalizedResidualTolerance ||
+               candidateResidual <= requiredResidual){
+                accepted = true;
+                break;
+            }
+
+            if(backtrack == options.maximumBacktracks){
+                break;
+            }
+            stepScale *= options.backtrackScale;
+            ++stats.backtrackingSteps;
         }
 
-        stats.finalDelta = step.delta;
+        if(!accepted){
+            current = previous;
+            restoreNonlinearLineSearchStates();
+            return finish(
+                false,
+                "Newton-Raphson residual line search exhausted its backtracking limit"
+            );
+        }
+
+        if(step.limited || stepScale < 1.0){
+            ++stats.dampedSteps;
+        }
+        stats.finalStepScale = stepScale;
         const NewtonUpdateEstimate updateEstimate =
             estimateNormalizedNewtonUpdate(
                 current,
@@ -134,46 +213,16 @@ bool Circuit::solveNewtonSystem(const AssembleCallback& assemble,
                 "Newton-Raphson normalized update estimate is invalid"
             );
         }
+        stats.finalDelta = (current - previous).cwiseAbs().maxCoeff();
         stats.hasNormalizedUpdate = true;
         stats.normalizedUpdate = updateEstimate.normalizedUpdate;
-
-        // Reassemble at the candidate solution.  The resulting A*x-b is the
-        // nonlinear defect F(x), unlike the zero residual of the just-solved
-        // linearization.  Avoid this extra stamp until the update is close
-        // enough to be a possible convergence candidate.
+        stats.hasNormalizedResidual = true;
+        stats.normalizedResidual = candidateResidual;
         if(updateEstimate.normalizedUpdate <
-           options.normalizedUpdateTolerance){
-            assemble();
-            if(!mna_->evaluateResidual(matrixProduct, residual)){
-                return finish(
-                    false,
-                    "Newton-Raphson nonlinear residual contains a non-finite value"
-                );
-            }
-            const NewtonResidualEstimate residualEstimate =
-                estimateNormalizedNewtonResidual(
-                    residual,
-                    matrixProduct,
-                    mna_->rhs(),
-                    voltageUnknownCount,
-                    options.relativeTolerance,
-                    options.voltageAbsoluteTolerance,
-                    options.currentAbsoluteTolerance
-                );
-            if(!residualEstimate.valid){
-                return finish(
-                    false,
-                    "Newton-Raphson normalized residual estimate is invalid"
-                );
-            }
-            stats.hasNormalizedResidual = true;
-            stats.normalizedResidual = residualEstimate.normalizedResidual;
-            if(residualEstimate.normalizedResidual <
-               options.normalizedResidualTolerance){
-                return finish(true);
-            }
+               options.normalizedUpdateTolerance &&
+           candidateResidual < options.normalizedResidualTolerance){
+            return finish(true);
         }
-
         previous = current;
     }
 
@@ -257,5 +306,17 @@ void Circuit::saveNonlinearIterationStates(){
 void Circuit::restoreNonlinearIterationStates(){
     for(auto* device: iterationStateDevices_){
         device->restoreIterationState();
+    }
+}
+
+void Circuit::saveNonlinearLineSearchStates(){
+    for(auto* device: iterationStateDevices_){
+        device->saveLineSearchState();
+    }
+}
+
+void Circuit::restoreNonlinearLineSearchStates(){
+    for(auto* device: iterationStateDevices_){
+        device->restoreLineSearchState();
     }
 }

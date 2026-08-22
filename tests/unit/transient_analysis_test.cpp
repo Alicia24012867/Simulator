@@ -100,6 +100,39 @@ private:
     double* rhs_ = nullptr;
 };
 
+class NewtonBacktrackingDevice: public Device {
+public:
+    NewtonBacktrackingDevice(std::string name, std::vector<std::string> nodes):
+        Device(std::move(name), std::move(nodes), DeviceType::BJT) {}
+
+    bool isNonlinear() const override{
+        return true;
+    }
+
+    void pattern(MNA& mna) override{
+        mna.addPattern(nodeIds[0], nodeIds[0]);
+    }
+
+    void bindMatrix(MNA& mna) override{
+        mna_ = &mna;
+        diagonal_ = mna.ptr(nodeIds[0], nodeIds[0]);
+        rhs_ = &mna.rhs(nodeIds[0]);
+    }
+
+    void stampOperatingPoint() override{
+        const double x = mna_->solution()[nodeIds[0]];
+        const double residual = x * x + x - 2.0;
+        const double jacobian = 2.0 * x + 1.0;
+        *diagonal_ += jacobian;
+        *rhs_ += jacobian * x - residual;
+    }
+
+private:
+    MNA* mna_ = nullptr;
+    double* diagonal_ = nullptr;
+    double* rhs_ = nullptr;
+};
+
 class CircuitPtaTestAccess {
 public:
     static void addNodeCapacitor(
@@ -1087,22 +1120,45 @@ void testNewtonRequiresReassembledResidual(){
     expect(circuit.build(PtaAnalysisConfig{}), "Newton residual fixture builds");
     OperatingPointSolverOptions options;
     options.sourceStepping.enabled = false;
-    expect(
-        circuit.solveOperatingPoint(options),
-        "Newton residual fixture converges after restamping"
-    );
+    expect(!circuit.solveOperatingPoint(options),
+           "Newton residual fixture rejects an inconsistent tiny update");
 
     const NewtonSolveDiagnostics& diagnostics =
         circuit.operatingPointDiagnostics().directNewton;
     expect(
-        diagnostics.converged && diagnostics.iterations == 3,
-        "Newton does not accept a tiny update before checking its residual"
+        !diagnostics.converged && diagnostics.iterations == 1 &&
+            diagnostics.backtrackingSteps > 0 &&
+            diagnostics.lineSearchEvaluations > 1,
+        "Newton backtracks instead of accepting a tiny update with a large residual"
     );
     expect(
-        diagnostics.hasNormalizedUpdate && diagnostics.hasNormalizedResidual &&
-            diagnostics.normalizedUpdate < 1.0e-12 &&
-            diagnostics.normalizedResidual < 1.0e-12,
-        "Newton diagnostics retain the final normalized convergence metrics"
+        !diagnostics.hasNormalizedUpdate && !diagnostics.hasNormalizedResidual &&
+            diagnostics.failureReason.find("line search") != std::string::npos,
+        "Newton reports exhausted residual backtracking distinctly"
+    );
+}
+
+void testNewtonResidualBacktracking(){
+    Circuit circuit;
+    circuit.addDevice<NewtonBacktrackingDevice>(
+        "XBACKTRACK",
+        std::vector<std::string>{"node", "0", "0"}
+    );
+
+    expect(circuit.build(PtaAnalysisConfig{}), "Newton backtracking fixture builds");
+    OperatingPointSolverOptions options;
+    options.sourceStepping.enabled = false;
+    options.newton.maximumSolutionStep = 10.0;
+    expect(circuit.solveOperatingPoint(options),
+           "Newton residual backtracking fixture converges");
+
+    const NewtonSolveDiagnostics& diagnostics =
+        circuit.operatingPointDiagnostics().directNewton;
+    expect(
+        diagnostics.converged && diagnostics.backtrackingSteps == 1 &&
+            diagnostics.lineSearchEvaluations == 3 &&
+            diagnostics.finalStepScale == 1.0,
+        "Newton accepts a backtracked residual-decreasing candidate"
     );
 }
 
@@ -1912,6 +1968,7 @@ int main(){
     testLinearSolverDiagnostics();
     testLinearFailureDiagnostics();
     testNewtonRequiresReassembledResidual();
+    testNewtonResidualBacktracking();
     testRequiresBdf2History();
     testZeroErrorUsesMaximumScale();
     testVoltageAndCurrentAbsoluteTolerances();

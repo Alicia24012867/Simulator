@@ -107,8 +107,14 @@ void writeNewton(std::ostream& output,
            << " / " << diagnostics.maximumIterations << '\n';
     if(diagnostics.usedNewtonRaphson){
         output << indent << "Damped updates: " << diagnostics.dampedSteps << '\n'
+               << indent << "Residual backtracking reductions: "
+               << diagnostics.backtrackingSteps << '\n'
+               << indent << "Line-search residual evaluations: "
+               << diagnostics.lineSearchEvaluations << '\n'
                << indent << "Final update infinity norm: "
                << diagnostics.finalDelta << '\n'
+               << indent << "Final Newton step scale: "
+               << diagnostics.finalStepScale << '\n'
                << indent << "Legacy absolute tolerance: "
                << diagnostics.tolerance << '\n';
         if(diagnostics.hasNormalizedUpdate){
@@ -246,7 +252,10 @@ void writeOperatingPointAttempt(
                    << " source_scale=" << pta.sourceScale
                    << " newton=" << succeededFailed(pta.newton.converged)
                    << " iterations=" << pta.newton.iterations
-                   << " damped=" << pta.newton.dampedSteps;
+                   << " damped=" << pta.newton.dampedSteps
+                   << " backtracks=" << pta.newton.backtrackingSteps
+                   << " line_search_evaluations="
+                   << pta.newton.lineSearchEvaluations;
             if(pta.newton.hasNormalizedUpdate){
                 output << " newton_normalized_update="
                        << pta.newton.normalizedUpdate;
@@ -372,6 +381,12 @@ void writeNewtonConfiguration(std::ostream& output,
            << options.normalizedUpdateTolerance << '\n'
            << "  " << prefix << ".normalized_residual_tolerance: "
            << options.normalizedResidualTolerance << '\n'
+           << "  " << prefix << ".maximum_backtracks: "
+           << options.maximumBacktracks << '\n'
+           << "  " << prefix << ".backtrack_scale: "
+           << options.backtrackScale << '\n'
+           << "  " << prefix << ".sufficient_decrease: "
+           << options.sufficientDecrease << '\n'
            << "  " << prefix << ".maximum_solution_step: "
            << options.maximumSolutionStep << '\n';
 }

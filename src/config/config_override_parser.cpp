@@ -275,6 +275,9 @@ NewtonOverrides parseNewtonOverrides(
             "current_absolute_tolerance",
             "normalized_update_tolerance",
             "normalized_residual_tolerance",
+            "maximum_backtracks",
+            "backtrack_scale",
+            "sufficient_decrease",
             "maximum_solution_step"
         }
     );
@@ -329,6 +332,28 @@ NewtonOverrides parseNewtonOverrides(
         loadedConfig,
         jsonPath,
         result.normalizedResidualTolerance
+    );
+    readOptionalInteger(
+        object,
+        "maximum_backtracks",
+        loadedConfig,
+        jsonPath,
+        0,
+        result.maximumBacktracks
+    );
+    readOptionalNumber(
+        object,
+        "backtrack_scale",
+        loadedConfig,
+        jsonPath,
+        result.backtrackScale
+    );
+    readOptionalNumber(
+        object,
+        "sufficient_decrease",
+        loadedConfig,
+        jsonPath,
+        result.sufficientDecrease
     );
     readOptionalNumber(
         object,

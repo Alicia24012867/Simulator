@@ -50,6 +50,15 @@ void applyNewtonOverrides(
         options.normalizedResidualTolerance =
             *overrides.normalizedResidualTolerance;
     }
+    if(overrides.maximumBacktracks){
+        options.maximumBacktracks = *overrides.maximumBacktracks;
+    }
+    if(overrides.backtrackScale){
+        options.backtrackScale = *overrides.backtrackScale;
+    }
+    if(overrides.sufficientDecrease){
+        options.sufficientDecrease = *overrides.sufficientDecrease;
+    }
     if(overrides.maximumSolutionStep){
         options.maximumSolutionStep = *overrides.maximumSolutionStep;
     }

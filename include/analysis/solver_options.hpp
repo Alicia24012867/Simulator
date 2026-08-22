@@ -21,6 +21,11 @@ struct NewtonSolverOptions {
     // absolute-plus-relative tolerance test.
     double normalizedUpdateTolerance = 1.0;
     double normalizedResidualTolerance = 1.0;
+    // Trial updates are backtracked until the reassembled nonlinear residual
+    // satisfies an Armijo-style sufficient-decrease condition.
+    int maximumBacktracks = 8;
+    double backtrackScale = 0.5;
+    double sufficientDecrease = 1.0e-4;
     double maximumSolutionStep = 1.0;
 
     bool valid() const noexcept {
@@ -35,6 +40,11 @@ struct NewtonSolverOptions {
             normalizedUpdateTolerance > 0.0 &&
             std::isfinite(normalizedResidualTolerance) &&
             normalizedResidualTolerance > 0.0 &&
+            maximumBacktracks >= 0 &&
+            std::isfinite(backtrackScale) &&
+            backtrackScale > 0.0 && backtrackScale < 1.0 &&
+            std::isfinite(sufficientDecrease) &&
+            sufficientDecrease > 0.0 && sufficientDecrease < 1.0 &&
             std::isfinite(maximumSolutionStep) &&
             maximumSolutionStep > 0.0;
     }

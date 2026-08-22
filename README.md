@@ -265,6 +265,9 @@ make
       "current_absolute_tolerance": "1n",
       "normalized_update_tolerance": 1.0,
       "normalized_residual_tolerance": 1.0,
+      "maximum_backtracks": 8,
+      "backtrack_scale": 0.5,
+      "sufficient_decrease": 0.0001,
       "maximum_solution_step": 1.0
     },
     "source_stepping": {
@@ -296,7 +299,7 @@ make
 允许的字段如下；未知字段、错误类型、无穷数和非法 SPICE 数值都会以配置错误退出。
 
 - `debug`：布尔值，默认 `true`。控制是否写出同名 `.solve.txt` 报告；命令行 `--debug true|false` 的优先级更高。
-- `op.newton`：`maximum_iterations`、`relative_tolerance`、`voltage_absolute_tolerance`、`current_absolute_tolerance`、`normalized_update_tolerance`、`normalized_residual_tolerance`、`maximum_solution_step`。`tolerance` 保留为兼容字段；若设置且未分别设置电压/电流绝对容差，它会同时设定二者。
+- `op.newton`：`maximum_iterations`、`relative_tolerance`、`voltage_absolute_tolerance`、`current_absolute_tolerance`、`normalized_update_tolerance`、`normalized_residual_tolerance`、`maximum_backtracks`、`backtrack_scale`、`sufficient_decrease`、`maximum_solution_step`。`tolerance` 保留为兼容字段；若设置且未分别设置电压/电流绝对容差，它会同时设定二者。每个 Newton 候选更新会重新 stamp，以归一化残差的充分下降条件决定是否回溯。
 - `op.source_stepping`：`enabled`、`initial_step`、`maximum_step`、`minimum_step`、`growth_factor`、`failure_scale`。
 - `pta.newton`：与 `op.newton` 相同。`pta` 还支持 `mode`、`initial_step`、`minimum_step`、`maximum_step`、`maximum_steps`、所有 `derivative_*` 与 `dc_*` 容差、`initial_node_capacitance`、`minimum_node_capacitance`、`maximum_node_capacitance`、`current_source_capacitance`、`voltage_source_inductance`、`compound_time_constant`、`compound_initial_resistance`、`compound_initial_conductance`、`source_ramp_time`、`initial_mos_vgs`、`initial_bjt_vbe`、所有振荡/电容缩放字段，以及 `include_mos_bulk`、`include_diodes`。
 - `tran`：`enabled`、`output_interval`、`stop_time`、`output_start_time`、`maximum_step`、`use_initial_conditions`。

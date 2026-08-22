@@ -193,6 +193,18 @@ public:
         hasPreviousVoltages_ = savedHasPreviousVoltages_;
     }
 
+    void saveLineSearchState() override{
+        lineSearchPreviousVbe_ = previousVbe_;
+        lineSearchPreviousVbc_ = previousVbc_;
+        lineSearchHasPreviousVoltages_ = hasPreviousVoltages_;
+    }
+
+    void restoreLineSearchState() override{
+        previousVbe_ = lineSearchPreviousVbe_;
+        previousVbc_ = lineSearchPreviousVbc_;
+        hasPreviousVoltages_ = lineSearchHasPreviousVoltages_;
+    }
+
 private:
     using Vec3 = std::array<double, 3>;
     using Mat3 = std::array<std::array<double, 3>, 3>;
@@ -290,4 +302,7 @@ private:
     double savedPreviousVbe_ = 0.0;
     double savedPreviousVbc_ = 0.0;
     bool savedHasPreviousVoltages_ = false;
+    double lineSearchPreviousVbe_ = 0.0;
+    double lineSearchPreviousVbc_ = 0.0;
+    bool lineSearchHasPreviousVoltages_ = false;
 };
