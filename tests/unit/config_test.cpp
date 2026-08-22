@@ -280,7 +280,18 @@ void testConfigOverrideParsing(){
                         "sufficient_decrease": 0.002,
                         "maximum_solution_step": 0.25,
                         "maximum_consecutive_non_monotone_steps": 2,
-                        "maximum_non_monotone_residual_growth": 3.5
+                        "maximum_non_monotone_residual_growth": 3.5,
+                        "trust_region_enabled": false,
+                        "trust_region_initial_radius": 0.5,
+                        "trust_region_minimum_radius": 0.01,
+                        "trust_region_maximum_radius": 100.0,
+                        "maximum_trust_region_retries": 6,
+                        "trust_region_acceptance_ratio": 0.2,
+                        "trust_region_shrink_threshold": 0.3,
+                        "trust_region_grow_threshold": 0.8,
+                        "trust_region_shrink_factor": 0.2,
+                        "trust_region_grow_factor": 1.5,
+                        "trust_region_boundary_fraction": 0.9
                     },
                     "source_stepping": {
                         "enabled": false,
@@ -358,7 +369,15 @@ void testConfigOverrideParsing(){
             overrides.operatingPoint->newton
                 ->maximumNonMonotoneResidualGrowth &&
             *overrides.operatingPoint->newton
-                ->maximumNonMonotoneResidualGrowth == 3.5,
+                ->maximumNonMonotoneResidualGrowth == 3.5 &&
+            overrides.operatingPoint->newton->trustRegionEnabled &&
+            !*overrides.operatingPoint->newton->trustRegionEnabled &&
+            overrides.operatingPoint->newton->trustRegionInitialRadius &&
+            *overrides.operatingPoint->newton->trustRegionInitialRadius == 0.5 &&
+            overrides.operatingPoint->newton->maximumTrustRegionRetries &&
+            *overrides.operatingPoint->newton->maximumTrustRegionRetries == 6 &&
+            overrides.operatingPoint->newton->trustRegionGrowFactor &&
+            *overrides.operatingPoint->newton->trustRegionGrowFactor == 1.5,
         "OP normalized Newton convergence fields are retained"
     );
     expect(
@@ -469,7 +488,18 @@ void testConfigOverrideApplication(){
                         "sufficient_decrease": 0.005,
                         "maximum_solution_step": 0.5,
                         "maximum_consecutive_non_monotone_steps": 2,
-                        "maximum_non_monotone_residual_growth": 3.5
+                        "maximum_non_monotone_residual_growth": 3.5,
+                        "trust_region_enabled": false,
+                        "trust_region_initial_radius": 0.5,
+                        "trust_region_minimum_radius": 0.01,
+                        "trust_region_maximum_radius": 100.0,
+                        "maximum_trust_region_retries": 6,
+                        "trust_region_acceptance_ratio": 0.2,
+                        "trust_region_shrink_threshold": 0.3,
+                        "trust_region_grow_threshold": 0.8,
+                        "trust_region_shrink_factor": 0.2,
+                        "trust_region_grow_factor": 1.5,
+                        "trust_region_boundary_fraction": 0.9
                     },
                     "source_stepping": {
                         "enabled": false,
@@ -526,7 +556,18 @@ void testConfigOverrideApplication(){
             operatingPoint.newton.sufficientDecrease == 0.005 &&
             operatingPoint.newton.maximumSolutionStep == 0.5 &&
             operatingPoint.newton.maximumConsecutiveNonMonotoneSteps == 2 &&
-            operatingPoint.newton.maximumNonMonotoneResidualGrowth == 3.5,
+            operatingPoint.newton.maximumNonMonotoneResidualGrowth == 3.5 &&
+            !operatingPoint.newton.trustRegionEnabled &&
+            operatingPoint.newton.trustRegionInitialRadius == 0.5 &&
+            operatingPoint.newton.trustRegionMinimumRadius == 0.01 &&
+            operatingPoint.newton.trustRegionMaximumRadius == 100.0 &&
+            operatingPoint.newton.maximumTrustRegionRetries == 6 &&
+            operatingPoint.newton.trustRegionAcceptanceRatio == 0.2 &&
+            operatingPoint.newton.trustRegionShrinkThreshold == 0.3 &&
+            operatingPoint.newton.trustRegionGrowThreshold == 0.8 &&
+            operatingPoint.newton.trustRegionShrinkFactor == 0.2 &&
+            operatingPoint.newton.trustRegionGrowFactor == 1.5 &&
+            operatingPoint.newton.trustRegionBoundaryFraction == 0.9,
         "OP mixed-unit Newton overrides are applied"
     );
     expect(
@@ -646,22 +687,22 @@ void testCommandLineOverrideApplication(){
     );
     expect(
         simulator::config::applyOperatingPointOption(
-            "newton.maximum_consecutive_non_monotone_steps=0",
+            "newton.trust_region_enabled=false",
             operatingPoint,
             key,
             error
-        ) && key == "newton.maximum-consecutive-non-monotone-steps" &&
-            operatingPoint.newton.maximumConsecutiveNonMonotoneSteps == 0,
-        "OP command-line controlled Newton fallback limit is applied"
+        ) && key == "newton.trust-region-enabled" &&
+            !operatingPoint.newton.trustRegionEnabled,
+        "OP command-line trust-region switch is applied"
     );
     expect(
         simulator::config::applyPtaOption(
-            "newton.maximum_non_monotone_residual_growth=2.5",
+            "newton.trust_region_maximum_radius=2.5k",
             pta,
             key,
             error
-        ) && pta.newtonOptions.maximumNonMonotoneResidualGrowth == 2.5,
-        "PTA command-line controlled Newton fallback bound is applied"
+        ) && pta.newtonOptions.trustRegionMaximumRadius == 2500.0,
+        "PTA command-line trust-region bound is applied"
     );
     expect(
         simulator::config::applyPtaOption(
@@ -721,14 +762,14 @@ void testCommandLineOverrideApplication(){
     );
     expect(
         simulator::config::applyTransientOption(
-            "solver.newton.maximum_consecutive_non_monotone_steps=3",
+            "solver.newton.maximum_trust_region_retries=3",
             transient,
             key,
             error
         ) && transient &&
             transient->solverOptions.newtonOptions
-                .maximumConsecutiveNonMonotoneSteps == 3,
-        "TRAN command-line controlled Newton fallback limit is applied"
+                .maximumTrustRegionRetries == 3,
+        "TRAN command-line trust-region retry limit is applied"
     );
     expect(
         simulator::config::applyTransientOption(

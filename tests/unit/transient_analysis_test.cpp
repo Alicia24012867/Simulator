@@ -332,6 +332,16 @@ void testSolverOptionsValidation(){
     newton = NewtonSolverOptions{};
     newton.maximumNonMonotoneResidualGrowth = 0.99;
     expect(!newton.valid(), "Newton residual growth bound below one is invalid");
+    newton = NewtonSolverOptions{};
+    newton.trustRegionMinimumRadius = 0.0;
+    expect(!newton.valid(), "zero trust-region minimum radius is invalid");
+    newton = NewtonSolverOptions{};
+    newton.trustRegionAcceptanceRatio = 1.0;
+    expect(!newton.valid(), "unit trust-region acceptance ratio is invalid");
+    newton = NewtonSolverOptions{};
+    newton.trustRegionMaximumRadius =
+        newton.trustRegionMinimumRadius * 0.5;
+    expect(!newton.valid(), "trust-region maximum radius below minimum is invalid");
 
     SourceSteppingOptions sourceStepping;
     expect(sourceStepping.valid(), "default source-stepping options are valid");
@@ -1169,14 +1179,15 @@ void testNewtonRequiresReassembledResidual(){
         circuit.operatingPointDiagnostics().directNewton;
     expect(
         !diagnostics.converged && diagnostics.iterations == 1 &&
-            diagnostics.backtrackingSteps > 0 &&
-            diagnostics.lineSearchEvaluations > 1,
-        "Newton backtracks instead of accepting a tiny update with a large residual"
+            diagnostics.usedTrustRegion &&
+            diagnostics.trustRegionRejectedSteps > 0 &&
+            diagnostics.trustRegionRadiusReductions > 0,
+        "trust region rejects an inconsistent tiny update after restamping"
     );
     expect(
         !diagnostics.hasNormalizedUpdate && !diagnostics.hasNormalizedResidual &&
-            diagnostics.failureReason.find("line search") != std::string::npos,
-        "Newton reports exhausted residual backtracking distinctly"
+            diagnostics.failureReason.find("trust-region") != std::string::npos,
+        "Newton reports exhausted trust-region retries distinctly"
     );
 }
 
@@ -1197,10 +1208,39 @@ void testNewtonResidualBacktracking(){
     const NewtonSolveDiagnostics& diagnostics =
         circuit.operatingPointDiagnostics().directNewton;
     expect(
-        diagnostics.converged && diagnostics.backtrackingSteps == 1 &&
-            diagnostics.lineSearchEvaluations == 3 &&
-            diagnostics.finalStepScale == 1.0,
-        "Newton accepts a backtracked residual-decreasing candidate"
+        diagnostics.converged && diagnostics.usedTrustRegion &&
+            diagnostics.trustRegionTrials > 1 &&
+            diagnostics.trustRegionRejectedSteps > 0 &&
+            diagnostics.trustRegionRadiusReductions > 0 &&
+            diagnostics.hasTrustRegionRatio,
+        "Newton accepts a trust-region candidate after a rejected full step"
+    );
+}
+
+void testTrustRegionExpandsForAccurateModel(){
+    Circuit circuit;
+    circuit.addDevice<PtaRecoveryDevice>(
+        "XTRUST",
+        std::vector<std::string>{"node", "0", "0"},
+        1.0,
+        1.0
+    );
+
+    expect(circuit.build(PtaAnalysisConfig{}),
+           "trust-region agreement fixture builds");
+    OperatingPointSolverOptions options;
+    options.sourceStepping.enabled = false;
+    expect(circuit.solveOperatingPoint(options),
+           "trust-region agreement fixture converges");
+
+    const NewtonSolveDiagnostics& diagnostics =
+        circuit.operatingPointDiagnostics().directNewton;
+    expect(
+        diagnostics.usedTrustRegion && diagnostics.trustRegionTrials > 0 &&
+            diagnostics.trustRegionRadiusExpansions > 0 &&
+            diagnostics.finalTrustRegionRadius >
+                diagnostics.initialTrustRegionRadius,
+        "accurate trust-region model expands its normalized radius"
     );
 }
 
@@ -1217,6 +1257,7 @@ void testControlledNonMonotoneNewtonFallback(){
            "controlled Newton fallback fixture builds");
     OperatingPointSolverOptions options;
     options.sourceStepping.enabled = false;
+    options.newton.trustRegionEnabled = false;
     expect(circuit.solveOperatingPoint(options),
            "default bounded non-monotone Newton fallback converges");
 
@@ -2036,6 +2077,7 @@ int main(){
     testLinearFailureDiagnostics();
     testNewtonRequiresReassembledResidual();
     testNewtonResidualBacktracking();
+    testTrustRegionExpandsForAccurateModel();
     testControlledNonMonotoneNewtonFallback();
     testRequiresBdf2History();
     testZeroErrorUsesMaximumScale();

@@ -70,6 +70,46 @@ void applyNewtonOverrides(
         options.maximumNonMonotoneResidualGrowth =
             *overrides.maximumNonMonotoneResidualGrowth;
     }
+    if(overrides.trustRegionEnabled){
+        options.trustRegionEnabled = *overrides.trustRegionEnabled;
+    }
+    if(overrides.trustRegionInitialRadius){
+        options.trustRegionInitialRadius = *overrides.trustRegionInitialRadius;
+    }
+    if(overrides.trustRegionMinimumRadius){
+        options.trustRegionMinimumRadius = *overrides.trustRegionMinimumRadius;
+    }
+    if(overrides.trustRegionMaximumRadius){
+        options.trustRegionMaximumRadius = *overrides.trustRegionMaximumRadius;
+    }
+    if(overrides.maximumTrustRegionRetries){
+        options.maximumTrustRegionRetries =
+            *overrides.maximumTrustRegionRetries;
+    }
+    if(overrides.trustRegionAcceptanceRatio){
+        options.trustRegionAcceptanceRatio =
+            *overrides.trustRegionAcceptanceRatio;
+    }
+    if(overrides.trustRegionShrinkThreshold){
+        options.trustRegionShrinkThreshold =
+            *overrides.trustRegionShrinkThreshold;
+    }
+    if(overrides.trustRegionGrowThreshold){
+        options.trustRegionGrowThreshold =
+            *overrides.trustRegionGrowThreshold;
+    }
+    if(overrides.trustRegionShrinkFactor){
+        options.trustRegionShrinkFactor =
+            *overrides.trustRegionShrinkFactor;
+    }
+    if(overrides.trustRegionGrowFactor){
+        options.trustRegionGrowFactor =
+            *overrides.trustRegionGrowFactor;
+    }
+    if(overrides.trustRegionBoundaryFraction){
+        options.trustRegionBoundaryFraction =
+            *overrides.trustRegionBoundaryFraction;
+    }
 }
 
 void applySourceSteppingOverrides(

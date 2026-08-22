@@ -43,6 +43,15 @@ struct NewtonSolveDiagnostics {
     // exhausted residual line search.  OP/TRAN require configured bounds;
     // PTA is governed by its outer pseudo-time continuation.
     int nonMonotoneStepFallbacks = 0;
+    bool usedTrustRegion = false;
+    int trustRegionTrials = 0;
+    int trustRegionRejectedSteps = 0;
+    int trustRegionRadiusReductions = 0;
+    int trustRegionRadiusExpansions = 0;
+    double initialTrustRegionRadius = 0.0;
+    double finalTrustRegionRadius = 0.0;
+    bool hasTrustRegionRatio = false;
+    double lastTrustRegionRatio = 0.0;
     double finalDelta = 0.0;
     double finalStepScale = 1.0;
     double tolerance = 0.0;

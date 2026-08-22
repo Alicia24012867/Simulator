@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify a hard OP deck where the ordinary path fails and PTA converges."""
+"""Verify the retained legacy-Newton and PTA fallback paths on a hard OP deck."""
 
 from __future__ import annotations
 
@@ -193,31 +193,33 @@ def main() -> int:
         root = Path(directory)
         root.mkdir(parents=True, exist_ok=True)
 
-        ordinary_root = root / "ordinary"
+        legacy_root = root / "legacy-ordinary"
         ordinary = run(
             simulator,
             "--pta",
             "disabled",
             "--op-option",
+            "newton.trust-region-enabled=false",
+            "--op-option",
             "newton.maximum-backtracks=0",
             "-b",
             "--output-root",
-            ordinary_root,
+            legacy_root,
             netlist,
         )
         require(
             ordinary.returncode == 1,
-            f"ordinary OP unexpectedly returned {ordinary.returncode}: "
+            f"legacy ordinary OP unexpectedly returned {ordinary.returncode}: "
             f"{ordinary.stderr}{ordinary.stdout}",
         )
-        require(not ordinary.stdout, "failed batch OP wrote to stdout")
-        ordinary_artifacts = output_artifacts(ordinary_root, netlist)
+        require(not ordinary.stdout, "failed legacy batch OP wrote to stdout")
+        ordinary_artifacts = output_artifacts(legacy_root, netlist)
         ordinary_error = ordinary.stderr
         if ordinary_artifacts["error"].is_file():
             ordinary_error += ordinary_artifacts["error"].read_text(errors="replace")
         require(
             "Operating point analysis failed" in ordinary_error,
-            f"ordinary OP failure diagnostic is missing: {ordinary_error}",
+            f"legacy ordinary OP failure diagnostic is missing: {ordinary_error}",
         )
         check_solver_report(
             ordinary_artifacts["report"],
@@ -227,10 +229,19 @@ def main() -> int:
 
         for mode in ("force", "fallback"):
             mode_root = root / mode
+            fallback_options = (
+                (
+                    "--op-option",
+                    "newton.trust-region-enabled=false",
+                )
+                if mode == "fallback"
+                else ()
+            )
             result = run(
                 simulator,
                 "--pta",
                 mode,
+                *fallback_options,
                 "--op-option",
                 "newton.maximum-backtracks=0",
                 "--pta-diagnostics",
@@ -268,7 +279,7 @@ def main() -> int:
             check_pta_diagnostics(diagnostics_text)
             check_operating_point(artifacts["listing"], reference)
 
-    print("PASS PTA hard OP: ordinary path fails; force and fallback converge")
+    print("PASS PTA hard OP: legacy ordinary fails; force and fallback converge")
     return 0
 
 

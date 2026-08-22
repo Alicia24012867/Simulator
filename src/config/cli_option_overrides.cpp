@@ -104,6 +104,52 @@ bool readLegacyNewtonTolerance(
     return true;
 }
 
+bool applyTrustRegionOption(
+    const std::string& key,
+    const std::string& value,
+    const std::string& prefix,
+    NewtonSolverOptions& options,
+    std::string& error,
+    bool& recognized
+){
+    recognized = true;
+    if(key == prefix + "trust-region-enabled"){
+        return readBoolean(value, options.trustRegionEnabled, error);
+    }
+    if(key == prefix + "trust-region-initial-radius"){
+        return readDouble(value, options.trustRegionInitialRadius, error);
+    }
+    if(key == prefix + "trust-region-minimum-radius"){
+        return readDouble(value, options.trustRegionMinimumRadius, error);
+    }
+    if(key == prefix + "trust-region-maximum-radius"){
+        return readDouble(value, options.trustRegionMaximumRadius, error);
+    }
+    if(key == prefix + "maximum-trust-region-retries"){
+        return readInteger(value, 0, options.maximumTrustRegionRetries, error);
+    }
+    if(key == prefix + "trust-region-acceptance-ratio"){
+        return readDouble(value, options.trustRegionAcceptanceRatio, error);
+    }
+    if(key == prefix + "trust-region-shrink-threshold"){
+        return readDouble(value, options.trustRegionShrinkThreshold, error);
+    }
+    if(key == prefix + "trust-region-grow-threshold"){
+        return readDouble(value, options.trustRegionGrowThreshold, error);
+    }
+    if(key == prefix + "trust-region-shrink-factor"){
+        return readDouble(value, options.trustRegionShrinkFactor, error);
+    }
+    if(key == prefix + "trust-region-grow-factor"){
+        return readDouble(value, options.trustRegionGrowFactor, error);
+    }
+    if(key == prefix + "trust-region-boundary-fraction"){
+        return readDouble(value, options.trustRegionBoundaryFraction, error);
+    }
+    recognized = false;
+    return false;
+}
+
 TransientAnalysisConfig& requireTransientConfig(
     std::optional<TransientAnalysisConfig>& options,
     const std::optional<TransientAnalysisConfig>& baseOptions
@@ -222,6 +268,18 @@ bool applyOperatingPointOption(
             error
         );
     }
+    bool trustRegionRecognized = false;
+    const bool trustRegionApplied = applyTrustRegionOption(
+        key,
+        value,
+        "newton.",
+        options.newton,
+        error,
+        trustRegionRecognized
+    );
+    if(trustRegionRecognized){
+        return trustRegionApplied;
+    }
     if(key == "source-stepping.enabled"){
         return readBoolean(value, options.sourceStepping.enabled, error);
     }
@@ -334,6 +392,18 @@ bool applyPtaOption(
             options.newtonOptions.maximumNonMonotoneResidualGrowth,
             error
         );
+    }
+    bool trustRegionRecognized = false;
+    const bool trustRegionApplied = applyTrustRegionOption(
+        key,
+        value,
+        "newton.",
+        options.newtonOptions,
+        error,
+        trustRegionRecognized
+    );
+    if(trustRegionRecognized){
+        return trustRegionApplied;
     }
     if(key == "maximum-steps"){
         return readInteger(value, 1, options.maximumSteps, error);
@@ -598,6 +668,18 @@ bool applyTransientOption(
                 .maximumNonMonotoneResidualGrowth,
             error
         );
+    }
+    bool trustRegionRecognized = false;
+    const bool trustRegionApplied = applyTrustRegionOption(
+        key,
+        value,
+        "solver.newton.",
+        config.solverOptions.newtonOptions,
+        error,
+        trustRegionRecognized
+    );
+    if(trustRegionRecognized){
+        return trustRegionApplied;
     }
     if(key == "solver.relative-tolerance"){
         return readDouble(value, config.solverOptions.relativeTolerance, error);

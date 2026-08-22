@@ -310,8 +310,9 @@ test-netlists: $(TARGET)
 		--recursive \
 		--timeout $(NETLIST_PARSE_TIMEOUT)
 
-# This is a solver-differentiation benchmark, not a permanent release gate:
-# improving ordinary Newton so it converges should prompt updating the fixture.
+# This is a legacy-Newton/PTA differentiation benchmark, not a permanent
+# release gate.  The script disables trust-region explicitly for its ordinary
+# and fallback branches so it remains a stable PTA recovery fixture.
 test-pta-hard-op: $(TARGET)
 	@rm -rf "$(PTA_HARD_OUTPUT_DIR)"; \
 	mkdir -p "$(PTA_HARD_OUTPUT_DIR)"; \

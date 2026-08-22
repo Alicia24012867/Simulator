@@ -66,6 +66,17 @@ struct NewtonOverrides {
     std::optional<double> maximumSolutionStep;
     std::optional<int> maximumConsecutiveNonMonotoneSteps;
     std::optional<double> maximumNonMonotoneResidualGrowth;
+    std::optional<bool> trustRegionEnabled;
+    std::optional<double> trustRegionInitialRadius;
+    std::optional<double> trustRegionMinimumRadius;
+    std::optional<double> trustRegionMaximumRadius;
+    std::optional<int> maximumTrustRegionRetries;
+    std::optional<double> trustRegionAcceptanceRatio;
+    std::optional<double> trustRegionShrinkThreshold;
+    std::optional<double> trustRegionGrowThreshold;
+    std::optional<double> trustRegionShrinkFactor;
+    std::optional<double> trustRegionGrowFactor;
+    std::optional<double> trustRegionBoundaryFraction;
 };
 
 struct SourceSteppingOverrides {

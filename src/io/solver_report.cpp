@@ -113,6 +113,16 @@ void writeNewton(std::ostream& output,
                << diagnostics.lineSearchEvaluations << '\n'
                << indent << "Non-monotone line-search fallbacks: "
                << diagnostics.nonMonotoneStepFallbacks << '\n'
+               << indent << "Trust-region trials: "
+               << diagnostics.trustRegionTrials << '\n'
+               << indent << "Trust-region rejected trials: "
+               << diagnostics.trustRegionRejectedSteps << '\n'
+               << indent << "Trust-region radius reductions/expansions: "
+               << diagnostics.trustRegionRadiusReductions << " / "
+               << diagnostics.trustRegionRadiusExpansions << '\n'
+               << indent << "Initial/final trust-region radius: "
+               << diagnostics.initialTrustRegionRadius << " / "
+               << diagnostics.finalTrustRegionRadius << '\n'
                << indent << "Final update infinity norm: "
                << diagnostics.finalDelta << '\n'
                << indent << "Final Newton step scale: "
@@ -126,6 +136,10 @@ void writeNewton(std::ostream& output,
         if(diagnostics.hasNormalizedResidual){
             output << indent << "Final normalized residual: "
                    << diagnostics.normalizedResidual << '\n';
+        }
+        if(diagnostics.hasTrustRegionRatio){
+            output << indent << "Last trust-region agreement ratio: "
+                   << diagnostics.lastTrustRegionRatio << '\n';
         }
     }
     output << indent << "CPU time: " << diagnostics.cpuSeconds << " s\n"
@@ -412,7 +426,29 @@ void writeNewtonConfiguration(std::ostream& output,
            << options.maximumConsecutiveNonMonotoneSteps << '\n'
            << "  " << prefix
            << ".maximum_non_monotone_residual_growth: "
-           << options.maximumNonMonotoneResidualGrowth << '\n';
+           << options.maximumNonMonotoneResidualGrowth << '\n'
+           << "  " << prefix << ".trust_region_enabled: "
+           << yesNo(options.trustRegionEnabled) << '\n'
+           << "  " << prefix << ".trust_region_initial_radius: "
+           << options.trustRegionInitialRadius << '\n'
+           << "  " << prefix << ".trust_region_minimum_radius: "
+           << options.trustRegionMinimumRadius << '\n'
+           << "  " << prefix << ".trust_region_maximum_radius: "
+           << options.trustRegionMaximumRadius << '\n'
+           << "  " << prefix << ".maximum_trust_region_retries: "
+           << options.maximumTrustRegionRetries << '\n'
+           << "  " << prefix << ".trust_region_acceptance_ratio: "
+           << options.trustRegionAcceptanceRatio << '\n'
+           << "  " << prefix << ".trust_region_shrink_threshold: "
+           << options.trustRegionShrinkThreshold << '\n'
+           << "  " << prefix << ".trust_region_grow_threshold: "
+           << options.trustRegionGrowThreshold << '\n'
+           << "  " << prefix << ".trust_region_shrink_factor: "
+           << options.trustRegionShrinkFactor << '\n'
+           << "  " << prefix << ".trust_region_grow_factor: "
+           << options.trustRegionGrowFactor << '\n'
+           << "  " << prefix << ".trust_region_boundary_fraction: "
+           << options.trustRegionBoundaryFraction << '\n';
 }
 
 void writeConfiguration(

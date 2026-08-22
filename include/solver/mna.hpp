@@ -158,6 +158,15 @@ public:
         return matrixProduct.allFinite() && residual.allFinite();
     }
 
+    bool multiplyMatrix(const Eigen::VectorXd& input,
+                        Eigen::VectorXd& output) const{
+        if(input.size() != n_ || !input.allFinite()){
+            return false;
+        }
+        output = A_ * input;
+        return output.allFinite();
+    }
+
 private:
     int n_ = 0;
 

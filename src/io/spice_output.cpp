@@ -416,6 +416,11 @@ void SpiceOutputWriter::writePtaDiagnostics(std::ostream& os,
            << attempt.newton.lineSearchEvaluations
            << " non_monotone_step_fallbacks="
            << attempt.newton.nonMonotoneStepFallbacks
+           << " trust_region_trials=" << attempt.newton.trustRegionTrials
+           << " trust_region_rejected_steps="
+           << attempt.newton.trustRegionRejectedSteps
+           << " trust_region_radius="
+           << attempt.newton.finalTrustRegionRadius
            << " newton_normalized_update=";
         if(attempt.newton.hasNormalizedUpdate){
             os << attempt.newton.normalizedUpdate;

@@ -30,6 +30,7 @@ struct PtaAnalysisConfig{
             std::numeric_limits<int>::max();
         options.maximumNonMonotoneResidualGrowth =
             std::numeric_limits<double>::max();
+        options.trustRegionEnabled = false;
         return options;
     }();
 

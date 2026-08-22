@@ -280,7 +280,18 @@ NewtonOverrides parseNewtonOverrides(
             "sufficient_decrease",
             "maximum_solution_step",
             "maximum_consecutive_non_monotone_steps",
-            "maximum_non_monotone_residual_growth"
+            "maximum_non_monotone_residual_growth",
+            "trust_region_enabled",
+            "trust_region_initial_radius",
+            "trust_region_minimum_radius",
+            "trust_region_maximum_radius",
+            "maximum_trust_region_retries",
+            "trust_region_acceptance_ratio",
+            "trust_region_shrink_threshold",
+            "trust_region_grow_threshold",
+            "trust_region_shrink_factor",
+            "trust_region_grow_factor",
+            "trust_region_boundary_fraction"
         }
     );
 
@@ -378,6 +389,84 @@ NewtonOverrides parseNewtonOverrides(
         loadedConfig,
         jsonPath,
         result.maximumNonMonotoneResidualGrowth
+    );
+    readOptionalBoolean(
+        object,
+        "trust_region_enabled",
+        loadedConfig,
+        jsonPath,
+        result.trustRegionEnabled
+    );
+    readOptionalNumber(
+        object,
+        "trust_region_initial_radius",
+        loadedConfig,
+        jsonPath,
+        result.trustRegionInitialRadius
+    );
+    readOptionalNumber(
+        object,
+        "trust_region_minimum_radius",
+        loadedConfig,
+        jsonPath,
+        result.trustRegionMinimumRadius
+    );
+    readOptionalNumber(
+        object,
+        "trust_region_maximum_radius",
+        loadedConfig,
+        jsonPath,
+        result.trustRegionMaximumRadius
+    );
+    readOptionalInteger(
+        object,
+        "maximum_trust_region_retries",
+        loadedConfig,
+        jsonPath,
+        0,
+        result.maximumTrustRegionRetries
+    );
+    readOptionalNumber(
+        object,
+        "trust_region_acceptance_ratio",
+        loadedConfig,
+        jsonPath,
+        result.trustRegionAcceptanceRatio
+    );
+    readOptionalNumber(
+        object,
+        "trust_region_shrink_threshold",
+        loadedConfig,
+        jsonPath,
+        result.trustRegionShrinkThreshold
+    );
+    readOptionalNumber(
+        object,
+        "trust_region_grow_threshold",
+        loadedConfig,
+        jsonPath,
+        result.trustRegionGrowThreshold
+    );
+    readOptionalNumber(
+        object,
+        "trust_region_shrink_factor",
+        loadedConfig,
+        jsonPath,
+        result.trustRegionShrinkFactor
+    );
+    readOptionalNumber(
+        object,
+        "trust_region_grow_factor",
+        loadedConfig,
+        jsonPath,
+        result.trustRegionGrowFactor
+    );
+    readOptionalNumber(
+        object,
+        "trust_region_boundary_fraction",
+        loadedConfig,
+        jsonPath,
+        result.trustRegionBoundaryFraction
     );
     return result;
 }

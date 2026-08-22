@@ -170,7 +170,29 @@ std::string configurationObject(const PtaAnalysisConfig& config){
            << "\"maximum_consecutive_non_monotone_steps\":"
            << config.newtonOptions.maximumConsecutiveNonMonotoneSteps << ','
            << "\"maximum_non_monotone_residual_growth\":"
-           << config.newtonOptions.maximumNonMonotoneResidualGrowth << "}}";
+           << config.newtonOptions.maximumNonMonotoneResidualGrowth << ','
+           << "\"trust_region_enabled\":"
+           << (config.newtonOptions.trustRegionEnabled ? "true" : "false")
+           << ",\"trust_region_initial_radius\":"
+           << config.newtonOptions.trustRegionInitialRadius << ','
+           << "\"trust_region_minimum_radius\":"
+           << config.newtonOptions.trustRegionMinimumRadius << ','
+           << "\"trust_region_maximum_radius\":"
+           << config.newtonOptions.trustRegionMaximumRadius << ','
+           << "\"maximum_trust_region_retries\":"
+           << config.newtonOptions.maximumTrustRegionRetries << ','
+           << "\"trust_region_acceptance_ratio\":"
+           << config.newtonOptions.trustRegionAcceptanceRatio << ','
+           << "\"trust_region_shrink_threshold\":"
+           << config.newtonOptions.trustRegionShrinkThreshold << ','
+           << "\"trust_region_grow_threshold\":"
+           << config.newtonOptions.trustRegionGrowThreshold << ','
+           << "\"trust_region_shrink_factor\":"
+           << config.newtonOptions.trustRegionShrinkFactor << ','
+           << "\"trust_region_grow_factor\":"
+           << config.newtonOptions.trustRegionGrowFactor << ','
+           << "\"trust_region_boundary_fraction\":"
+           << config.newtonOptions.trustRegionBoundaryFraction << "}}";
     return output.str();
 }
 
@@ -184,6 +206,26 @@ void writeNewton(std::ostream& output, const NewtonSolveDiagnostics& newton){
            << newton.lineSearchEvaluations
            << ",\"non_monotone_step_fallbacks\":"
            << newton.nonMonotoneStepFallbacks
+           << ",\"used_trust_region\":"
+           << (newton.usedTrustRegion ? "true" : "false")
+           << ",\"trust_region_trials\":" << newton.trustRegionTrials
+           << ",\"trust_region_rejected_steps\":"
+           << newton.trustRegionRejectedSteps
+           << ",\"trust_region_radius_reductions\":"
+           << newton.trustRegionRadiusReductions
+           << ",\"trust_region_radius_expansions\":"
+           << newton.trustRegionRadiusExpansions
+           << ",\"initial_trust_region_radius\":";
+    writeJsonNumber(output, newton.initialTrustRegionRadius);
+    output << ",\"final_trust_region_radius\":";
+    writeJsonNumber(output, newton.finalTrustRegionRadius);
+    output << ",\"trust_region_last_ratio\":";
+    if(newton.hasTrustRegionRatio){
+        writeJsonNumber(output, newton.lastTrustRegionRatio);
+    } else {
+        output << "null";
+    }
+    output
            << ",\"final_step_scale\":";
     writeJsonNumber(output, newton.finalStepScale);
     output << ",\"normalized_update\":";

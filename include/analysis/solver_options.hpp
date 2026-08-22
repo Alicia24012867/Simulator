@@ -33,6 +33,22 @@ struct NewtonSolverOptions {
     int maximumConsecutiveNonMonotoneSteps = 1;
     double maximumNonMonotoneResidualGrowth = 4.0;
 
+    // Ordinary OP/TRAN Newton uses a normalized trust region.  A zero initial
+    // radius selects the norm of the first raw-step-limited Newton direction.
+    // The radius uses the same voltage/current mixed-unit normalization as the
+    // Newton update convergence criterion.
+    bool trustRegionEnabled = true;
+    double trustRegionInitialRadius = 0.0;
+    double trustRegionMinimumRadius = 1.0e-6;
+    double trustRegionMaximumRadius = 1.0e12;
+    int maximumTrustRegionRetries = 8;
+    double trustRegionAcceptanceRatio = 0.1;
+    double trustRegionShrinkThreshold = 0.25;
+    double trustRegionGrowThreshold = 0.75;
+    double trustRegionShrinkFactor = 0.25;
+    double trustRegionGrowFactor = 2.0;
+    double trustRegionBoundaryFraction = 0.8;
+
     bool valid() const noexcept {
         return maximumIterations > 0 &&
             std::isfinite(tolerance) && tolerance > 0.0 &&
@@ -54,7 +70,34 @@ struct NewtonSolverOptions {
             maximumSolutionStep > 0.0 &&
             maximumConsecutiveNonMonotoneSteps >= 0 &&
             std::isfinite(maximumNonMonotoneResidualGrowth) &&
-            maximumNonMonotoneResidualGrowth >= 1.0;
+            maximumNonMonotoneResidualGrowth >= 1.0 &&
+            std::isfinite(trustRegionInitialRadius) &&
+            trustRegionInitialRadius >= 0.0 &&
+            std::isfinite(trustRegionMinimumRadius) &&
+            trustRegionMinimumRadius > 0.0 &&
+            std::isfinite(trustRegionMaximumRadius) &&
+            trustRegionMaximumRadius >= trustRegionMinimumRadius &&
+            (trustRegionInitialRadius == 0.0 ||
+             (trustRegionInitialRadius >= trustRegionMinimumRadius &&
+              trustRegionInitialRadius <= trustRegionMaximumRadius)) &&
+            maximumTrustRegionRetries >= 0 &&
+            std::isfinite(trustRegionAcceptanceRatio) &&
+            trustRegionAcceptanceRatio >= 0.0 &&
+            trustRegionAcceptanceRatio < 1.0 &&
+            std::isfinite(trustRegionShrinkThreshold) &&
+            trustRegionShrinkThreshold >= trustRegionAcceptanceRatio &&
+            trustRegionShrinkThreshold < 1.0 &&
+            std::isfinite(trustRegionGrowThreshold) &&
+            trustRegionGrowThreshold > trustRegionShrinkThreshold &&
+            trustRegionGrowThreshold < 1.0 &&
+            std::isfinite(trustRegionShrinkFactor) &&
+            trustRegionShrinkFactor > 0.0 &&
+            trustRegionShrinkFactor < 1.0 &&
+            std::isfinite(trustRegionGrowFactor) &&
+            trustRegionGrowFactor > 1.0 &&
+            std::isfinite(trustRegionBoundaryFraction) &&
+            trustRegionBoundaryFraction > 0.0 &&
+            trustRegionBoundaryFraction <= 1.0;
     }
 };
 
