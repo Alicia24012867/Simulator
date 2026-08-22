@@ -396,6 +396,14 @@ bool Circuit::solveTransient(
         );
     }
 
+    const bool protectMos3UicChargeHistory = config.useInitialConditions &&
+        std::any_of(
+            devices_.begin(), devices_.end(),
+            [](const std::unique_ptr<Device>& device){
+                return device->requiresUicChargeHistoryProtection();
+            }
+        );
+
     Eigen::VectorXd initialSolution;
 
     setOperatingPointSourceScale(1.0);
@@ -453,7 +461,11 @@ bool Circuit::solveTransient(
             }
         );
 
-        const bool hasBdf2History = integrator.olderSolution() != nullptr;
+        // MOS3 UIC begins with a zero charge state rather than a consistent
+        // voltage/charge history.  Continue with BE step-doubling; BDF2
+        // would otherwise differentiate a fabricated pre-start state.
+        const bool hasBdf2History = !protectMos3UicChargeHistory &&
+            integrator.olderSolution() != nullptr;
         if(hasBdf2History){
             const double bdf2StepLimit = std::nextafter(
                 integrator.previousStep() * integrator.maximumBdf2StepRatio(),
@@ -533,8 +545,14 @@ bool Circuit::solveTransient(
                     );
                 }
 
+                TransientIntegrator coarseIntegrator(
+                    integrator.maximumBdf2StepRatio()
+                );
+                if(protectMos3UicChargeHistory){
+                    coarseIntegrator.restartFrom(time, acceptedSolution);
+                }
                 TransientStepAttempt coarse = runTransientAttempt(
-                    integrator,
+                    protectMos3UicChargeHistory ? coarseIntegrator : integrator,
                     nextTime
                 );
                 attempt = coarse;
@@ -578,7 +596,8 @@ bool Circuit::solveTransient(
                                     secondHalf.solution,
                                     coarse.solution,
                                     nodeMap_->nodeCount(),
-                                    config.solverOptions
+                                    config.solverOptions,
+                                    !protectMos3UicChargeHistory
                                 );
 
                             // Commit the fine endpoint, never the coarse

@@ -89,6 +89,10 @@ public:
         return false;
     }
 
+    virtual bool requiresUicChargeHistoryProtection() const {
+        return false;
+    }
+
     virtual void pattern(MNA& mna) = 0;
 
     virtual void bindMatrix(MNA& mna) = 0;

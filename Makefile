@@ -188,6 +188,7 @@ test: $(TARGET) $(UNIT_TEST_TARGET) $(CORE_TEST_TARGET) $(CONFIG_TEST_TARGET) $(
 	$(MAKE) --no-print-directory test-io || status=1; \
 	$(MAKE) --no-print-directory test-op || status=1; \
 	$(MAKE) --no-print-directory test-tran || status=1; \
+	$(MAKE) --no-print-directory test-mos3 || status=1; \
 	$(MAKE) --no-print-directory test-netlists || status=1; \
 	exit $$status
 

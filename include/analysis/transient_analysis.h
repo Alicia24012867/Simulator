@@ -139,7 +139,8 @@ inline TransientErrorEstimate estimateTransientSolutionDifference(
     const Eigen::VectorXd& correctedSolution,
     const Eigen::VectorXd& referenceSolution,
     int voltageUnknownCount,
-    const TransientSolverOptions& options
+    const TransientSolverOptions& options,
+    bool includeCurrentUnknowns = true
 ){
     TransientErrorEstimate result;
 
@@ -167,7 +168,9 @@ inline TransientErrorEstimate estimateTransientSolutionDifference(
 
     double normalizedError = 0.0;
 
-    for(Eigen::Index i = 0; i < size; ++i){
+    const Eigen::Index evaluatedSize = includeCurrentUnknowns
+        ? size : static_cast<Eigen::Index>(voltageUnknownCount);
+    for(Eigen::Index i = 0; i < evaluatedSize; ++i){
         const double accepted = acceptedSolution[i];
         const double corrected = correctedSolution[i];
         const double reference = referenceSolution[i];

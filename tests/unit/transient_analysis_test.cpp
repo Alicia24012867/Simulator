@@ -1503,6 +1503,29 @@ void testStepDoublingDifferenceEstimate(){
     );
 }
 
+void testVoltageOnlyStepDoublingEstimate(){
+    const TransientSolverOptions options = makeAbsoluteOnlyOptions();
+    const TransientErrorEstimate estimate =
+        estimateTransientSolutionDifference(
+            makeVector({0.0, 0.0}),
+            makeVector({0.25, 100.0}),
+            makeVector({0.0, 0.0}),
+            1,
+            options,
+            false
+        );
+
+    expect(
+        estimate.valid,
+        "voltage-only step-doubling estimate is valid"
+    );
+    expectNear(
+        estimate.normalizedError,
+        0.25,
+        "voltage-only step-doubling ignores ideal-source branch current jumps"
+    );
+}
+
 void testRestartForcesBackwardEuler(){
     TransientIntegrator integrator = makeIntegratorWithHistory(
         makeVector({0.0}),
@@ -1616,6 +1639,7 @@ int main(){
     testQuadraticSolutionCharacterizesProxy();
     testTransientStepController();
     testStepDoublingDifferenceEstimate();
+    testVoltageOnlyStepDoublingEstimate();
     testRestartForcesBackwardEuler();
     testAcceptedHistoryRotation();
     testNewtonStepLimiting();

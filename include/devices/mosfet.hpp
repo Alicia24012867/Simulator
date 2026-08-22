@@ -57,6 +57,10 @@ public:
         return true;
     }
 
+    bool requiresUicChargeHistoryProtection() const override{
+        return model_ && model_->isMos3();
+    }
+
     void allocateUnknown(Circuit& circuit) override{
         if(!model_ || !model_->isMos3()) return;
         if(drainSeriesResistance() > 0.0){
