@@ -119,7 +119,7 @@ void printUsage(std::ostream& output, const char* program){
            << "  heavy-oscillation-scale, medium-oscillation-ratio,\n"
            << "  heavy-oscillation-ratio, compound-time-constant,\n"
            << "  compound-initial-resistance, compound-initial-conductance,\n"
-           << "  source-ramp-time, initial-bjt-vbe (or null)\n"
+           << "  source-ramp-time, initial-mos-vgs, initial-bjt-vbe (or null)\n"
            << "  include-mos-bulk, include-diodes (true or false)\n";
 }
 

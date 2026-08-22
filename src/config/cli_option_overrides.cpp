@@ -113,6 +113,7 @@ bool isPtaOptionLocked(
         (key == "compound-time-constant" &&
          netlistLocks.compoundTimeConstant) ||
         (key == "source-ramp-time" && netlistLocks.sourceRampTime) ||
+        (key == "initial-mos-vgs" && netlistLocks.initialMosVgs) ||
         (key == "initial-bjt-vbe" && netlistLocks.initialBjtVbe);
 }
 
@@ -259,6 +260,18 @@ bool applyPtaOption(
         return setDouble(options.compoundInitialConductance);
     }
     if(key == "source-ramp-time") return setDouble(options.sourceRampTime);
+    if(key == "initial-mos-vgs"){
+        if(to_lower_copy(value) == "null"){
+            options.initialMosVgs.reset();
+            return true;
+        }
+        double parsed = 0.0;
+        if(!readDouble(value, parsed, error)){
+            return false;
+        }
+        options.initialMosVgs = parsed;
+        return true;
+    }
     if(key == "initial-bjt-vbe"){
         if(to_lower_copy(value) == "null"){
             options.initialBjtVbe.reset();

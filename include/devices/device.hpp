@@ -121,6 +121,8 @@ public:
 
     virtual void initializePtaState(double) {}
 
+    virtual void initializePtaMosVgsState(double) {}
+
     virtual void saveIterationState() {}
 
     virtual void restoreIterationState() {}

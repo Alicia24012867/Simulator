@@ -355,6 +355,14 @@ void Circuit::initializePtaStates(const PtaAnalysisConfig& config,
             }
         }
     }
+
+    if(config.initialMosVgs){
+        for(auto& device: devices_){
+            if(device->getType() == DeviceType::MOSFET){
+                device->initializePtaMosVgsState(*config.initialMosVgs);
+            }
+        }
+    }
 }
 
 void Circuit::collectPendingPtaPlacements(const PtaAnalysisConfig& config){

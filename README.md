@@ -82,7 +82,7 @@
 - 没有分析卡时默认执行 `.op`。同时存在 `.op` 与 `.tran` 时依次输出两个分析块。
 - `.tran` 未指定 `UIC` 时先求 operating point；指定 `UIC` 时当前使用全零 MNA 初值。尚未支持器件 `IC=`。
 - `.option DELMAX=value`（也接受 `.options`）是 HSPICE 兼容的内部时间步长硬上限，数值接受 SPICE 后缀。ngspice 的标准、可移植写法是 `.tran` 的第四个 `TMAX` 参数；两者同时出现时取更小者，确保每个内部积分步都不超过任一上限。该限制也应用于 `.pstran` 的伪时间步，且不改变 `.op`。ngspice 当前可接受 `DELMAX` 这个非标准 option 名称，但不将其列为通用 `.options` 变量；本程序刻意实现其 HSPICE 语义，而非静默忽略。
-- `.pstran` 启用 PTA operating-point 求解，接受不区分大小写的 `convval`、`initstep`、`minstep`、`maxstep`、`tau`、`vbe0`、`kvgs0`、`tauramp` 参数，且可使用 `key=value`、`key = value` 或 `key= value` 写法。`convval` 映射为 PTA 的导数和 DC 残差阈值，三个 step 参数映射为 PTA 步长边界；`tau` 启用复合伪元件，`vbe0` 设置 BJT 初始结电压，`tauramp` 控制独立源斜坡。`kvgs0` 当前仅保存和校验，尚未参与求解。`.pstran` 与 `--pta` 或 `pta.mode` 同时指定时会静默保留网表的 `force` 模式。
+- `.pstran` 启用 PTA operating-point 求解，接受不区分大小写的 `convval`、`initstep`、`minstep`、`maxstep`、`tau`、`vbe0`、`kvgs0`、`tauramp` 参数，且可使用 `key=value`、`key = value` 或 `key= value` 写法。`convval` 映射为 PTA 的导数和 DC 残差阈值，三个 step 参数映射为 PTA 步长边界；`tau` 启用复合伪元件，`tauramp` 控制独立源斜坡。`vbe0` 和 `kvgs0` 分别为 BJT `VBE` 与 MOS `VGS` 的初始、极性归一化 Newton 限幅器种子；MOS 同时以 `VGD=0` 建立同一初始限幅状态。它们只约束第一轮非线性更新幅度，不写入或钳位任何共享电路节点；对 PMOS，`kvgs0` 仍使用正的器件本征 `VGS` 约定。`.pstran` 与 `--pta` 或 `pta.mode` 同时指定时会静默保留网表的 `force` 模式。
 - `TSTEP` 控制输出间隔，`TSTART` 控制开始保存的时间，`TMAX` 限制内部积分步长。当前未指定 `TMAX` 时内部最大步长使用 `TSTEP`；输出时间点也会强制成为积分点，因此与 ngspice 的默认自适应步长策略不同。
 - 每次瞬态分析在 BDF2 严格 LTE 历史尚不足时使用 Backward Euler step-doubling；随后在新步长不大于前一步两倍时使用可变步长 BDF2。严格 LTE 由候选点与三个已接受状态构成的非均匀网格三阶差商给出导数缺陷，再以收敛端点的 MNA Jacobian 投影成状态误差；电压未知量使用 `voltage_absolute_tolerance`，branch-current 未知量使用 `current_absolute_tolerance`，并结合 `relative_tolerance` 归一化。BDF2 步长按三次根误差律缩放，并对增长幅度施加保守上限。超过误差预算或 Newton 未收敛的步会回滚并缩小后重试；内部积分点仍不会越过输出时间点。
 
@@ -110,6 +110,7 @@
 
 - 时间与收敛：`initial-step`、`minimum-step`、`maximum-step`、`maximum-steps`、`derivative-tolerance`、`derivative-relative-tolerance`、`derivative-voltage-absolute-tolerance`、`derivative-current-absolute-tolerance`、`dc-residual-tolerance`、`dc-residual-relative-tolerance`、`dc-voltage-absolute-tolerance`、`dc-current-absolute-tolerance`
 - 伪元件：`initial-node-capacitance`、`minimum-node-capacitance`、`maximum-node-capacitance`、`current-source-capacitance`、`voltage-source-inductance`
+- 非线性限幅器种子：`initial-mos-vgs`、`initial-bjt-vbe`（均可设为 `null` 以清空）
 - 自适应规则：`failed-step-scale`、`successful-step-scale`、`capacitance-grow-scale`、`small-oscillation-scale`、`medium-oscillation-scale`、`heavy-oscillation-scale`、`medium-oscillation-ratio`、`heavy-oscillation-ratio`
 - 放置开关：`include-mos-bulk`、`include-diodes`
 
@@ -292,7 +293,7 @@ make
 - `debug`：布尔值，默认 `true`。控制是否写出同名 `.solve.txt` 报告；命令行 `--debug true|false` 的优先级更高。
 - `op.newton`：`maximum_iterations`、`tolerance`、`maximum_solution_step`。
 - `op.source_stepping`：`enabled`、`initial_step`、`maximum_step`、`minimum_step`、`growth_factor`、`failure_scale`。
-- `pta.newton`：与 `op.newton` 相同。`pta` 还支持 `mode`、`initial_step`、`minimum_step`、`maximum_step`、`maximum_steps`、所有 `derivative_*` 与 `dc_*` 容差、`initial_node_capacitance`、`minimum_node_capacitance`、`maximum_node_capacitance`、`current_source_capacitance`、`voltage_source_inductance`、`compound_time_constant`、`compound_initial_resistance`、`compound_initial_conductance`、`source_ramp_time`、`initial_bjt_vbe`、所有振荡/电容缩放字段，以及 `include_mos_bulk`、`include_diodes`。
+- `pta.newton`：与 `op.newton` 相同。`pta` 还支持 `mode`、`initial_step`、`minimum_step`、`maximum_step`、`maximum_steps`、所有 `derivative_*` 与 `dc_*` 容差、`initial_node_capacitance`、`minimum_node_capacitance`、`maximum_node_capacitance`、`current_source_capacitance`、`voltage_source_inductance`、`compound_time_constant`、`compound_initial_resistance`、`compound_initial_conductance`、`source_ramp_time`、`initial_mos_vgs`、`initial_bjt_vbe`、所有振荡/电容缩放字段，以及 `include_mos_bulk`、`include_diodes`。
 - `tran`：`enabled`、`output_interval`、`stop_time`、`output_start_time`、`maximum_step`、`use_initial_conditions`。
 - `tran.solver.newton`：与 `op.newton` 相同。`tran.solver` 还支持 `relative_tolerance`、`voltage_absolute_tolerance`、`current_absolute_tolerance`、`minimum_step`、`safety_factor`、`minimum_scale`、`maximum_scale`、`convergence_failure_scale` 和 `maximum_rejects`。
 
@@ -330,13 +331,13 @@ make
   tests/cases/op/level1_01_resistive_bridge_mesh.cir
 ```
 
-`--op-option` 支持 `newton.*` 与 `source-stepping.*` 的所有字段。`--pta-option` 支持 `pta` 的全部字段，PTA 模式则继续使用现有的 `--pta disabled|force|fallback`；`initial-bjt-vbe=null` 可清空该可选值。`--tran-option` 支持 `tran` 顶层字段与 `solver.*` 的全部字段，`enabled=false` 可禁用瞬态分析，其他 TRAN 字段会在不存在 `.tran` 时创建一个瞬态分析配置；新建配置仍必须最终提供有效的 `output-interval` 与 `stop-time`。所有数值均支持 SPICE 单位后缀（如 `1n`、`10u`），布尔值接受 `true`/`false` 或 `1`/`0`。
+`--op-option` 支持 `newton.*` 与 `source-stepping.*` 的所有字段。`--pta-option` 支持 `pta` 的全部字段，PTA 模式则继续使用现有的 `--pta disabled|force|fallback`；`initial-mos-vgs=null` 与 `initial-bjt-vbe=null` 可清空相应的可选种子。`--tran-option` 支持 `tran` 顶层字段与 `solver.*` 的全部字段，`enabled=false` 可禁用瞬态分析，其他 TRAN 字段会在不存在 `.tran` 时创建一个瞬态分析配置；新建配置仍必须最终提供有效的 `output-interval` 与 `stop-time`。所有数值均支持 SPICE 单位后缀（如 `1n`、`10u`），布尔值接受 `true`/`false` 或 `1`/`0`。
 
 覆盖优先级为“内建默认值 < `config.json` < 显式 CLI 分析参数 < 网表控制卡”。配置文件与命令行的同名值相互冲突时仍由命令行优先；但只要 `.cir` / `.sp` 中已显式设置该参数，程序便静默保留网表值，不输出警告或错误。
 
 `.solve.txt` 的输出开关独立于分析参数：内建默认值为 `true`，配置根字段 `debug` 可调整默认值，`--debug true|false` 最终覆盖配置文件；网表控制卡不会改变它。
 
-目前受保护的网表控制字段包括 `.tran` 的 `TSTEP`、`TSTOP`、显式 `TSTART`、`TMAX` 和 `UIC`，`.options DELMAX`，以及 `.pstran` 中显式给出的 `convval`、`initstep`、`minstep`、`maxstep`、`tau`、`vbe0`、`tauramp` 与 PTA 模式。未由网表给出的 OP 参数、TRAN 求解器参数及 PTA 其他参数仍可由配置文件或命令行注入。`.pstran` 始终强制 PTA 模式，因此与 `--pta` 或 `pta.mode` 冲突时会静默保留 `force`。网表的 `TMAX` / `DELMAX` 是硬上限，外部的 `tran.maximum_step` 或 `--tran-option maximum-step=...` 不会改变它。网表含 `.tran` 时，外部 `enabled=false` 也不会禁用该分析；没有 `.tran` 时，`enabled: false` 仍可禁用由外部配置创建的瞬态分析。
+目前受保护的网表控制字段包括 `.tran` 的 `TSTEP`、`TSTOP`、显式 `TSTART`、`TMAX` 和 `UIC`，`.options DELMAX`，以及 `.pstran` 中显式给出的 `convval`、`initstep`、`minstep`、`maxstep`、`tau`、`vbe0`、`kvgs0`、`tauramp` 与 PTA 模式。未由网表给出的 OP 参数、TRAN 求解器参数及 PTA 其他参数仍可由配置文件或命令行注入。`.pstran` 始终强制 PTA 模式，因此与 `--pta` 或 `pta.mode` 冲突时会静默保留 `force`。网表的 `TMAX` / `DELMAX` 是硬上限，外部的 `tran.maximum_step` 或 `--tran-option maximum-step=...` 不会改变它。网表含 `.tran` 时，外部 `enabled=false` 也不会禁用该分析；没有 `.tran` 时，`enabled: false` 仍可禁用由外部配置创建的瞬态分析。
 
 查看命令行帮助：
 
@@ -500,7 +501,6 @@ tests/
 - 不支持 `.include`、`.lib`、全局 `.param`、`.temp`、`.nodeset`、`.ic`、`.save`。
 - 不支持受控源 `E/F/G/H`、行为源、AC/noise 分析。
 - 二极管、BJT 和 MOSFET 仍是有限子集。MOS3 已实现 DC channel current、`RD`/`RS`、`RSH*NRD/NRS`、B-D′/B-S′ 结电流及其耗尽结电容、`CGSO`/`CGDO`/`CGBO` 重叠电容，以及带已接受 Qgs/Qgd/Qgb 和结电荷历史的瞬态 companion；含 MOS3 的 UIC 使用 BE step-doubling。器件温度尚未实现。
-- `.pstran` 的 `kvgs0` 目前只读取、保存和校验，尚未映射到 PTA 方程或步长控制。
 - 电阻、电容、二极管、BJT、MOSFET 的器件电流尚不能通过 `.print i(...)` 输出。
 
 ## SPICE 格式参考

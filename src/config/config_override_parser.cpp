@@ -464,6 +464,29 @@ void readNullableBjtVbe(
     );
 }
 
+void readNullableMosVgs(
+    const json& object,
+    const LoadedConfig& loadedConfig,
+    PtaOverrides& target
+){
+    const json* value = findField(object, "initial_mos_vgs");
+    if(!value){
+        return;
+    }
+
+    target.initialMosVgs.specified = true;
+    if(value->is_null()){
+        target.initialMosVgs.value.reset();
+        return;
+    }
+
+    target.initialMosVgs.value = readFiniteNumber(
+        *value,
+        loadedConfig,
+        "$.pta.initial_mos_vgs"
+    );
+}
+
 PtaOverrides parsePtaOverrides(
     const json& object,
     const LoadedConfig& loadedConfig
@@ -496,6 +519,7 @@ PtaOverrides parsePtaOverrides(
             "compound_initial_resistance",
             "compound_initial_conductance",
             "source_ramp_time",
+            "initial_mos_vgs",
             "initial_bjt_vbe",
             "failed_step_scale",
             "successful_step_scale",
@@ -582,6 +606,7 @@ PtaOverrides parsePtaOverrides(
     readOptionalNumber(object, "source_ramp_time",
                        loadedConfig, "$.pta",
                        result.sourceRampTime);
+    readNullableMosVgs(object, loadedConfig, result);
     readNullableBjtVbe(object, loadedConfig, result);
 
     readOptionalNumber(object, "failed_step_scale",

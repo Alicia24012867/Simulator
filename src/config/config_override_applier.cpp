@@ -149,6 +149,9 @@ void applyPtaOverrides(
     if(overrides.sourceRampTime && !netlistLocks.sourceRampTime){
         config.sourceRampTime = *overrides.sourceRampTime;
     }
+    if(overrides.initialMosVgs.specified && !netlistLocks.initialMosVgs){
+        config.initialMosVgs = overrides.initialMosVgs.value;
+    }
     if(overrides.initialBjtVbe.specified && !netlistLocks.initialBjtVbe){
         config.initialBjtVbe = overrides.initialBjtVbe.value;
     }
@@ -296,6 +299,7 @@ NetlistAnalysisParameterLocks parameterLocksFor(const AnalysisPlan& plan){
         locks.pta.dcResidualTolerance = pstran.convergenceValueSpecified;
         locks.pta.compoundTimeConstant = pstran.tauSpecified;
         locks.pta.sourceRampTime = pstran.tauRampSpecified;
+        locks.pta.initialMosVgs = pstran.kvgs0Specified;
         locks.pta.initialBjtVbe = pstran.vbe0Specified;
     }
 

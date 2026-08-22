@@ -1,3 +1,4 @@
+#include "analysis/analysis_plan.hpp"
 #include "analysis/transient_analysis.hpp"
 #include "analysis/pta_analysis.hpp"
 #include "analysis/solver_options.hpp"
@@ -428,6 +429,13 @@ void testPtaConfigValidation(){
     );
 
     config = PtaAnalysisConfig{};
+    config.initialMosVgs = std::numeric_limits<double>::quiet_NaN();
+    expectInvalidArgument(
+        [&config] { config.validate(); },
+        "non-finite PTA MOS initial voltage is invalid"
+    );
+
+    config = PtaAnalysisConfig{};
     config.initialBjtVbe = std::numeric_limits<double>::quiet_NaN();
     expectInvalidArgument(
         [&config] { config.validate(); },
@@ -439,6 +447,24 @@ void testPtaConfigValidation(){
     expectInvalidArgument(
         [&config] { config.validate(); },
         "invalid PTA Newton options are rejected"
+    );
+}
+
+void testPstranKvgs0Mapping(){
+    PstranAnalysisConfig pstran;
+    pstran.kvgs0 = 1.25;
+    pstran.kvgs0Specified = true;
+
+    const PtaAnalysisConfig configured = pstran.makePtaConfig();
+    expect(
+        configured.initialMosVgs && *configured.initialMosVgs == 1.25,
+        ".pstran kvgs0 maps to the MOS initial VGS limiter seed"
+    );
+
+    pstran.kvgs0Specified = false;
+    expect(
+        !pstran.makePtaConfig().initialMosVgs,
+        "unspecified .pstran kvgs0 leaves the MOS limiter seed unset"
     );
 }
 
@@ -1726,6 +1752,7 @@ void testNewtonStepLimiting(){
 int main(){
     testSolverOptionsValidation();
     testPtaConfigValidation();
+    testPstranKvgs0Mapping();
     testPtaSourceRamp();
     testPtaCompoundPseudoElements();
     testPtaNormalizedDerivative();

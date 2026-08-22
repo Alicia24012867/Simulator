@@ -53,6 +53,9 @@ struct PtaAnalysisConfig{
     double compoundInitialResistance = 1.0;
     double compoundInitialConductance = 1.0;
     double sourceRampTime = 0.0;
+    // Polarity-normalized MOS VGS seed used by the first Newton voltage
+    // limiter step.  It does not impose a circuit-node initial condition.
+    std::optional<double> initialMosVgs;
     std::optional<double> initialBjtVbe;
 
     // Adaptive rules
@@ -147,9 +150,10 @@ struct PtaAnalysisConfig{
            !isPositiveFinite(compoundInitialResistance) ||
            !isPositiveFinite(compoundInitialConductance) ||
            !std::isfinite(sourceRampTime) || sourceRampTime < 0.0 ||
+           (initialMosVgs && !std::isfinite(*initialMosVgs)) ||
            (initialBjtVbe && !std::isfinite(*initialBjtVbe))){
             throw std::invalid_argument(
-                "PTA compound-element, source-ramp, and BJT initial-value controls are invalid"
+                "PTA compound-element, source-ramp, and MOS/BJT initial-value controls are invalid"
             );
         }
 

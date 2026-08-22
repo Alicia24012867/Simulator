@@ -282,6 +282,16 @@ public:
         }
     }
 
+    void initializePtaMosVgsState(double initialVgs) override{
+        // Like the BJT VBE seed, this initializes the nonlinear limiter's
+        // internal, polarity-normalized voltage rather than forcing voltages
+        // on nodes that may be shared by multiple devices.  With no VGD seed
+        // supplied, start the companion limiter at VGD = 0.
+        previousVgs_ = initialVgs;
+        previousVgd_ = 0.0;
+        hasPreviousVoltages_ = true;
+    }
+
     void initializeTransientHistory(const Eigen::VectorXd& solution) override{
         if(!model_ || !model_->isMos3()) return;
         chargeHistory_.initialize(
@@ -422,9 +432,39 @@ private:
         const Vec4 v = {
             voltage(sol_[0]), voltage(sol_[1]), voltage(sol_[2]), voltage(sol_[3])
         };
+        const double polarity =
+            model_->type() == ModelType::PMOS ? -1.0 : 1.0;
+        const double vto = std::abs(mos3::valueOr(
+            card.vto,
+            polarity > 0.0 ? 0.7 : -0.7
+        ));
+        double vgs = polarity * (v[1] - v[2]);
+        double vgd = polarity * (v[1] - v[0]);
+        if(hasPreviousVoltages_){
+            vgs = limitMosfetVoltage(vgs, previousVgs_, vto);
+            vgd = limitMosfetVoltage(vgd, previousVgd_, vto);
+        }
+        previousVgs_ = vgs;
+        previousVgd_ = vgd;
+        hasPreviousVoltages_ = true;
+
+        // Evaluate the Level-3 channel at the limited intrinsic terminal
+        // voltages, but linearize it against the unmodified MNA iterate.
+        // This is the same voltage-limiting contract used by the compact MOS
+        // path above: it bounds an individual Newton update without imposing
+        // a voltage on any shared circuit node.
+        const double limitedVg = v[2] + polarity * vgs;
+        const double limitedVd = limitedVg - polarity * vgd;
         const Mos3DcResult result = instance_.off
             ? Mos3DcResult{}
-            : evaluateMos3Dc(v[0], v[1], v[2], v[3], *model_, instance_);
+            : evaluateMos3Dc(
+                limitedVd,
+                limitedVg,
+                v[2],
+                v[3],
+                *model_,
+                instance_
+            );
 
         Vec4 f = {result.ids, 0.0, -result.ids, 0.0};
         Mat4 j = {};
@@ -436,7 +476,6 @@ private:
             j[2][c] = -j[0][c];
         }
 
-        const double polarity = model_->type() == ModelType::PMOS ? -1.0 : 1.0;
         const double thermalVoltage = 0.02585;
         const auto stampJunction = [&](int terminal, double area){
             const double isDensity = mos3::valueOr(card.js);

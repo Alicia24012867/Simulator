@@ -22,8 +22,7 @@ struct PrintVariable {
 
 // Parameters accepted by the .pstran pseudo-transient control card.  The
 // solver has direct equivalents for convval, the step limits, CEPTA tau,
-// source ramping, and the BJT junction-voltage seed.  kvgs0 remains retained
-// for syntax compatibility until its model-specific scaling rule is known.
+// source ramping, and the BJT/MOS nonlinear-voltage limiter seeds.
 struct PstranAnalysisConfig {
     double convergenceValue = 1.0;
     bool convergenceValueSpecified = false;
@@ -53,6 +52,9 @@ struct PstranAnalysisConfig {
         config.compoundTimeConstant = tau;
         config.sourceRampTime = tauRamp;
         config.initialBjtVbe = vbe0;
+        if(kvgs0Specified){
+            config.initialMosVgs = kvgs0;
+        }
         return config;
     }
 };

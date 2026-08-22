@@ -359,7 +359,13 @@ void writeConfiguration(
                << "  pta.compound_initial_conductance: "
                << pta->compoundInitialConductance << '\n'
                << "  pta.source_ramp_time: " << pta->sourceRampTime << '\n'
-               << "  pta.initial_bjt_vbe: ";
+               << "  pta.initial_mos_vgs: ";
+        if(pta->initialMosVgs){
+            output << *pta->initialMosVgs << '\n';
+        } else {
+            output << "null\n";
+        }
+        output << "  pta.initial_bjt_vbe: ";
         if(pta->initialBjtVbe){
             output << *pta->initialBjtVbe << '\n';
         } else {

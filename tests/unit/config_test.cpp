@@ -286,6 +286,7 @@ void testConfigOverrideParsing(){
                     "newton": {"maximum_iterations": 53},
                     "initial_step": "2.5n",
                     "maximum_steps": 7,
+                    "initial_mos_vgs": 1.25,
                     "initial_bjt_vbe": 0.72,
                     "include_diodes": false
                 },
@@ -347,6 +348,12 @@ void testConfigOverrideParsing(){
         "PTA Newton override is retained"
     );
     expect(
+        overrides.pta && overrides.pta->initialMosVgs.specified &&
+            overrides.pta->initialMosVgs.value &&
+            *overrides.pta->initialMosVgs.value == 1.25,
+        "PTA MOS voltage override is retained"
+    );
+    expect(
         overrides.pta && overrides.pta->initialBjtVbe.specified &&
             overrides.pta->initialBjtVbe.value &&
             *overrides.pta->initialBjtVbe.value == 0.72,
@@ -390,6 +397,17 @@ void testConfigOverrideParsing(){
             !nullBjtVbe.pta->initialBjtVbe.value,
         "null BJT voltage explicitly clears the override"
     );
+
+    const auto nullMosVgs = simulator::config::parseConfigOverrides(
+        loadedConfigFor(nlohmann::json::parse(R"(
+            {"schema_version": 1, "pta": {"initial_mos_vgs": null}}
+        )"))
+    );
+    expect(
+        nullMosVgs.pta && nullMosVgs.pta->initialMosVgs.specified &&
+            !nullMosVgs.pta->initialMosVgs.value,
+        "null MOS voltage explicitly clears the override"
+    );
 }
 
 void testConfigOverrideApplication(){
@@ -411,6 +429,7 @@ void testConfigOverrideApplication(){
                 "pta": {
                     "mode": "fallback",
                     "newton": {"maximum_iterations": 47},
+                    "initial_mos_vgs": 1.25,
                     "initial_bjt_vbe": null
                 },
                 "tran": {
@@ -429,6 +448,7 @@ void testConfigOverrideApplication(){
 
     OperatingPointSolverOptions operatingPoint;
     PtaAnalysisConfig pta;
+    pta.initialMosVgs = 0.65;
     pta.initialBjtVbe = 0.65;
     std::optional<TransientAnalysisConfig> transient;
     transient.emplace();
@@ -458,6 +478,7 @@ void testConfigOverrideApplication(){
     expect(
         pta.mode == PtaMode::Fallback &&
             pta.newtonOptions.maximumIterations == 47 &&
+            pta.initialMosVgs && *pta.initialMosVgs == 1.25 &&
             !pta.initialBjtVbe,
         "PTA overrides are applied"
     );
@@ -571,6 +592,24 @@ void testCommandLineOverrideApplication(){
             error
         ) && !pta.initialBjtVbe,
         "PTA command-line null clears the BJT initial voltage"
+    );
+    expect(
+        simulator::config::applyPtaOption(
+            "initial-mos-vgs=1.25",
+            pta,
+            key,
+            error
+        ) && pta.initialMosVgs && *pta.initialMosVgs == 1.25,
+        "PTA command-line MOS initial voltage is applied"
+    );
+    expect(
+        simulator::config::applyPtaOption(
+            "initial_mos_vgs=null",
+            pta,
+            key,
+            error
+        ) && !pta.initialMosVgs,
+        "PTA command-line null clears the MOS initial voltage"
     );
     expect(
         simulator::config::applyTransientOption(
@@ -711,7 +750,8 @@ void testNetlistParameterLocks(){
                     "mode": "disabled",
                     "initial_step": "2n",
                     "derivative_tolerance": 0.4,
-                    "compound_time_constant": "5n"
+                    "compound_time_constant": "5n",
+                    "initial_mos_vgs": 1.2
                 },
                 "tran": {
                     "enabled": false,
@@ -731,6 +771,7 @@ void testNetlistParameterLocks(){
     locks.pta.initialStep = true;
     locks.pta.derivativeTolerance = true;
     locks.pta.compoundTimeConstant = true;
+    locks.pta.initialMosVgs = true;
     locks.transient.enabled = true;
     locks.transient.outputInterval = true;
     locks.transient.stopTime = true;
@@ -743,6 +784,7 @@ void testNetlistParameterLocks(){
     pta.initialStep = 1e-9;
     pta.derivativeTolerance = 0.8;
     pta.compoundTimeConstant = 1e-9;
+    pta.initialMosVgs = 0.8;
     std::optional<TransientAnalysisConfig> transient;
     transient.emplace();
     transient->outputInterval = 1e-9;
@@ -764,7 +806,8 @@ void testNetlistParameterLocks(){
         pta.mode == PtaMode::Force &&
             std::abs(pta.initialStep - 1e-9) < 1e-20 &&
             pta.derivativeTolerance == 0.8 &&
-            std::abs(pta.compoundTimeConstant - 1e-9) < 1e-20,
+            std::abs(pta.compoundTimeConstant - 1e-9) < 1e-20 &&
+            pta.initialMosVgs && *pta.initialMosVgs == 0.8,
         "locked PTA netlist parameters take priority over configuration"
     );
     expect(
@@ -801,6 +844,16 @@ void testNetlistParameterLocks(){
             std::abs(pta.initialStep - 1e-9) < 1e-20 && transient &&
             std::abs(transient->stopTime - 10e-9) < 1e-19,
         "locked netlist parameters silently take priority over CLI values"
+    );
+
+    AnalysisPlan pstranPlan;
+    pstranPlan.pseudoTransient.emplace();
+    pstranPlan.pseudoTransient->kvgs0Specified = true;
+    pstranPlan.pseudoTransient->kvgs0 = 1.2;
+    const auto parsedLocks = simulator::config::parameterLocksFor(pstranPlan);
+    expect(
+        parsedLocks.pta.initialMosVgs,
+        "an explicit .pstran kvgs0 protects the MOS limiter seed"
     );
 }
 

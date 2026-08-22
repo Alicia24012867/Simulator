@@ -482,16 +482,23 @@ def main():
             pstran = root / "pstran.sp"
             pstran.write_text(
                 "Pseudo-transient control card\n"
+                ".model NMOD NMOS LEVEL=3 VTO=0.7 KP=100u\n"
                 "V1 in 0 1\n"
                 "R1 in 0 1k\n"
+                "M1 in in 0 0 NMOD W=1u L=1u\n"
                 ".pstran convval=1.0e-05 initstep=1.0e-05 minstep=1.0e-09 "
-                "maxstep=1.0e+6 tau=1.0e-05 vbe0=0.0 kvgs0=0.0 tauramp=0.0\n"
+                "maxstep=1.0e+6 tau=1.0e-05 vbe0=0.0 kvgs0=1.2 tauramp=0.0\n"
                 ".print op v(in)\n"
                 ".end\n"
             )
             result = run(simulator, pstran)
             require(result.returncode == 0, f".pstran netlist failed: {result.stderr}")
             require("Operating Point" in result.stdout, ".pstran did not run OP output")
+            pstran_report = (root / "pstran" / "pstran.solve.txt").read_text()
+            require(
+                "pta.initial_mos_vgs: 1.2" in pstran_report,
+                ".pstran kvgs0 did not map to the MOS limiter seed",
+            )
 
             duplicate = root / "duplicate-pstran.sp"
             duplicate.write_text(

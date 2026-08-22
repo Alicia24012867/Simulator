@@ -22,6 +22,7 @@ struct PtaParameterLocks {
     bool dcResidualTolerance = false;
     bool compoundTimeConstant = false;
     bool sourceRampTime = false;
+    bool initialMosVgs = false;
     bool initialBjtVbe = false;
 };
 
@@ -100,6 +101,7 @@ struct PtaOverrides {
     std::optional<double> compoundInitialResistance;
     std::optional<double> compoundInitialConductance;
     std::optional<double> sourceRampTime;
+    NullableOverride<double> initialMosVgs;
     NullableOverride<double> initialBjtVbe;
 
     std::optional<double> failedStepScale;
