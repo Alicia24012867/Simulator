@@ -441,7 +441,23 @@ void SpiceOutputWriter::writePtaDiagnostics(std::ostream& os,
         }
         if(attempt.capacitanceGrowths > 0){
             os << " capacitance_growths=" << attempt.capacitanceGrowths
-               << " growth_reason=minimum-step-newton-failure";
+               << " growth_reason=minimum-step-newton-failure"
+               << " growth_nodes=[";
+            for(std::size_t i = 0;
+                i < attempt.capacitanceGrowthNodes.size();
+                ++i){
+                const auto& growth = attempt.capacitanceGrowthNodes[i];
+                if(i > 0){
+                    os << ',';
+                }
+                os << (growth.nodeName.empty()
+                       ? std::to_string(growth.nodeIndex)
+                       : growth.nodeName)
+                   << "(residual=" << growth.residualMagnitude
+                   << ",capacitance=" << growth.capacitanceBefore
+                   << "->" << growth.capacitanceAfter << ')';
+            }
+            os << ']';
         }
         if(attempt.capacitanceReductions > 0){
             os << " capacitance_reductions="

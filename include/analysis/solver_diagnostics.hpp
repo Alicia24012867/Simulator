@@ -62,6 +62,14 @@ struct SourceSteppingAttemptDiagnostics {
     NewtonSolveDiagnostics newton;
 };
 
+struct PtaNodeCapacitanceGrowth {
+    int nodeIndex = -1;
+    std::string nodeName;
+    double residualMagnitude = 0.0;
+    double capacitanceBefore = 0.0;
+    double capacitanceAfter = 0.0;
+};
+
 struct PtaStepAttemptDiagnostics {
     int attempt = 0;
     double startTime = 0.0;
@@ -79,14 +87,17 @@ struct PtaStepAttemptDiagnostics {
     bool hasConvergenceMetrics = false;
     double normalizedDerivative = 0.0;
     double normalizedDcResidual = 0.0;
-    // A global growth is triggered only after a Newton failure at the minimum
-    // pseudo-time step.  Reductions are applied after an accepted step whose
-    // node-voltage change reverses direction.
+    // One residual-selected node growth is triggered only after a Newton
+    // failure at the minimum pseudo-time step.  Reductions are applied after
+    // an accepted step whose node-voltage change reverses direction.
     int capacitanceGrowths = 0;
     int capacitanceReductions = 0;
     int smallOscillationCapacitanceReductions = 0;
     int mediumOscillationCapacitanceReductions = 0;
     int heavyOscillationCapacitanceReductions = 0;
+    // On a minimum-step Newton failure, only the most offending KCL node
+    // whose pseudo capacitance can still grow is selected.
+    std::vector<PtaNodeCapacitanceGrowth> capacitanceGrowthNodes;
     std::string status;
     std::string failureReason;
     NewtonSolveDiagnostics newton;

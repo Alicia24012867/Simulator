@@ -3,6 +3,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -177,7 +178,11 @@ private:
 
     void materializePseudoDevices(const PtaAnalysisConfig& config);
 
-    bool growAllPtaNodeCapacitances(const PtaAnalysisConfig& config);
+    std::optional<PtaNodeCapacitanceGrowth>
+    growPtaNodeCapacitanceForResidual(
+        const Eigen::VectorXd& residual,
+        const PtaAnalysisConfig& config
+    );
 
     PtaCapacitanceReductionSummary updatePtaNodeCapacitancesAfterAcceptedStep(
         const Eigen::VectorXd& currentSolution,

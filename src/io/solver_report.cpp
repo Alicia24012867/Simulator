@@ -281,7 +281,23 @@ void writeOperatingPointAttempt(
             }
             if(pta.capacitanceGrowths > 0){
                 output << " capacitance_growths=" << pta.capacitanceGrowths
-                       << " growth_reason=minimum-step-newton-failure";
+                       << " growth_reason=minimum-step-newton-failure"
+                       << " growth_nodes=[";
+                for(std::size_t i = 0;
+                    i < pta.capacitanceGrowthNodes.size();
+                    ++i){
+                    const auto& growth = pta.capacitanceGrowthNodes[i];
+                    if(i > 0){
+                        output << ',';
+                    }
+                    output << (growth.nodeName.empty()
+                               ? std::to_string(growth.nodeIndex)
+                               : growth.nodeName)
+                           << "(residual=" << growth.residualMagnitude
+                           << ",capacitance=" << growth.capacitanceBefore
+                           << "->" << growth.capacitanceAfter << ')';
+                }
+                output << ']';
             }
             if(pta.capacitanceReductions > 0){
                 output << " capacitance_reductions="

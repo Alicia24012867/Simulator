@@ -174,6 +174,19 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
 
         if(!converged){
             ++operatingPointStats_.ptaRejectedSteps;
+
+            // Attribute a minimum-step recovery to one KCL node.  The
+            // pseudo-system residual is intentionally used here: it tells us
+            // which artificial mass term failed to stabilize the trial.
+            assemblePtaSystem(ctx);
+            if(!mna_->evaluateResidual(matrixProduct, residual)){
+                const std::string failureReason =
+                    "PTA pseudo-system residual contains a non-finite value";
+                attempt.status = "failed";
+                attempt.failureReason = failureReason;
+                operatingPointStats_.ptaAttempts.push_back(std::move(attempt));
+                return finish(false, failureReason);
+            }
             restoreTransientCheckpoint(acceptedSolution);
 
             const double reducedStep = std::max(
@@ -191,16 +204,20 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
                 continue;
             }
 
-            if(!growAllPtaNodeCapacitances(config)){
+            const auto growth = growPtaNodeCapacitanceForResidual(
+                residual,
+                config
+            );
+            if(!growth){
                 attempt.status = "failed";
                 attempt.failureReason =
-                    "PTA Newton solve failed at the minimum step and node "
-                    "capacitance cannot be increased";
+                    "PTA Newton solve failed at the minimum step and no "
+                    "residual-selected node capacitance can be increased";
                 operatingPointStats_.ptaAttempts.push_back(std::move(attempt));
                 return finish(
                     false,
-                    "PTA Newton solve failed at the minimum step and node "
-                    "capacitance cannot be increased"
+                    "PTA Newton solve failed at the minimum step and no "
+                    "residual-selected node capacitance can be increased"
                 );
             }
 
@@ -208,8 +225,19 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
             ++operatingPointStats_.ptaCapacitanceGrowths;
             attempt.restartedAfterCapacitanceGrowth = true;
             attempt.capacitanceGrowths = 1;
+            PtaNodeCapacitanceGrowth recordedGrowth = *growth;
+            const auto& nodeNames = nodeMap_->nodeNameByIdx();
+            if(recordedGrowth.nodeIndex >= 0 &&
+               static_cast<std::size_t>(recordedGrowth.nodeIndex) <
+                   nodeNames.size()){
+                recordedGrowth.nodeName = nodeNames[
+                    static_cast<std::size_t>(recordedGrowth.nodeIndex)
+                ];
+            }
+            attempt.capacitanceGrowthNodes.push_back(std::move(recordedGrowth));
             attempt.retryTimeStep = reducedStep;
-            attempt.status = "restart after PTA capacitance growth";
+            attempt.status =
+                "restart after residual-selected PTA capacitance growth";
             attempt.failureReason =
                 "Newton solve failed at the minimum PTA step";
             operatingPointStats_.ptaAttempts.push_back(std::move(attempt));
@@ -544,35 +572,60 @@ void Circuit::materializePseudoDevices(const PtaAnalysisConfig& config){
     }
 }
 
-bool Circuit::growAllPtaNodeCapacitances(const PtaAnalysisConfig& config){
-    bool grewAnyCapacitance = false;
+std::optional<PtaNodeCapacitanceGrowth>
+Circuit::growPtaNodeCapacitanceForResidual(
+    const Eigen::VectorXd& residual,
+    const PtaAnalysisConfig& config
+){
+    PtaNodeCapState* selected = nullptr;
+    double selectedResidual = -1.0;
 
     for(PtaNodeCapState& state: ptaNodeCaps_){
-        if(state.capacitor == nullptr ||
-            !std::isfinite(state.capacitance) ||
-            state.capacitance <= 0){
-                continue;
+        if(state.node < 0 || state.node >= residual.size() ||
+           state.capacitor == nullptr ||
+           !std::isfinite(state.capacitance) || state.capacitance <= 0.0){
+            continue;
         }
 
+        const double residualMagnitude = std::abs(residual[state.node]);
         const double nextCapacitance = std::min(
             state.capacitance * config.capacitanceGrowScale,
             config.maximumNodeCapacitance
         );
-
-        if(!std::isfinite(nextCapacitance) ||
-            nextCapacitance <= state.capacitance){
-                continue;
+        if(!std::isfinite(residualMagnitude) ||
+           !std::isfinite(nextCapacitance) ||
+           nextCapacitance <= state.capacitance){
+            continue;
         }
 
-        state.capacitor->setValue(nextCapacitance);
-        state.capacitance = nextCapacitance;
-        state.previousDelta = 0.0;
-        state.hasPreviousDelta = false;
-
-        grewAnyCapacitance = true;
+        if(selected == nullptr || residualMagnitude > selectedResidual ||
+           (residualMagnitude == selectedResidual && state.node < selected->node)){
+            selected = &state;
+            selectedResidual = residualMagnitude;
+        }
     }
 
-    return grewAnyCapacitance;
+    if(selected == nullptr){
+        return std::nullopt;
+    }
+
+    const double capacitanceBefore = selected->capacitance;
+    const double capacitanceAfter = std::min(
+        capacitanceBefore * config.capacitanceGrowScale,
+        config.maximumNodeCapacitance
+    );
+    selected->capacitor->setValue(capacitanceAfter);
+    selected->capacitance = capacitanceAfter;
+    selected->previousDelta = 0.0;
+    selected->hasPreviousDelta = false;
+
+    return PtaNodeCapacitanceGrowth{
+        selected->node,
+        {},
+        selectedResidual,
+        capacitanceBefore,
+        capacitanceAfter
+    };
 }
 
 Circuit::PtaCapacitanceReductionSummary

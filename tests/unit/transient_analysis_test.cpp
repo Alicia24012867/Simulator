@@ -159,11 +159,12 @@ public:
         });
     }
 
-    static bool growAll(
+    static std::optional<PtaNodeCapacitanceGrowth> growForResidual(
         Circuit& circuit,
+        const Eigen::VectorXd& residual,
         const PtaAnalysisConfig& config
     ){
-        return circuit.growAllPtaNodeCapacitances(config);
+        return circuit.growPtaNodeCapacitanceForResidual(residual, config);
     }
 
     static void updateAfterAcceptedStep(
@@ -702,14 +703,18 @@ void testPtaNodeCapacitanceGrowth(){
         true
     );
 
-    expect(
-        CircuitPtaTestAccess::growAll(circuit, config),
-        "PTA growth reports a changed node capacitance"
+    const auto firstGrowth = CircuitPtaTestAccess::growForResidual(
+        circuit,
+        makeVector({0.25, -0.5}),
+        config
     );
+    expect(firstGrowth && firstGrowth->nodeIndex == 1 &&
+           firstGrowth->residualMagnitude == 0.5,
+           "PTA growth selects the largest residual node");
     expectNear(
         CircuitPtaTestAccess::capacitance(circuit, 0),
-        2.0e-12,
-        "PTA growth scales a node capacitance"
+        1.0e-12,
+        "PTA growth leaves unrelated node capacitances unchanged"
     );
     expectNear(
         CircuitPtaTestAccess::capacitance(circuit, 1),
@@ -718,12 +723,12 @@ void testPtaNodeCapacitanceGrowth(){
     );
     expectNear(
         CircuitPtaTestAccess::previousDelta(circuit, 0),
-        0.0,
-        "PTA growth clears the first node oscillation delta"
+        0.25,
+        "unselected PTA node retains its oscillation delta"
     );
     expect(
-        !CircuitPtaTestAccess::hasPreviousDelta(circuit, 0),
-        "PTA growth clears the first node oscillation history flag"
+        CircuitPtaTestAccess::hasPreviousDelta(circuit, 0),
+        "unselected PTA node retains its oscillation history flag"
     );
     expectNear(
         CircuitPtaTestAccess::previousDelta(circuit, 1),
@@ -735,6 +740,19 @@ void testPtaNodeCapacitanceGrowth(){
         "PTA growth clears the capped node oscillation history flag"
     );
 
+    const auto secondGrowth = CircuitPtaTestAccess::growForResidual(
+        circuit,
+        makeVector({0.25, -0.5}),
+        config
+    );
+    expect(secondGrowth && secondGrowth->nodeIndex == 0,
+           "PTA growth falls back to the next residual node with headroom");
+    expectNear(
+        CircuitPtaTestAccess::capacitance(circuit, 0),
+        2.0e-12,
+        "PTA growth scales the selected fallback node"
+    );
+
     Circuit saturatedCircuit;
     CircuitPtaTestAccess::addNodeCapacitor(
         saturatedCircuit,
@@ -744,7 +762,11 @@ void testPtaNodeCapacitanceGrowth(){
         false
     );
     expect(
-        !CircuitPtaTestAccess::growAll(saturatedCircuit, config),
+        !CircuitPtaTestAccess::growForResidual(
+            saturatedCircuit,
+            makeVector({1.0}),
+            config
+        ),
         "PTA growth fails when every node capacitance is saturated"
     );
 }
@@ -919,10 +941,15 @@ void testPtaMinimumStepCapacitanceRecovery(){
             [](const PtaStepAttemptDiagnostics& attempt){
                 return attempt.restartedAfterCapacitanceGrowth &&
                     attempt.capacitanceGrowths == 1 &&
+                    attempt.capacitanceGrowthNodes.size() == 1 &&
+                    attempt.capacitanceGrowthNodes.front().nodeName == "node" &&
+                    attempt.capacitanceGrowthNodes.front().residualMagnitude >= 0.0 &&
+                    attempt.capacitanceGrowthNodes.front().capacitanceAfter >
+                        attempt.capacitanceGrowthNodes.front().capacitanceBefore &&
                     attempt.retryTimeStep > 0.0;
             }
         ),
-        "PTA trace records the minimum-step growth decision and retry step"
+        "PTA trace records the residual-selected growth node and retry step"
     );
     expect(
         std::any_of(
