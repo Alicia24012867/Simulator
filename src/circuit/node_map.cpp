@@ -1,15 +1,7 @@
-#include "circuit/node_map.h"
+#include "circuit/node_map.hpp"
 #include "devices/device.hpp"
 
-#include "utils/string_utils.hpp"
-
-void Device::bindNodes(const NodeMap& nodemap){
-    nodeIds.resize(nodes.size());
-
-    for(std::size_t i = 0; i < nodes.size(); ++i){
-        nodeIds[i] = nodemap.idxOf(nodes[i]);
-    }
-}
+#include "utils/string.hpp"
 
 void NodeMap::build(const std::vector<std::unique_ptr<Device>>& devices){
     name_to_idx.clear();

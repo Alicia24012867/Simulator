@@ -4,8 +4,8 @@ OPT_FLAGS ?= -O3
 CXX_FLAGS = -std=$(CXX_STD) $(OPT_FLAGS) -Wall -Wextra -I./include -I./third_party
 SRC = $(sort $(wildcard ./src/*.cpp) $(wildcard ./src/*/*.cpp))
 HEADERS = $(shell find ./include -type f 2>/dev/null)
-CIRCUIT_TEST_SOURCES = ./src/circuit/circuit.cpp \
-	./src/circuit/node_map.cpp
+CIRCUIT_TEST_SOURCES = $(sort $(wildcard ./src/circuit/*.cpp)) \
+	./src/devices/device.cpp
 CONFIG_SOURCES = $(wildcard ./src/config/*.cpp)
 CORE_TEST_SOURCES = ./src/app/command_line.cpp \
 	./src/config/cli_option_overrides.cpp
