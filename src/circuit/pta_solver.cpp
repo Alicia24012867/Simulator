@@ -33,6 +33,42 @@ void updateStepRange(double step, double& minimum, double& maximum){
     }
     maximum = std::max(maximum, step);
 }
+
+NewtonSolveDiagnostics combineTrustRegionRecoveryDiagnostics(
+    const NewtonSolveDiagnostics& trustRegion,
+    const NewtonSolveDiagnostics& recovery
+){
+    // The recovery starts from the same pseudo-time checkpoint, but both
+    // local solves consumed work and must remain visible in the trace.
+    NewtonSolveDiagnostics combined = recovery;
+    combined.iterations += trustRegion.iterations;
+    combined.maximumIterations += trustRegion.maximumIterations;
+    combined.dampedSteps += trustRegion.dampedSteps;
+    combined.backtrackingSteps += trustRegion.backtrackingSteps;
+    combined.lineSearchEvaluations += trustRegion.lineSearchEvaluations;
+    combined.nonMonotoneStepFallbacks +=
+        trustRegion.nonMonotoneStepFallbacks;
+    combined.cpuSeconds += trustRegion.cpuSeconds;
+    combined.wallSeconds += trustRegion.wallSeconds;
+
+    combined.usedTrustRegion = trustRegion.usedTrustRegion;
+    combined.trustRegionRetriesExhausted =
+        trustRegion.trustRegionRetriesExhausted;
+    combined.usedTrustRegionExhaustionRecovery = true;
+    combined.trustRegionExhaustionRecoveryIterations = recovery.iterations;
+    combined.trustRegionExhaustionReason = trustRegion.failureReason;
+    combined.trustRegionTrials = trustRegion.trustRegionTrials;
+    combined.trustRegionRejectedSteps = trustRegion.trustRegionRejectedSteps;
+    combined.trustRegionRadiusReductions =
+        trustRegion.trustRegionRadiusReductions;
+    combined.trustRegionRadiusExpansions =
+        trustRegion.trustRegionRadiusExpansions;
+    combined.initialTrustRegionRadius = trustRegion.initialTrustRegionRadius;
+    combined.finalTrustRegionRadius = trustRegion.finalTrustRegionRadius;
+    combined.hasTrustRegionRatio = trustRegion.hasTrustRegionRatio;
+    combined.lastTrustRegionRatio = trustRegion.lastTrustRegionRatio;
+    return combined;
+}
 }
 
 bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
@@ -155,7 +191,8 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
         }
         setOperatingPointSourceScale(sourceScale);
 
-        mna_->setSolution(integrator.predict(nextTime));
+        const Eigen::VectorXd trialInitialSolution = integrator.predict(nextTime);
+        mna_->setSolution(trialInitialSolution);
         saveNonlinearIterationStates();
 
         const TransientStampContext ctx =
@@ -167,9 +204,36 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
         };
 
         NewtonSolveDiagnostics stats;
-        const bool converged = hasNonlinearDevices()
+        bool converged = hasNonlinearDevices()
             ? solveNewtonSystem(assemble, stats, config.newtonOptions)
             : solveLinearSystem(assemble, stats);
+
+        const bool hasPtaLimiterSeed = config.initialBjtVbe.has_value() ||
+            config.initialMosVgs.has_value();
+        if(hasPtaLimiterSeed && hasNonlinearDevices() && !converged &&
+           config.newtonOptions.trustRegionEnabled &&
+           stats.trustRegionRetriesExhausted)
+        {
+            // A rejected trust-region model does not mean that this
+            // seeded pseudo-time point is unusable.  Restore the checkpoint
+            // before the first local Newton solve, then give PTA's existing
+            // non-monotone continuation policy one independent attempt.
+            restoreNonlinearIterationStates();
+            mna_->setSolution(trialInitialSolution);
+
+            NewtonSolverOptions recoveryOptions = config.newtonOptions;
+            recoveryOptions.trustRegionEnabled = false;
+            NewtonSolveDiagnostics recoveryStats;
+            converged = solveNewtonSystem(
+                assemble,
+                recoveryStats,
+                recoveryOptions
+            );
+            stats = combineTrustRegionRecoveryDiagnostics(
+                stats,
+                recoveryStats
+            );
+        }
         attempt.newton = stats;
         addNewtonStats(stats);
         operatingPointStats_.ptaIterations += stats.iterations;

@@ -208,6 +208,15 @@ void writeNewton(std::ostream& output, const NewtonSolveDiagnostics& newton){
            << newton.nonMonotoneStepFallbacks
            << ",\"used_trust_region\":"
            << (newton.usedTrustRegion ? "true" : "false")
+           << ",\"trust_region_retries_exhausted\":"
+           << (newton.trustRegionRetriesExhausted ? "true" : "false")
+           << ",\"trust_region_exhaustion_recovery_used\":"
+           << (newton.usedTrustRegionExhaustionRecovery ? "true" : "false")
+           << ",\"trust_region_exhaustion_recovery_iterations\":"
+           << newton.trustRegionExhaustionRecoveryIterations
+           << ",\"trust_region_exhaustion_reason\":";
+    writeJsonString(output, newton.trustRegionExhaustionReason);
+    output
            << ",\"trust_region_trials\":" << newton.trustRegionTrials
            << ",\"trust_region_rejected_steps\":"
            << newton.trustRegionRejectedSteps

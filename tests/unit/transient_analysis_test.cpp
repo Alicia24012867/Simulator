@@ -1058,6 +1058,55 @@ void testPtaMinimumStepCapacitanceRecovery(){
     );
 }
 
+void testPtaTrustRegionExhaustionRecovery(){
+    PtaAnalysisConfig config;
+    config.mode = PtaMode::Force;
+    config.initialStep = 1.0;
+    config.minimumStep = 1.0;
+    config.maximumStep = 1.0;
+    config.maximumSteps = 1;
+    config.derivativeTolerance = 2.0;
+    config.derivativeVoltageAbsoluteTolerance = 1.0;
+    config.derivativeCurrentAbsoluteTolerance = 1.0;
+    config.initialBjtVbe = 0.0;
+    config.newtonOptions.maximumTrustRegionRetries = 0;
+
+    Circuit circuit;
+    circuit.addDevice<NewtonResidualTrapDevice>(
+        "XPTATRUST",
+        std::vector<std::string>{"node", "0", "0"},
+        0.5,
+        1.0
+    );
+
+    expect(circuit.build(config),
+           "PTA trust-region recovery fixture builds");
+    expect(circuit.solveAdaptivePta(config),
+           "PTA recovers from exhausted trust-region retries");
+
+    const PtaDiagnostics diagnostics = circuit.ptaDiagnostics();
+    expect(diagnostics.attempts.size() == 1,
+           "PTA trust-region recovery completes at the original pseudo-time point");
+    expect(
+        !diagnostics.attempts.empty() &&
+            diagnostics.attempts.front().newton.converged &&
+            diagnostics.attempts.front().newton.usedTrustRegion &&
+            diagnostics.attempts.front().newton.trustRegionRetriesExhausted &&
+            diagnostics.attempts.front().newton
+                .usedTrustRegionExhaustionRecovery &&
+            diagnostics.attempts.front().newton
+                .trustRegionExhaustionRecoveryIterations > 0 &&
+            diagnostics.attempts.front().newton.nonMonotoneStepFallbacks > 0,
+        "PTA trace records checkpointed non-monotone recovery after trust-region exhaustion"
+    );
+    expect(
+        diagnostics.capacitanceGrowths == 0 &&
+            diagnostics.attempts.front().newton.trustRegionTrials == 1 &&
+            diagnostics.attempts.front().newton.trustRegionRejectedSteps == 1,
+        "PTA recovery avoids outer capacitance growth after a local trust-region rejection"
+    );
+}
+
 void testLinearSolverDiagnostics(){
     Circuit circuit;
     circuit.addDevice<Resistor>(
@@ -1197,6 +1246,7 @@ void testNewtonRequiresReassembledResidual(){
     );
     expect(
         !diagnostics.hasNormalizedUpdate && !diagnostics.hasNormalizedResidual &&
+            diagnostics.trustRegionRetriesExhausted &&
             diagnostics.failureReason.find("trust-region") != std::string::npos,
         "Newton reports exhausted trust-region retries distinctly"
     );
@@ -2084,6 +2134,7 @@ int main(){
     testPtaNodeCapacitanceGrowth();
     testPtaNodeCapacitanceOscillationAdaptation();
     testPtaMinimumStepCapacitanceRecovery();
+    testPtaTrustRegionExhaustionRecovery();
     testLinearSolverDiagnostics();
     testLinearFailureDiagnostics();
     testNewtonRequiresReassembledResidual();

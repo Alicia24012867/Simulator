@@ -416,6 +416,12 @@ void SpiceOutputWriter::writePtaDiagnostics(std::ostream& os,
            << attempt.newton.lineSearchEvaluations
            << " non_monotone_step_fallbacks="
            << attempt.newton.nonMonotoneStepFallbacks
+           << " trust_region_retries_exhausted="
+           << (attempt.newton.trustRegionRetriesExhausted ? "yes" : "no")
+           << " trust_region_exhaustion_recovery="
+           << (attempt.newton.usedTrustRegionExhaustionRecovery ? "yes" : "no")
+           << " trust_region_exhaustion_recovery_iterations="
+           << attempt.newton.trustRegionExhaustionRecoveryIterations
            << " trust_region_trials=" << attempt.newton.trustRegionTrials
            << " trust_region_rejected_steps="
            << attempt.newton.trustRegionRejectedSteps
@@ -441,6 +447,10 @@ void SpiceOutputWriter::writePtaDiagnostics(std::ostream& os,
         } else {
             os << " normalized_derivative=n/a"
                << " normalized_dc_residual=n/a";
+        }
+        if(!attempt.newton.trustRegionExhaustionReason.empty()){
+            os << " trust_region_exhaustion_reason=\""
+               << attempt.newton.trustRegionExhaustionReason << '"';
         }
         os << " decision=" << ptaAttemptDecision(attempt);
         if(attempt.retryTimeStep > 0.0){

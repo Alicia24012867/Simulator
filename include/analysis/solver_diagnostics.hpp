@@ -44,6 +44,13 @@ struct NewtonSolveDiagnostics {
     // PTA is governed by its outer pseudo-time continuation.
     int nonMonotoneStepFallbacks = 0;
     bool usedTrustRegion = false;
+    // Set only when the local trust-region loop exhausted its retry budget.
+    // PTA may then restart the same pseudo-time trial with its separately
+    // bounded non-monotone policy before escalating to an outer recovery.
+    bool trustRegionRetriesExhausted = false;
+    bool usedTrustRegionExhaustionRecovery = false;
+    int trustRegionExhaustionRecoveryIterations = 0;
+    std::string trustRegionExhaustionReason;
     int trustRegionTrials = 0;
     int trustRegionRejectedSteps = 0;
     int trustRegionRadiusReductions = 0;

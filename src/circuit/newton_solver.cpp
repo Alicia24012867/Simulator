@@ -359,6 +359,7 @@ bool Circuit::solveNewtonSystem(const AssembleCallback& assemble,
             if(!accepted){
                 current = previous;
                 restoreNonlinearLineSearchStates();
+                stats.trustRegionRetriesExhausted = true;
                 return finish(
                     false,
                     "Newton-Raphson trust-region retries exhausted"

@@ -113,6 +113,13 @@ void writeNewton(std::ostream& output,
                << diagnostics.lineSearchEvaluations << '\n'
                << indent << "Non-monotone line-search fallbacks: "
                << diagnostics.nonMonotoneStepFallbacks << '\n'
+               << indent << "Trust-region retries exhausted: "
+               << (diagnostics.trustRegionRetriesExhausted ? "yes" : "no")
+               << '\n'
+               << indent << "PTA trust-region exhaustion recovery: "
+               << (diagnostics.usedTrustRegionExhaustionRecovery ? "yes" : "no")
+               << " (iterations "
+               << diagnostics.trustRegionExhaustionRecoveryIterations << ")\n"
                << indent << "Trust-region trials: "
                << diagnostics.trustRegionTrials << '\n'
                << indent << "Trust-region rejected trials: "
@@ -140,6 +147,10 @@ void writeNewton(std::ostream& output,
         if(diagnostics.hasTrustRegionRatio){
             output << indent << "Last trust-region agreement ratio: "
                    << diagnostics.lastTrustRegionRatio << '\n';
+        }
+        if(!diagnostics.trustRegionExhaustionReason.empty()){
+            output << indent << "Trust-region exhaustion reason: "
+                   << diagnostics.trustRegionExhaustionReason << '\n';
         }
     }
     output << indent << "CPU time: " << diagnostics.cpuSeconds << " s\n"
