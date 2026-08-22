@@ -60,6 +60,9 @@ bool Circuit::solveOperatingPoint(
     const AssembleCallback assemble = [this] {
         assembleOperatingPointSystem();
     };
+    if(hasOperatingPointInitialGuess_){
+        mna_->setSolution(operatingPointInitialGuess_);
+    }
     const Eigen::VectorXd initialSolution = mna_->solution();
 
     if(!hasNonlinearDevices()){

@@ -21,6 +21,7 @@ class SpiceOutputAccess;
 class CircuitPtaTestAccess;
 class PtaTraceWriter;
 class TransientIntegrator;
+class CircuitInitialStateBuilder;
 
 struct TransientAnalysisConfig;
 struct TransientErrorEstimate;
@@ -31,6 +32,7 @@ struct PtaAnalysisConfig;
 struct PtaDiagnostics;
 struct NewtonSolverOptions;
 struct OperatingPointSolverOptions;
+struct AnalysisPlan;
 class Circuit{
 public:
     Circuit();
@@ -50,6 +52,10 @@ public:
     const Model* findModel(const std::string& name) const;
 
     bool build(const PtaAnalysisConfig& config);
+
+    // Must be called after build(), when netlist node names and MNA unknowns
+    // are available.  It prepares distinct OP-guess and UIC state vectors.
+    void configureInitialConditions(const AnalysisPlan& plan);
 
     int allocateUnknown();
 
@@ -82,6 +88,7 @@ private:
     friend class SpiceOutputAccess;
     friend class CircuitPtaTestAccess;
     friend class PtaTraceWriter;
+    friend class CircuitInitialStateBuilder;
 
     using AssembleCallback = std::function<void()>;
 
@@ -221,4 +228,9 @@ private:
     std::vector<PendingPtaPlacement> pendingPtaPlacements_;
 
     std::vector<PtaNodeCapState> ptaNodeCaps_;
+
+    Eigen::VectorXd operatingPointInitialGuess_;
+    Eigen::VectorXd uicInitialSolution_;
+    bool hasOperatingPointInitialGuess_ = false;
+    bool hasUicInitialSolution_ = false;
 };

@@ -42,6 +42,9 @@ bool Circuit::solveAdaptivePta(const PtaAnalysisConfig& config){
         !operatingPointStats_.ptaAttempted;
     if(!continuesFailedOrdinarySolve){
         operatingPointStats_ = {};
+        if(hasOperatingPointInitialGuess_){
+            mna_->setSolution(operatingPointInitialGuess_);
+        }
     }
     operatingPointStats_.attempted = true;
     operatingPointStats_.ptaAttempted = true;

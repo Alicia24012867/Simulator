@@ -2,6 +2,7 @@
 #include <cctype>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
@@ -276,17 +277,20 @@ struct InstanceValues {
     double area = 1.0;
     double width = 1.0;
     double length = 1.0;
+    std::optional<std::array<double, 2>> initialCondition;
 };
 
 InstanceValues parseInstanceValues(const std::vector<std::string>& tokens,
                                    std::size_t first,
                                    bool allowArea,
                                    bool allowGeometry,
-                                   bool allowPositionalArea){
+                                   bool allowPositionalArea,
+                                   bool allowInitialCondition = false){
     InstanceValues values;
     bool areaSeen = false;
     bool widthSeen = false;
     bool lengthSeen = false;
+    bool initialConditionSeen = false;
 
     if(allowPositionalArea && first < tokens.size() &&
        tokens[first].find('=') == std::string::npos &&
@@ -306,6 +310,21 @@ InstanceValues parseInstanceValues(const std::vector<std::string>& tokens,
             throw std::runtime_error(
                 "Unsupported or malformed instance parameter: " + tokens[i]
             );
+        }
+
+        if(key == "ic" && allowInitialCondition){
+            if(initialConditionSeen){
+                throw std::runtime_error("Repeated BJT instance parameter: ic");
+            }
+            if(i + 1 >= tokens.size()){
+                throw std::runtime_error("BJT IC requires VBE and VCE values");
+            }
+            values.initialCondition = std::array<double, 2>{
+                parse_spice_number(value),
+                parse_spice_number(tokens[++i])
+            };
+            initialConditionSeen = true;
+            continue;
         }
 
         const double parsed = parse_spice_number(value);
@@ -424,6 +443,54 @@ MOSFET::MosInstanceParams parseMosInstanceParams(
     }
     return values;
 }
+
+std::optional<double> parseDynamicInitialCondition(
+    const std::vector<std::string>& tokens,
+    std::size_t first,
+    const char* elementName
+){
+    std::optional<double> initialCondition;
+    for(std::size_t i = first; i < tokens.size(); ++i){
+        std::string key;
+        std::string value;
+        if(!read_spice_assignment(tokens, i, key, value) || key != "ic"){
+            throw std::runtime_error(
+                std::string(elementName) +
+                " accepts only an optional IC=<initial-condition>"
+            );
+        }
+        if(initialCondition){
+            throw std::runtime_error(
+                std::string("Repeated ") + elementName + " IC parameter"
+            );
+        }
+        initialCondition = parse_spice_number(value);
+    }
+    return initialCondition;
+}
+
+bool readInitialConditionValue(const std::vector<std::string>& tokens,
+                               std::size_t& index,
+                               double& value){
+    if(index >= tokens.size()){
+        return false;
+    }
+    const std::string& token = tokens[index];
+    if(token.empty() || token[0] != '='){
+        return false;
+    }
+    std::string text = token.substr(1);
+    if(text.empty()){
+        ++index;
+        if(index >= tokens.size()){
+            return false;
+        }
+        text = tokens[index];
+    }
+    value = parse_spice_number(text);
+    ++index;
+    return true;
+}
 }
 
 bool Parser::parse(Circuit& circuit){
@@ -459,6 +526,14 @@ bool Parser::parse(Circuit& circuit){
             }
             if(equal_ignore_case(tokens[0], ".pstran")){
                 parsePstranDirective(tokens);
+                continue;
+            }
+            if(equal_ignore_case(tokens[0], ".nodeset")){
+                parseInitialConditionDirective(tokens, true);
+                continue;
+            }
+            if(equal_ignore_case(tokens[0], ".ic")){
+                parseInitialConditionDirective(tokens, false);
                 continue;
             }
             if(equal_ignore_case(tokens[0], ".option") ||
@@ -631,6 +706,49 @@ bool Parser::parseAnalysisDirective(const std::vector<std::string>& tokens){
     analysisPlan_.transient = config;
     analysisPlan_.transientNetlistParameters = presence;
     return true;
+}
+
+void Parser::parseInitialConditionDirective(
+    const std::vector<std::string>& tokens,
+    bool nodeSet
+){
+    if(tokens.size() < 4){
+        throw std::runtime_error(
+            std::string(nodeSet ? ".nodeset" : ".ic") +
+            " requires at least one V(node)=value expression"
+        );
+    }
+
+    std::vector<NodeVoltageConstraint>& constraints = nodeSet
+        ? analysisPlan_.nodeSets
+        : analysisPlan_.initialConditions;
+    std::size_t index = 1;
+    while(index < tokens.size()){
+        if(!equal_ignore_case(tokens[index], "v")){
+            throw std::runtime_error(
+                std::string(nodeSet ? ".nodeset" : ".ic") +
+                " accepts only V(node)=value expressions"
+            );
+        }
+        ++index;
+        if(index >= tokens.size() || tokens[index].empty() ||
+           tokens[index][0] == '='){
+            throw std::runtime_error("Initial-condition voltage is missing a node");
+        }
+
+        NodeVoltageConstraint constraint;
+        constraint.positiveNode = tokens[index++];
+        if(index < tokens.size() && !tokens[index].empty() &&
+           tokens[index][0] != '='){
+            constraint.negativeNode = tokens[index++];
+        }
+        if(!readInitialConditionValue(tokens, index, constraint.voltage)){
+            throw std::runtime_error(
+                "Initial-condition voltage requires =value"
+            );
+        }
+        constraints.push_back(std::move(constraint));
+    }
 }
 
 void Parser::parseOptionsDirective(const std::vector<std::string>& tokens){
@@ -927,12 +1045,20 @@ bool Parser::parseLine(Circuit& circuit, const std::vector<std::string>& tokens)
             circuit.addDevice<Resistor>(tokens[0], elementNodes(tokens, 1, 2), positiveElementValue(tokens, 3, "Resistor"));
             return true;
         case 'C':
-            if(tokens.size() != 4) throw std::runtime_error("Capacitor requires exactly two nodes and one value");
-            circuit.addDevice<Capacitor>(tokens[0], elementNodes(tokens, 1, 2), positiveElementValue(tokens, 3, "Capacitor"));
+            if(tokens.size() < 4) throw std::runtime_error("Capacitor requires exactly two nodes and one value");
+            circuit.addDevice<Capacitor>(
+                tokens[0], elementNodes(tokens, 1, 2),
+                positiveElementValue(tokens, 3, "Capacitor"),
+                parseDynamicInitialCondition(tokens, 4, "Capacitor")
+            );
             return true;
         case 'L':
-            if(tokens.size() != 4) throw std::runtime_error("Inductor requires exactly two nodes and one value");
-            circuit.addDevice<Inductor>(tokens[0], elementNodes(tokens, 1, 2), positiveElementValue(tokens, 3, "Inductor"));
+            if(tokens.size() < 4) throw std::runtime_error("Inductor requires exactly two nodes and one value");
+            circuit.addDevice<Inductor>(
+                tokens[0], elementNodes(tokens, 1, 2),
+                positiveElementValue(tokens, 3, "Inductor"),
+                parseDynamicInitialCondition(tokens, 4, "Inductor")
+            );
             return true;
         case 'V':
             if(tokens.size() < 4) throw std::runtime_error("Bad voltage source line");
@@ -969,9 +1095,13 @@ bool Parser::parseLine(Circuit& circuit, const std::vector<std::string>& tokens)
                 5,
                 true,
                 false,
+                true,
                 true
             );
-            circuit.addDevice<BJT>(tokens[0], elementNodes(tokens, 1, 3), model, values.area);
+            circuit.addDevice<BJT>(
+                tokens[0], elementNodes(tokens, 1, 3), model,
+                values.area, values.initialCondition
+            );
             return true;
         }
         case 'M': {

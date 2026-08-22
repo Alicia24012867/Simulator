@@ -139,7 +139,9 @@ bool Circuit::solveTransient(
 
     setOperatingPointSourceScale(1.0);
     if(config.useInitialConditions){
-        initialSolution = Eigen::VectorXd::Zero(mna_->size());
+        initialSolution = hasUicInitialSolution_
+            ? uicInitialSolution_
+            : Eigen::VectorXd::Zero(mna_->size());
         mna_->setSolution(initialSolution);
     } else {
         if(!solveOperatingPoint(operatingPointOptions)){

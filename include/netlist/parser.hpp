@@ -28,6 +28,8 @@ private:
     bool parseLine(Circuit& circuit, const std::vector<std::string>& tokens);
     bool parseModel(Circuit& circuit, const std::vector<std::string>& tokens);
     bool parseAnalysisDirective(const std::vector<std::string>& tokens);
+    void parseInitialConditionDirective(const std::vector<std::string>& tokens,
+                                        bool nodeSet);
     void parseOptionsDirective(const std::vector<std::string>& tokens);
     void applyStepLimitOptions();
     void parsePstranDirective(const std::vector<std::string>& tokens);

@@ -20,6 +20,14 @@ struct PrintVariable {
     std::string reference = "0";
 };
 
+// A node-voltage constraint parsed from .nodeset or .ic.  The voltage is
+// positiveNode minus negativeNode, where a missing reference is ground.
+struct NodeVoltageConstraint {
+    std::string positiveNode;
+    std::string negativeNode = "0";
+    double voltage = 0.0;
+};
+
 // Parameters accepted by the .pstran pseudo-transient control card.  The
 // solver has direct equivalents for convval, the step limits, CEPTA tau,
 // source ramping, and the BJT/MOS nonlinear-voltage limiter seeds.
@@ -78,6 +86,10 @@ struct AnalysisPlan {
     // is folded into TransientAnalysisConfig::maximumStep as a hard cap.
     std::optional<double> delmax;
     std::optional<PstranAnalysisConfig> pseudoTransient;
+    // .nodeset is an OP/Newton initial guess only.  .ic supplies the UIC
+    // state and is also a stronger initial guess when UIC is not requested.
+    std::vector<NodeVoltageConstraint> nodeSets;
+    std::vector<NodeVoltageConstraint> initialConditions;
     std::vector<PrintVariable> operatingPointPrints;
     std::vector<PrintVariable> transientPrints;
 };

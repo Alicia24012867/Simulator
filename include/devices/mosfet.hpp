@@ -63,6 +63,19 @@ public:
         return model_ && model_->isMos3();
     }
 
+    std::vector<InitialVoltageConstraint>
+    initialVoltageConstraints() const override{
+        if(!instance_.ic){
+            return {};
+        }
+        // SPICE MOS IC is VDS,VGS,VBS.  The terminal order is D,G,S,B.
+        return {
+            {0, 2, (*instance_.ic)[0]},
+            {1, 2, (*instance_.ic)[1]},
+            {3, 2, (*instance_.ic)[2]}
+        };
+    }
+
     void allocateUnknown(Circuit& circuit) override{
         if(!model_ || !model_->isMos3()) return;
         if(drainSeriesResistance() > 0.0){

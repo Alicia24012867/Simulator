@@ -418,6 +418,12 @@ int main(int argc, char* argv[]){
         std::cerr << "Failed to build circuit <" << options.inputPath << ">\n";
         return finish(1, "circuit matrix construction failed");
     }
+    try {
+        circuit.configureInitialConditions(plan);
+    } catch(const std::exception& error) {
+        std::cerr << "Invalid initial condition: " << error.what() << '\n';
+        return finish(2, "netlist initial-condition validation failed");
+    }
 
     bool wroteAnalysis = false;
     bool wrotePtaDiagnostics = false;

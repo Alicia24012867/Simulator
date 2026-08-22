@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <optional>
 
 #include "circuit/circuit.hpp"
 #include "devices/device.hpp"
@@ -16,12 +17,26 @@
 class BJT: public Device{
 public:
     BJT(std::string name, std::vector<std::string> nodes, const Model* model,
-        double area = 1.0):
-        Device(name, nodes, DeviceType::BJT), model_(model), area_(area) {}
+        double area = 1.0,
+        std::optional<std::array<double, 2>> initialCondition = std::nullopt):
+        Device(name, nodes, DeviceType::BJT), model_(model), area_(area),
+        initialCondition_(initialCondition) {}
 
     const Model* model() const { return model_; }
 
     bool isNonlinear() const override { return true; }
+
+    std::vector<InitialVoltageConstraint>
+    initialVoltageConstraints() const override{
+        if(!initialCondition_){
+            return {};
+        }
+        // SPICE BJT IC is VBE,VCE.  The device terminal order is C,B,E.
+        return {
+            {1, 2, (*initialCondition_)[0]},
+            {0, 2, (*initialCondition_)[1]}
+        };
+    }
 
     void allocateUnknown(Circuit& circuit) override{
         if(!model_) return;
@@ -290,6 +305,7 @@ private:
 
     const Model* model_;
     double area_;
+    std::optional<std::array<double, 2>> initialCondition_;
     std::array<int, 3> internalNodes_ = {-1, -1, -1};
     std::array<std::array<double*, 3>, 3> A_ = {};
     std::array<double*, 3> rhs_ = {};

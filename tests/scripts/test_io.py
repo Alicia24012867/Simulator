@@ -315,6 +315,134 @@ def main():
             failures.append(str(exc))
 
         try:
+            def transient_initial_values(output):
+                lines = output.splitlines()
+                for index, line in enumerate(lines):
+                    header = line.split()
+                    if not header or header[0] != "Index" or "time" not in header:
+                        continue
+                    for data_line in lines[index + 1 :]:
+                        values = data_line.split()
+                        if values and values[0] == "0":
+                            return {
+                                name: float(values[position])
+                                for position, name in enumerate(header)
+                            }
+                raise RuntimeError("transient listing has no t=0 sample")
+
+            nodeset = root / "nodeset-guess.cir"
+            nodeset.write_text(
+                "Node-set remains a Newton hint\n"
+                "V1 out 0 1\n"
+                "R1 out 0 1k\n"
+                ".nodeset V(out)=5\n"
+                ".op\n"
+                ".print op v(out)\n"
+                ".end\n"
+            )
+            result = run(simulator, nodeset)
+            require(result.returncode == 0, f".nodeset netlist failed: {result.stderr}")
+            require(
+                "1.0000000000e+00" in result.stdout,
+                ".nodeset was incorrectly treated as a permanent voltage constraint",
+            )
+
+            ic_guess = root / "ic-op-guess.cir"
+            ic_guess.write_text(
+                "IC remains an OP guess without UIC\n"
+                "V1 out 0 1\n"
+                "R1 out 0 1k\n"
+                ".ic V(out)=5\n"
+                ".op\n"
+                ".print op v(out)\n"
+                ".end\n"
+            )
+            result = run(simulator, ic_guess)
+            require(result.returncode == 0, f".ic OP netlist failed: {result.stderr}")
+            require(
+                "1.0000000000e+00" in result.stdout,
+                ".ic without UIC was incorrectly treated as an OP constraint",
+            )
+
+            reactive_uic = root / "reactive-uic-ic.cir"
+            reactive_uic.write_text(
+                "UIC .ic and reactive device IC\n"
+                "V1 in 0 1\n"
+                "R1 in out 1k\n"
+                "C1 out 0 1u IC=2\n"
+                "L1 sense 0 1m IC=3m\n"
+                "R2 sense 0 1k\n"
+                ".ic V(in)=1\n"
+                ".tran 1u 2u UIC\n"
+                ".print tran time v(in) v(out) i(l1)\n"
+                ".end\n"
+            )
+            result = run(simulator, reactive_uic)
+            require(
+                result.returncode == 0,
+                f"reactive UIC initial-condition netlist failed: {result.stderr}",
+            )
+            initial = transient_initial_values(result.stdout)
+            require(
+                abs(initial["v(in)"] - 1.0) < 1e-12 and
+                abs(initial["v(out)"] - 2.0) < 1e-12 and
+                abs(initial["l1#branch"] - 3e-3) < 1e-12,
+                "UIC did not preserve .ic, capacitor IC, and inductor IC at t=0",
+            )
+
+            semiconductor_uic = root / "semiconductor-uic-ic.cir"
+            semiconductor_uic.write_text(
+                "BJT and MOS initial-condition cards\n"
+                ".model QMOD NPN IS=1e-16 BF=100\n"
+                ".model MMOD NMOS LEVEL=1 VTO=0.7 KP=100u\n"
+                "Q1 qc qb qe QMOD IC=0.7,1\n"
+                "RQC qc 0 10k\n"
+                "RQB qb 0 10k\n"
+                "RQE qe 0 10k\n"
+                "M1 md mg ms mb MMOD W=1u L=1u IC=1,2,0\n"
+                "RMD md 0 10k\n"
+                "RMG mg 0 10k\n"
+                "RMS ms 0 10k\n"
+                "RMB mb 0 10k\n"
+                ".tran 1n 1n UIC\n"
+                ".print tran time v(qc) v(qb) v(qe) v(md) v(mg) v(ms) v(mb)\n"
+                ".end\n"
+            )
+            result = run(simulator, semiconductor_uic)
+            require(
+                result.returncode == 0,
+                f"semiconductor UIC IC netlist failed: {result.stderr}",
+            )
+            initial = transient_initial_values(result.stdout)
+            require(
+                abs(initial["v(qb)"] - initial["v(qe)"] - 0.7) < 1e-12 and
+                abs(initial["v(qc)"] - initial["v(qe)"] - 1.0) < 1e-12 and
+                abs(initial["v(md)"] - initial["v(ms)"] - 1.0) < 1e-12 and
+                abs(initial["v(mg)"] - initial["v(ms)"] - 2.0) < 1e-12 and
+                abs(initial["v(mb)"] - initial["v(ms)"]) < 1e-12,
+                "UIC did not preserve BJT/MOS IC terminal voltages at t=0",
+            )
+
+            conflicting_ic = root / "conflicting-ic.cir"
+            conflicting_ic.write_text(
+                "Conflicting explicit ICs\n"
+                "R1 out 0 1k\n"
+                "C1 out 0 1u IC=1\n"
+                ".ic V(out)=2\n"
+                ".tran 1u 1u UIC\n"
+                ".end\n"
+            )
+            result = run(simulator, conflicting_ic)
+            require(result.returncode != 0, "conflicting initial conditions were accepted")
+            require(
+                "Initial-condition conflict" in result.stderr,
+                "conflicting initial-condition diagnostic is missing",
+            )
+            print("PASS .nodeset, .ic, and device UIC initial conditions")
+        except Exception as exc:
+            failures.append(str(exc))
+
+        try:
             source_stepping_case = (
                 Path(__file__).resolve().parents[1]
                 / "cases"

@@ -505,10 +505,10 @@ tests/
 
 - 不支持 `PULSE`、`SIN`、`PWL` 等时变独立源，因此瞬态阶跃测试使用 `UIC` 和固定 DC 源构造 t=0 激励。
 - 瞬态使用首步 Backward Euler 与受步长比限制的可变步长 BDF2；BDF2 使用基于三阶差商、动态器件导数残差和 MNA Jacobian 投影的严格 LTE 估计，启动阶段仍使用 BE step-doubling。严格残差目前覆盖独立 `C`、`L` 以及当前 MOS3 companion charge 模型的端点切线电容；尚未实现事件断点对齐、高于 BDF2 的积分公式，或完整半导体电荷模型的 LTE 残差。
-- `UIC` 当前把完整 MNA 解向量初始化为零；尚未支持器件 `IC=`、`.ic` 与一致初值求解。
+- `.nodeset V(node)=value` 作为 OP 的 Newton 初值提示，不会固定最终解；`.ic V(node[,reference])=value` 在 `UIC` 下构造 t=0 状态、在非 `UIC` 分析中作为较强初值提示。电容 `IC=<V>`、电感 `IC=<A>`、BJT `IC=<VBE>,<VCE>` 和 MOS `IC=<VDS>,<VGS>,<VBS>` 同样参与该初值构造；矛盾的显式电压条件会报错。当前尚未实现带器件方程约束的一致初值求解，浮动的差分 IC 会以其中一端为 0 V 的确定性规范选择表示。
 - Newton 同时检查按未知量量纲归一化的更新量和在候选解重新 stamp 后得到的非线性残差；节点电压使用电压绝对容差，branch current 使用电流绝对容差，而 KCL 残差行的量纲相反。瞬态 Newton 失败会缩小时间步并在上一个已接受状态重试。
 - PTA 已具备伪元件 stamp、BE/BDF2 伪时间推进、失败缩步，以及最小步失败时按伪系统 KCL 残差选取单个节点增容；成功步后仍按逐节点振荡降容。导数与 DC 残差判据已经归一化。当前 18 个 OP / 76 个输出值的 Force 与 Fallback 回归及一个多稳态困难锁存器构成研究测试基线，但默认容差、跨模型鲁棒性和性能结论仍需通过更广泛的困难非线性电路基准验证。因此它适合作为 PTA 算法研究的可追溯测试版，而不作为生产级 SPICE 求解保证。
-- 不支持 `.include`、`.lib`、全局 `.param`、`.temp`、`.nodeset`、`.ic`、`.save`。
+- 不支持 `.include`、`.lib`、全局 `.param`、`.temp`、`.save`。
 - 不支持受控源 `E/F/G/H`、行为源、AC/noise 分析。
 - 二极管、BJT 和 MOSFET 仍是有限子集。MOS3 已实现 DC channel current、`RD`/`RS`、`RSH*NRD/NRS`、B-D′/B-S′ 结电流及其耗尽结电容、`CGSO`/`CGDO`/`CGBO` 重叠电容，以及带已接受 Qgs/Qgd/Qgb 和结电荷历史的瞬态 companion；含 MOS3 的 UIC 使用 BE step-doubling。器件温度尚未实现。
 - 电阻、电容、二极管、BJT、MOSFET 的器件电流尚不能通过 `.print i(...)` 输出。

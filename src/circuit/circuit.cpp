@@ -127,6 +127,11 @@ int Circuit::allocateUnknown(){
 }
 
 bool Circuit::build(const PtaAnalysisConfig& config){
+    hasOperatingPointInitialGuess_ = false;
+    hasUicInitialSolution_ = false;
+    operatingPointInitialGuess_.resize(0);
+    uicInitialSolution_.resize(0);
+
     nodeMap_->build(devices_);
 
     for(auto& device: devices_){

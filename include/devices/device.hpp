@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <optional>
 #include <vector>
 
 #include <Eigen/Core>
@@ -57,6 +58,12 @@ struct TransientStampContext;
 struct TransientLteContext;
 class Device{
 public:
+    struct InitialVoltageConstraint {
+        std::size_t positiveTerminal = 0;
+        std::size_t negativeTerminal = 0;
+        double voltage = 0.0;
+    };
+
     Device(std::string n, std::vector<std::string> ns, DeviceType t): name(n), nodes(ns), type(t){}
     virtual ~Device() = default;
 
@@ -115,6 +122,18 @@ public:
     virtual void setOperatingPointSourceScale(double) {}
 
     virtual void initializeTransientHistory(const Eigen::VectorXd&) {}
+
+    // Initial device states are expressed as terminal-voltage constraints or
+    // a current in the device's branch unknown.  Circuit resolves the former
+    // together with .ic cards and uses the latter for UIC history.
+    virtual std::vector<InitialVoltageConstraint>
+    initialVoltageConstraints() const {
+        return {};
+    }
+
+    virtual std::optional<double> initialBranchCurrent() const {
+        return std::nullopt;
+    }
 
     virtual void acceptTransientSolution(const Eigen::VectorXd&,
                                          const Eigen::VectorXd&) {}

@@ -1,16 +1,27 @@
 #pragma once
 
 #include <cassert>
+#include <optional>
 
 #include "analysis/transient_analysis.hpp"
 #include "devices/device.hpp"
 
 class Capacitor: public Device{
 public:
-    Capacitor(std::string name, std::vector<std::string> nodes, double C):
-            Device(name, nodes, DeviceType::Capacitor), capacitance_(C) {
+    Capacitor(std::string name, std::vector<std::string> nodes, double C,
+              std::optional<double> initialVoltage = std::nullopt):
+            Device(name, nodes, DeviceType::Capacitor), capacitance_(C),
+            initialVoltage_(initialVoltage) {
                 assert(C > 0.0);
             }
+
+    std::vector<InitialVoltageConstraint>
+    initialVoltageConstraints() const override{
+        if(!initialVoltage_){
+            return {};
+        }
+        return {{0, 1, *initialVoltage_}};
+    }
 
     void pattern(MNA& mna) override{
         const int p = nodeIds[0];
@@ -82,6 +93,7 @@ public:
 
 private:
     double capacitance_;
+    std::optional<double> initialVoltage_;
 
     double* aPp_ = nullptr;
     double* aPn_ = nullptr;

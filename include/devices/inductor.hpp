@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cassert>
+#include <optional>
 
 #include "analysis/transient_analysis.hpp"
 #include "circuit/circuit.hpp"
@@ -10,10 +11,16 @@
 
 class Inductor: public Device{
 public:
-    Inductor(std::string name, std::vector<std::string> nodes, double L):
-                Device(name, nodes, DeviceType::Inductor), inductance_(L) {
+    Inductor(std::string name, std::vector<std::string> nodes, double L,
+             std::optional<double> initialCurrent = std::nullopt):
+                Device(name, nodes, DeviceType::Inductor), inductance_(L),
+                initialCurrent_(initialCurrent) {
                     assert(L > 0.0);
                 }
+
+    std::optional<double> initialBranchCurrent() const override{
+        return initialCurrent_;
+    }
 
     void allocateUnknown(Circuit& circuit) override{
         branch = circuit.allocateUnknown();
@@ -86,6 +93,7 @@ public:
 
 private:
     double inductance_;
+    std::optional<double> initialCurrent_;
 
     double* posBranch = nullptr;
     double* negBranch = nullptr;
