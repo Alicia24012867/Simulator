@@ -1,6 +1,6 @@
 # SPICE-like Circuit Simulator
 
-这是一个基于 C++17 和 Eigen 的类 SPICE 电路仿真器。目前支持 DC operating point、基础 transient analysis 最小闭环，以及实验性的 pseudo-transient analysis (PTA) 路径，使用稀疏 MNA、SparseLU、Newton 迭代、步长限制和 source stepping 完成求解。瞬态分析首个积分步采用 Backward Euler，后续在步长增长不超过前一步两倍时采用可变步长 BDF2。这里的 TRAN 是可运行的 MVP，不等同于完整 SPICE 瞬态引擎。
+这是一个基于 C++17 和 Eigen 的类 SPICE 电路仿真器。目前支持 DC operating point、基础 transient analysis 最小闭环，以及实验性的 pseudo-transient analysis (PTA) 路径，使用稀疏 MNA、SparseLU、Newton 迭代、步长限制和 source stepping 完成求解。瞬态分析以 Backward Euler 启动，并在具备足够已接受历史后采用可变步长 BDF2；BDF2 步使用严格的局部截断误差（LTE）估计控制步长。这里的 TRAN 是可运行的 MVP，不等同于完整 SPICE 瞬态引擎。
 
 本项目实现的是明确受限的 SPICE 子集，并非完整 ngspice 替代品。I/O 层遵循常见 SPICE netlist、`.print` listing 和 ASCII rawfile 约定，未支持的控制卡或输出表达式会直接报错，不会静默忽略。
 
@@ -84,7 +84,7 @@
 - `.option DELMAX=value`（也接受 `.options`）是 HSPICE 兼容的内部时间步长硬上限，数值接受 SPICE 后缀。ngspice 的标准、可移植写法是 `.tran` 的第四个 `TMAX` 参数；两者同时出现时取更小者，确保每个内部积分步都不超过任一上限。该限制也应用于 `.pstran` 的伪时间步，且不改变 `.op`。ngspice 当前可接受 `DELMAX` 这个非标准 option 名称，但不将其列为通用 `.options` 变量；本程序刻意实现其 HSPICE 语义，而非静默忽略。
 - `.pstran` 启用 PTA operating-point 求解，接受不区分大小写的 `convval`、`initstep`、`minstep`、`maxstep`、`tau`、`vbe0`、`kvgs0`、`tauramp` 参数，且可使用 `key=value`、`key = value` 或 `key= value` 写法。`convval` 映射为 PTA 的导数和 DC 残差阈值，三个 step 参数映射为 PTA 步长边界；`tau` 启用复合伪元件，`vbe0` 设置 BJT 初始结电压，`tauramp` 控制独立源斜坡。`kvgs0` 当前仅保存和校验，尚未参与求解。`.pstran` 与 `--pta` 或 `pta.mode` 同时指定时会静默保留网表的 `force` 模式。
 - `TSTEP` 控制输出间隔，`TSTART` 控制开始保存的时间，`TMAX` 限制内部积分步长。当前未指定 `TMAX` 时内部最大步长使用 `TSTEP`；输出时间点也会强制成为积分点，因此与 ngspice 的默认自适应步长策略不同。
-- 每次瞬态分析的首步使用 Backward Euler 的 step-doubling 误差估计；之后在新步长不大于前一步两倍时使用可变步长 BDF2，并以预测—校正差估计误差。超过误差预算或 Newton 未收敛的步会回滚并缩小后重试；内部积分点仍不会越过输出时间点。
+- 每次瞬态分析在 BDF2 严格 LTE 历史尚不足时使用 Backward Euler step-doubling；随后在新步长不大于前一步两倍时使用可变步长 BDF2。严格 LTE 由候选点与三个已接受状态构成的非均匀网格三阶差商给出导数缺陷，再以收敛端点的 MNA Jacobian 投影成状态误差；电压未知量使用 `voltage_absolute_tolerance`，branch-current 未知量使用 `current_absolute_tolerance`，并结合 `relative_tolerance` 归一化。BDF2 步长按三次根误差律缩放，并对增长幅度施加保守上限。超过误差预算或 Newton 未收敛的步会回滚并缩小后重试；内部积分点仍不会越过输出时间点。
 
 ### 实验性 PTA
 
@@ -370,7 +370,7 @@ tests/
 make test
 ```
 
-`make test-unit` 可单独运行瞬态/PTA 数值单元测试，`make test-core` 可单独运行命令行和 SPICE 字符串工具单元测试，`make test-config` 可单独运行配置模块单元测试和配置 CLI 端到端测试。
+`make test-unit` 可单独运行瞬态/PTA 数值单元测试（当前含 187 项检查，其中覆盖均匀与非均匀网格 BDF2 LTE 缺陷、Jacobian 投影后的误差归一化和三次根控制律），`make test-core` 可单独运行命令行和 SPICE 字符串工具单元测试，`make test-config` 可单独运行配置模块单元测试和配置 CLI 端到端测试。
 
 `make test-op` 与 `make test-tran` 会在每个网表执行后输出一条
 `TIME <analysis> <case> <milliseconds> PASS/FAIL`，并输出该分析组的总墙钟时间。单例时间覆盖 simulator 子进程启动、解析、建模、求解以及四个 artifact 写出；rawfile 校验和 ngspice 对照时间不包含在其中，便于 PTA 前后比较求解端到端开销。
@@ -406,6 +406,8 @@ make test-op
 make test-tran
 make test-netlists  # 递归解析 tests/ 下已实现器件的 .cir / .sp，不执行求解
 make test-private   # 求解 tests/private/ 并写入 tests/output/private/；复杂网表可能耗时较长
+make pta            # disabled / force / fallback 三种 PTA 路径对照 ngspice OP reference
+make test-pta-hard-op  # 多稳态 CMOS 锁存器的 PTA 分流基准
 make compare
 make compare-op
 make compare-tran
@@ -491,10 +493,10 @@ tests/
 ## 当前限制
 
 - 不支持 `PULSE`、`SIN`、`PWL` 等时变独立源，因此瞬态阶跃测试使用 `UIC` 和固定 DC 源构造 t=0 激励。
-- 瞬态使用首步 Backward Euler 与受步长比限制的可变步长 BDF2；具备基于预测—校正差/step-doubling 的误差控制和步长拒绝重试，但尚未实现严格 LTE 估计、事件断点对齐或高阶积分公式。
+- 瞬态使用首步 Backward Euler 与受步长比限制的可变步长 BDF2；BDF2 使用基于三阶差商、动态器件导数残差和 MNA Jacobian 投影的严格 LTE 估计，启动阶段仍使用 BE step-doubling。严格残差目前覆盖独立 `C`、`L` 以及当前 MOS3 companion charge 模型的端点切线电容；尚未实现事件断点对齐、高于 BDF2 的积分公式，或完整半导体电荷模型的 LTE 残差。
 - `UIC` 当前把完整 MNA 解向量初始化为零；尚未支持器件 `IC=`、`.ic` 与一致初值求解。
 - 瞬态 Newton 失败会缩小时间步并在上一个已接受状态重试；非线性收敛判据本身仍未拆分电压/电流的相对与绝对容差。
-- PTA 已具备伪元件 stamp、BE/BDF2 伪时间推进、失败缩步、最小步长后的全局增容，以及成功步后的逐节点振荡降容；导数与 DC 残差判据已经归一化，但默认容差仍需通过更广泛的困难非线性电路基准验证。
+- PTA 已具备伪元件 stamp、BE/BDF2 伪时间推进、失败缩步、最小步长后的全局增容，以及成功步后的逐节点振荡降容；导数与 DC 残差判据已经归一化。当前 18 个 OP / 76 个输出值的 Force 与 Fallback 回归及一个多稳态困难锁存器构成研究测试基线，但默认容差、跨模型鲁棒性和性能结论仍需通过更广泛的困难非线性电路基准验证。因此它适合作为 PTA 算法研究的可追溯测试版，而不作为生产级 SPICE 求解保证。
 - 不支持 `.include`、`.lib`、全局 `.param`、`.temp`、`.nodeset`、`.ic`、`.save`。
 - 不支持受控源 `E/F/G/H`、行为源、AC/noise 分析。
 - 二极管、BJT 和 MOSFET 仍是有限子集。MOS3 已实现 DC channel current、`RD`/`RS`、`RSH*NRD/NRS`、B-D′/B-S′ 结电流及其耗尽结电容、`CGSO`/`CGDO`/`CGBO` 重叠电容，以及带已接受 Qgs/Qgd/Qgb 和结电荷历史的瞬态 companion；含 MOS3 的 UIC 使用 BE step-doubling。器件温度尚未实现。
